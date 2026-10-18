@@ -1,6 +1,6 @@
 'use strict';
 
-import { resolveTfdiMd11Lights } from '../aircraft/aircraft-integrations/tfdi-md-11/lights.js';
+import { getLightingOverlayRecipe, resolveLightingOverlay } from '../aircraft/lighting-overlay.js';
 
 const { isSdkSourceType } = require('./sdk-registry') as {
   isSdkSourceType: (value: unknown) => boolean;
@@ -416,8 +416,8 @@ function resolveLightsForBroadcast({
   sourceContext: SourceOverlayContext;
 }): AnyRecord | null | undefined {
   const lightsProfile = profile?.lights;
-  if (profile?.integration?.aircraftSpecific?.adapter === 'tfdi-md-11') {
-    const lights = resolveTfdiMd11Lights(sourceContext.lvarSnapshot);
+  if (getLightingOverlayRecipe(profile?.integration?.aircraftSpecific?.adapter)) {
+    const lights = resolveLightingOverlay(sourceContext.lvarSnapshot, profile.integration.aircraftSpecific.adapter);
     return lights ? { ...baseLights, ...lights, raw: null, available: true }
       : { ...baseLights, available: false };
   }

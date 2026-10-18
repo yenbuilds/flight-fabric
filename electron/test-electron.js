@@ -1875,9 +1875,249 @@ try {
   fs.rmSync(backendStagingFixture, { recursive: true, force: true });
 }
 
+// Exercise adapter initialization using the actual release and electron-builder
+// file selection, outside the repo so its node_modules cannot hide omissions.
+const aircraftPackagingFixture = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'ff-packaged-aircraft-'));
+try {
+  resolveBackendEntry();
+  const runtimeRoot = path.join(projectRoot, 'dist', 'backend');
+  const stagedRoot = path.join(aircraftPackagingFixture, 'backend-build');
+  const resourcesRoot = path.join(aircraftPackagingFixture, 'resources');
+  const packagedRoot = path.join(resourcesRoot, 'backend');
+  const inventory = snapshotBackendRuntimeProfile(runtimeRoot, resolveProfile('user'));
+  for (const [relativePath, record] of inventory) {
+    const destination = path.join(stagedRoot, relativePath);
+    if (record === 'directory') {
+      fs.mkdirSync(destination, { recursive: true });
+    } else {
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(path.join(runtimeRoot, relativePath), destination);
+    }
+  }
+  const stagedManifestPath = path.join(stagedRoot, 'package.json');
+  fs.copyFileSync(path.join(runtimeRoot, 'package.json'), stagedManifestPath);
+  const stagedModules = path.join(stagedRoot, 'node_modules');
+  copyLockedBackendNodeModules(stagedModules, { stagedPackageJsonPath: stagedManifestPath });
+
+  const resourceMatchers = getFileMatchers(electronPkg.build, 'extraResources', resourcesRoot, {
+    defaultSrc: path.join(aircraftPackagingFixture, 'electron'),
+    customBuildOptions: electronPkg.build.win || {},
+    globalOutDir: path.join(aircraftPackagingFixture, 'dist', 'electron'),
+    macroExpander: (value) => value,
+  });
+  const backendMatcher = resourceMatchers?.find((matcher) => (
+    matcher.from === stagedRoot && matcher.to === packagedRoot
+  ));
+  if (!backendMatcher) throw new Error('Missing backend extraResources mapping.');
+  const resourceFilter = backendMatcher.createFilter();
+  fs.cpSync(stagedRoot, packagedRoot, {
+    recursive: true,
+    filter: (sourcePath) => resourceFilter(sourcePath, fs.lstatSync(sourcePath)),
+  });
+  // electron-builder excludes root node_modules; afterPack copies the locked
+  // backend tree with this production exclusion policy.
+  fs.cpSync(stagedModules, path.join(packagedRoot, 'node_modules'), {
+    recursive: true,
+    filter(sourcePath) {
+      const stat = fs.lstatSync(sourcePath);
+      return !shouldExcludeRuntimeModuleEntry({
+        name: path.basename(sourcePath),
+        isDirectory: () => stat.isDirectory(),
+        isFile: () => stat.isFile(),
+      }, path.relative(stagedModules, sourcePath));
+    },
+  });
+
+  const yamlAssets = require('../backend/aircraft/aircraft-definition-files.json');
+  const migrationBaseline = require('../tests/fixtures/aircraft-yaml-catalogue-baseline.json');
+  const { projectPreExecutionCatalogue, projectPreSurfaceCorrectionProfile, executionBaseline } = require('../tests/helpers/pre-execution-catalogue-projection');
+  test('packaging retains the complete aircraft definition manifest',
+    fs.readFileSync(path.join(packagedRoot, 'aircraft/aircraft-definition-files.json')).equals(
+      fs.readFileSync(path.join(projectRoot, 'backend/aircraft/aircraft-definition-files.json'))));
+  const yamlPath = (root, asset) => path.join(root, 'aircraft', 'aircraft-integrations', asset);
+  const restoreYaml = (asset) => fs.copyFileSync(yamlPath(stagedRoot, asset), yamlPath(packagedRoot, asset));
+  for (const asset of yamlAssets) {
+    test(
+      `packaging retains canonical current ${asset} through both release filters`,
+      fs.readFileSync(yamlPath(packagedRoot, asset), 'utf8') === JSON.stringify(
+        require('yaml').parse(fs.readFileSync(yamlPath(path.join(projectRoot, 'backend'), asset), 'utf8')),
+      ),
+    );
+  }
+  const startupProbe = `
+    const assert = require('node:assert/strict');
+    const path = require('node:path');
+    const { defaultAircraftIntegrationRegistry } = require('./aircraft/integration-engine');
+    const baseline = ${JSON.stringify(migrationBaseline)};
+    const projectPreExecutionCatalogue = ${projectPreExecutionCatalogue.toString()};
+    const projectPreSurfaceCorrectionProfile = ${projectPreSurfaceCorrectionProfile.toString()};
+    const executionBaseline = ${JSON.stringify(executionBaseline)};
+
+    const all = defaultAircraftIntegrationRegistry.list();
+    assert.equal(all.length, Object.keys(baseline.integrations).length);
+    for (const definition of all) {
+      assert.equal(require('node:crypto').createHash('sha256').update(JSON.stringify(projectPreExecutionCatalogue(definition, executionBaseline))).digest('hex'),
+        baseline.integrations[definition.id].sha256, definition.id + ' differs from the independent baseline');
+    }
+    const { listBundledProfileSources } = require('./aircraft/aircraft-profile-sources');
+    const profiles = listBundledProfileSources();
+    assert.equal(profiles.length, Object.keys(baseline.profiles).length);
+    for (const source of profiles) {
+      assert.equal(require('node:crypto').createHash('sha256').update(JSON.stringify(projectPreSurfaceCorrectionProfile(source.rawProfile, executionBaseline.requestedControls))).digest('hex'),
+        baseline.profiles[source.profileKey].rawSha256, source.profileKey + ' differs from the independent baseline');
+    }
+
+    const definitions = [
+      ['pmdg-737', 130, 187, ['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900']],
+      ['fenix-a32x', 161, 327, ['fenix-a319', 'fenix-a320', 'fenix-a321']],
+      ['fbw-a32nx', 166, 292, ['fbw-a32nx']],
+    ];
+    for (const [id, fieldCount, actionCount, profiles] of definitions) {
+      for (const profile of profiles) {
+        const adapter = defaultAircraftIntegrationRegistry.resolveForProfile('bundled/msfs/' + profile);
+        assert.equal(adapter.id, id);
+        assert.equal(Object.keys(adapter.fields).length, fieldCount);
+        assert.equal(Object.keys(adapter.actions).length, actionCount);
+        assert.deepEqual(adapter.trustedProfileKeys, profiles.map(name => 'bundled/msfs/' + name));
+        assert.equal(defaultAircraftIntegrationRegistry.resolveIntegration(id, {
+          profileKey: 'local/msfs/' + profile,
+        }), null);
+      }
+    }
+    const pmdg = defaultAircraftIntegrationRegistry.resolveForProfile('bundled/msfs/pmdg-737');
+    for (const id of [
+      'mcp.altitudeFt', 'mcp.headingDeg', 'mcp.speed', 'mcp.verticalSpeedFpm',
+      'mcp.courseCaptainDeg', 'mcp.courseFirstOfficerDeg',
+    ]) {
+      assert.equal(pmdg.fields[id].id, id);
+      assert.equal(pmdg.fields[id].sources[0].route.type, 'sdk');
+      assert(Object.isFrozen(pmdg.fields[id]));
+    }
+    for (const [id, command, fieldId] of [
+      ['mcp.ias.set', '#84134', 'mcp.speed'],
+      ['mcp.heading.set', '#84136', 'mcp.headingDeg'],
+      ['mcp.altitude.set', '#84137', 'mcp.altitudeFt'],
+    ]) {
+      const action = pmdg.actions[id];
+      assert.equal(action.id, id);
+      assert.equal(action.routes[0].transport, 'sdk');
+      assert.equal(action.routes[0].command, command);
+      assert.equal(action.routes[0].readback.fieldId, fieldId);
+      assert.equal(action.guard.retry, 'never');
+      assert(Object.isFrozen(action.routes[0]));
+    }
+    const fenix = defaultAircraftIntegrationRegistry.resolveForProfile('bundled/msfs/fenix-a320');
+    for (const [id, name] of [
+      ['speedValue', 'N_FCU_SPEED'], ['headingDeg', 'N_FCU_HEADING'],
+      ['altitudeFt', 'N_FCU_ALTITUDE'], ['verticalValue', 'N_FCU_VS'],
+      ['machMode', 'B_FCU_SPEED_MACH'], ['trkFpaMode', 'B_FCU_TRACK_FPA_MODE'],
+    ]) {
+      const field = fenix.fields['flightGuidance.' + id];
+      assert.deepEqual(field.sources[0].route, { type: 'lvar', name: 'L:' + name, unit: 'Number' });
+      assert(Object.isFrozen(field));
+    }
+    const fbw = defaultAircraftIntegrationRegistry.resolveForProfile('bundled/msfs/fbw-a32nx');
+    assert.equal(fenix.fields['lights.wing'].sources[0].route.name, 'L:S_OH_EXT_LT_WING');
+    for (const suffix of ['off', 'on']) {
+      const action = fenix.actions['lights.wing.' + suffix];
+      assert.equal(Object.hasOwn(action, 'input'), false);
+      assert.equal(Object.hasOwn(action.routes[0], 'mode'), false);
+      assert.deepEqual(action.routes.map(route => route.transport), ['mobiflight-calculator', 'lvar']);
+      assert.equal(action.routes[1].value, suffix === 'on' ? 1 : 0);
+      assert(Object.isFrozen(action.routes[0].readback));
+    }
+    for (const [id, type, name] of [
+      ['strobeMode', 'lvar', 'L:LIGHTING_STROBE_0'], ['strobeAuto', 'lvar', 'L:STROBE_0_AUTO'],
+      ['strobeActive', 'lvar', 'A:LIGHT STROBE'], ['beacon', 'simvar', 'LIGHT BEACON'],
+      ['nav', 'simvar', 'LIGHT NAV'], ['logo', 'simvar', 'LIGHT LOGO'], ['wing', 'simvar', 'LIGHT WING'],
+    ]) {
+      const field = fbw.fields['lights.' + id];
+      assert.equal(field.sources[0].route.type, type);
+      assert.equal(field.sources[0].route.name, name);
+      assert(Object.isFrozen(field));
+    }
+    const lockedYaml = require('./package.json').dependencies.yaml;
+    assert.equal(require('yaml/package.json').version, lockedYaml);
+    for (const loadedPath of Object.keys(require.cache)) {
+      const relative = path.relative(process.cwd(), loadedPath);
+      assert(relative && !relative.startsWith('..') && !path.isAbsolute(relative),
+        'Runtime dependency escaped the packaged backend: ' + loadedPath);
+    }
+  `;
+  // Keep the independently captured metadata out of the command line: its
+  // serialized size exceeds Windows' process argument limit. The probe lives
+  // inside the isolated backend, so relative imports and cache checks still
+  // cannot resolve through the repository.
+  const startupProbePath = path.join(packagedRoot, '_aircraft-catalogue-probe.cjs');
+  fs.writeFileSync(startupProbePath, startupProbe);
+  const runStartupProbe = () => spawnSync(process.execPath, [
+    '--no-global-search-paths', startupProbePath,
+  ], {
+    cwd: packagedRoot,
+    env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' },
+    encoding: 'utf8',
+    timeout: 15_000,
+    windowsHide: true,
+  });
+  const startupResult = runStartupProbe();
+  if (startupResult.status !== 0) {
+    console.error(startupResult.error || startupResult.stderr || startupResult.stdout);
+  }
+  test('packaged aircraft registry loads YAML using only locked packaged dependencies', startupResult.status === 0);
+  const expectStartupFailure = (name, matchesError) => {
+    const result = runStartupProbe();
+    const expectedFailure = result.status !== 0 && matchesError(result.stderr || '');
+    if (!expectedFailure) console.error(result.error || result.stderr || result.stdout || 'Unexpected startup success.');
+    test(name, expectedFailure);
+  };
+
+  // These corruptions exercise the complete document boundary, using the
+  // packaged parser and existing execution-contract validation.
+  for (const [label, mutate, expected] of [
+    ['unknown property', doc => { doc.integration.executeModule = './custom.js'; }, /additional properties/],
+    ['wrong aircraft identity', doc => { doc.integration.id = 'unexpected-aircraft'; }, /expected integration/],
+    ['missing independent readback', doc => { delete doc.integration.actions['mcp.ias.set'].routes[0].readback; }, /definition/],
+    ['unknown confirmation field', doc => { doc.integration.actions['mcp.ias.set'].routes[0].readback.fieldId = 'unknown.field'; }, /readback|definition/],
+  ]) {
+    const asset = 'pmdg-737.yaml';
+    const document = require('yaml').parse(fs.readFileSync(yamlPath(packagedRoot, asset), 'utf8'));
+    mutate(document);
+    fs.writeFileSync(yamlPath(packagedRoot, asset), JSON.stringify(document));
+    expectStartupFailure('packaged full definition rejects ' + label, stderr => expected.test(stderr));
+    restoreYaml(asset);
+  }
+  fs.writeFileSync(yamlPath(packagedRoot, 'pmdg-737.yaml'),
+    fs.readFileSync(yamlPath(path.join(projectRoot, 'backend'), 'pmdg-737.yaml'), 'utf8') + '\nschemaVersion: 1\n');
+  expectStartupFailure('packaged full definition rejects duplicate YAML keys', stderr => /unique|duplicate/i.test(stderr));
+  restoreYaml('pmdg-737.yaml');
+  for (const asset of yamlAssets) {
+    fs.unlinkSync(yamlPath(packagedRoot, asset));
+    expectStartupFailure(
+      `packaged adapter startup fails clearly without ${asset}`,
+      (stderr) => stderr.includes(path.basename(asset))
+        && (/Invalid aircraft .*ENOENT/s.test(stderr) || stderr.includes('Missing aircraft definition')),
+    );
+    restoreYaml(asset);
+  }
+  fs.copyFileSync(yamlPath(path.join(projectRoot, 'backend'), 'pmdg-737.yaml'), yamlPath(packagedRoot, 'pmdg-737.yaml'));
+  fs.renameSync(
+    path.join(packagedRoot, 'node_modules', 'yaml'),
+    path.join(aircraftPackagingFixture, 'withheld-yaml'),
+  );
+  expectStartupFailure(
+    'packaged adapter startup cannot fall back to the repository YAML dependency',
+    (stderr) => /Cannot find module 'yaml'/.test(stderr),
+  );
+} catch (err) {
+  console.error(err);
+  test('packaged aircraft mapping fixture completes', false);
+} finally {
+  fs.rmSync(aircraftPackagingFixture, { recursive: true, force: true });
+}
+
 // Load the aircraft execution dependency graph from the actual release and
 // electron-builder selections, outside the repo and without global resolution.
-const aircraftExecutionPackagingFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-packaged-aircraft-execution-'));
+const aircraftExecutionPackagingFixture = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'ff-packaged-aircraft-execution-'));
 try {
   // The build validates source paths before selecting compiled runtime files.
   // A loadable fixture alone must not hide a profile that fails that first step.
@@ -1934,16 +2174,30 @@ try {
     },
   });
   const runtimeModules = [
+    ['aircraft/integration-engine/index.js', ['createAircraftIntegrationRegistry']],
+    ['aircraft/integration-engine/registry.js', ['createAircraftIntegrationRegistry', 'defineAircraftIntegration']],
+    ['aircraft/integration-engine/definition-yaml.js', ['loadYamlDocument', 'readBundledDefinitionBytes']],
+    ['aircraft/integration-engine/integration-yaml.js', ['loadAircraftIntegrationDefinition']],
+    ['aircraft/integration-engine/action-definition-schema.js', []],
+    ['aircraft/integration-engine/field-definition-schema.js', []],
+    ['aircraft/integration-engine/catalogue-schema.js', ['buildIntegrationCatalogue']],
+    ['aircraft/integration-engine/cockpit-lighting-schema.js', ['hasValidCockpitLightingGroups']],
+    ['aircraft/aircraft-definition-catalogue.js', ['readAircraftDefinitionFiles']],
+    ['aircraft/com-radio-contract.js', ['comRadioOperations']],
+    ['aircraft/cockpit-lighting.js', ['cockpitLightingGroups']],
     ['aircraft/barometer-contract.js', ['baroSides']],
     ['aircraft/barometer-execution.js', ['resolveBarometerExecution']],
-    ['aircraft/aircraft-integrations/fbw-a32nx/baro-control.js', ['captureBaroState', 'executeBaroTransaction']],
-    ['aircraft/aircraft-integrations/fenix-a32x/baro-control.js', ['captureFenixBaroState', 'executeFenixBaroTransaction']],
-    ['aircraft/aircraft-integrations/fbw-a380x/baro-control.js', ['captureA380BaroState', 'executeA380BaroTransaction']],
+    ['aircraft/conditional-write-execution.js', ['captureConditionalWriteState', 'executeConditionalWrites']],
+    ['aircraft/staged-control-contract.js', ['hasValidStagedControl']],
+    ['aircraft/staged-control-execution.js', ['captureStagedControlState', 'executeStagedControl']],
     ['aircraft/minimums-execution.js', ['resolveMinimumsExecution']],
-    ['aircraft/aircraft-integrations/fbw-a32nx/minimums-control.js', ['readMinimumsPage', 'executeA32nxMinimums']],
+    ['aircraft/guarded-display-entry-contract.js', ['hasValidGuardedDisplayEntryRecipe']],
+    ['aircraft/guarded-display-entry.js', ['readDisplayEntryPage', 'executeGuardedDisplayEntry']],
     ['aircraft/aircraft-control-policy.js', ['resolveProfileKeyEventPolicy', 'getAircraftReadbackFailureHint']],
-    ['aircraft/aircraft-integrations/inibuilds-tristar/key-event-policy.js', ['getTriStarKeyEventPolicy']],
-    ['aircraft/aircraft-integrations/pmdg-777/control-feedback.js', ['getPmdg777ReadbackFailureHint']],
+    ['aircraft/integration-behavior.js', ['assertIntegrationBehavior']],
+    ['aircraft/lighting-overlay.js', ['getLightingOverlayRecipe', 'resolveLightingOverlay']],
+    ['aircraft/flight-guidance-projection.js', ['createFlightGuidanceProjection']],
+    ['aircraft/aircraft-timeline-projections.js', ['createAircraftTimelineProjectionRegistry']],
   ];
   for (const [relativePath] of runtimeModules) {
     test(
@@ -1963,6 +2217,9 @@ try {
       !fs.existsSync(path.join(packagedRoot, 'telemetry-provider', retired)),
     );
   }
+  test('packaged aircraft definition directory contains YAML data only',
+    fs.readdirSync(path.join(packagedRoot, 'aircraft/aircraft-integrations'), { withFileTypes: true })
+      .every(entry => entry.isFile() && entry.name.endsWith('.yaml')));
   const lockedWebSocketVersion = JSON.parse(
     fs.readFileSync(path.join(projectRoot, 'backend', 'package-lock.json'), 'utf8'),
   ).packages['node_modules/ws'].version;
@@ -1977,7 +2234,7 @@ try {
       const loaded = require('./' + relativePath);
       for (const name of exports) assert.equal(typeof loaded[name], 'function', relativePath + ': ' + name);
     }
-    const { defaultAircraftIntegrationRegistry } = require('./aircraft/aircraft-integrations');
+    const { defaultAircraftIntegrationRegistry } = require('./aircraft/integration-engine');
     const { resolveBarometerExecution } = require('./aircraft/barometer-execution');
     for (const [profile, adapterId, calculator] of [
       ['fbw-a32nx', 'fbw-a32nx', false],
@@ -2023,8 +2280,10 @@ try {
         'Runtime dependency escaped the packaged backend: ' + loadedPath);
     }
   `;
+  const startupProbePath = path.join(packagedRoot, '_aircraft-execution-probe.cjs');
+  fs.writeFileSync(startupProbePath, startupProbe);
   const runStartupProbe = () => spawnSync(process.execPath, [
-    '--no-global-search-paths', '-e', startupProbe,
+    '--no-global-search-paths', startupProbePath,
   ], {
     cwd: packagedRoot,
     env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' },
@@ -2042,8 +2301,11 @@ try {
     fs.unlinkSync(packagedPath);
     try {
       const result = runStartupProbe();
-      const expectedFailure = result.status !== 0 && /Cannot find module/.test(result.stderr || '')
-        && (result.stderr || '').includes(path.basename(relativePath));
+      const missingModule = (result.stderr || '').match(/Cannot find module '([^']+)'/)?.[1];
+      // CommonJS imports may omit .js; require must still name the exact module
+      // deliberately withheld, not an unrelated missing transitive dependency.
+      const expectedFailure = result.status !== 0 && missingModule !== undefined
+        && path.basename(missingModule, '.js') === path.basename(relativePath, '.js');
       if (!expectedFailure) console.error(result.error || result.stderr || result.stdout);
       test(`packaged aircraft execution startup fails when ${relativePath} is missing`, expectedFailure);
     } finally {
@@ -2321,6 +2583,20 @@ const runtimeFileEntry = (name) => ({
   isDirectory: () => false,
   isFile: () => true,
 });
+const runtimeDirectoryEntry = (name) => ({
+  name,
+  isDirectory: () => true,
+  isFile: () => false,
+});
+test(
+  'afterPack preserves the YAML Document implementation without admitting package documentation',
+  !shouldExcludeRuntimeModuleEntry(runtimeDirectoryEntry('doc'), path.join('yaml', 'dist', 'doc')) &&
+    shouldExcludeRuntimeModuleEntry(runtimeDirectoryEntry('doc'), 'yaml/doc') &&
+    shouldExcludeRuntimeModuleEntry(runtimeDirectoryEntry('docs'), 'yaml/dist/docs') &&
+    shouldExcludeRuntimeModuleEntry(runtimeDirectoryEntry('doc'), 'another-package/dist/doc') &&
+    shouldExcludeRuntimeModuleEntry(runtimeDirectoryEntry('doc')) &&
+    shouldExcludeRuntimeModuleEntry(runtimeFileEntry('Document.d.ts'), 'yaml/dist/doc/Document.d.ts'),
+);
 test(
   'dependency legal exception cannot preserve test or TypeScript source files',
   shouldExcludeRuntimeModuleEntry(runtimeFileEntry('LICENSE.test.js')) &&

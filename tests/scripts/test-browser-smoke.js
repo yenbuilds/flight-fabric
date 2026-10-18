@@ -193,6 +193,8 @@ function closeServer(server) {
 function buildFixtureSettings() {
   return sharedSettings.normalizeAppSettings({
     aircraft: { profile: 'auto' },
+    // This smoke covers normal app workflows after the separately tested setup.
+    onboarding: { completed: true },
     cabinAnnouncements: {
       enabled: true,
       style: 'standard',
@@ -395,7 +397,7 @@ function createFixtureState() {
     storage: {
       appDataDir: 'C:/Fixture/AppData/Roaming/Flight Fabric',
       settingsFile: 'C:/Fixture/AppData/Roaming/Flight Fabric/Settings/settings.json',
-      bundledAircraftProfilesDir: 'C:/Fixture/App/resources/backend/aircraft/profiles/bundled',
+      bundledAircraftProfilesDir: 'C:/Fixture/App/resources/backend/aircraft/aircraft-integrations',
       cabinAnnouncementAudioDir: 'C:/Fixture/AppData/Roaming/Flight Fabric/Audio/Cabin',
       themesDir: 'C:/Fixture/AppData/Roaming/Flight Fabric/Themes',
       flightLogsDir: 'C:/Fixture/AppData/Roaming/Flight Fabric/FlightLogs',

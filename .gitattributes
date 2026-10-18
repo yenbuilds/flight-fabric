@@ -1,6 +1,13 @@
 electron/resources/voice/hotwords.txt text eol=lf
 electron/resources/voice/bpe.vocab text eol=lf
 .husky/* text eol=lf
+# Generated SVGs are verified byte-for-byte against the canonical generator.
+readme-assets/flightfabric-logo.svg text eol=lf
+frontend/assets/app-mark.svg text eol=lf
+electron/launcher/icon.svg text eol=lf
+electron/taskbar-icon.svg text eol=lf
+frontend/icons/icon-192.svg text eol=lf
+frontend/icons/icon-512.svg text eol=lf
 # MSFS layout.json records exact payload byte sizes across every checkout.
 msfs-toolbar-panel/package/**/*.js text eol=lf
 msfs-toolbar-panel/package/**/*.css text eol=lf

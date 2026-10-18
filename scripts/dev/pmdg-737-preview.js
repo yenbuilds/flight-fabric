@@ -3,10 +3,9 @@
 
 const fs = require('fs');
 const http = require('http');
-const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
-const ts = require('typescript');
+const { loadTypeScriptCommonJs } = require('../typescript-source-loader');
 const { WebSocketServer } = require('ws');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -173,43 +172,20 @@ function log(message) {
   process.stdout.write(`[pmdg-737-preview] ${message}\n`);
 }
 
-function loadTypeScriptCommonJs(filePath) {
-  const source = fs.readFileSync(filePath, 'utf8');
-  const output = ts.transpileModule(source, {
-    fileName: filePath,
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-      esModuleInterop: true,
-    },
-  }).outputText;
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-pmdg-preview-contract-'));
-  const compiledPath = path.join(tempDir, `${path.basename(filePath, '.ts')}.cjs`);
-  try {
-    fs.writeFileSync(compiledPath, output, { encoding: 'utf8', flag: 'wx' });
-    const resolvedPath = require.resolve(compiledPath);
-    const moduleExports = require(resolvedPath);
-    delete require.cache[resolvedPath];
-    return moduleExports;
-  } finally {
-    fs.rmSync(tempDir, { force: true, recursive: true });
-  }
-}
-
 function loadPmdgContracts(rootDir = ROOT) {
   const integrationRoot = path.join(
     rootDir,
     'backend',
     'aircraft',
     'aircraft-integrations',
-    'pmdg-737',
   );
-  const { PMDG_737_ACTIONS } = loadTypeScriptCommonJs(path.join(integrationRoot, 'actions.ts'));
-  const { PMDG_737_FIELDS } = loadTypeScriptCommonJs(path.join(integrationRoot, 'fields.ts'));
-  if (!PMDG_737_ACTIONS || !PMDG_737_FIELDS) {
-    throw new Error('Unable to load the PMDG 737 field/action contracts.');
-  }
-  return { actions: PMDG_737_ACTIONS, fields: PMDG_737_FIELDS };
+  // Cache only within this contract load: restarting a fixture must pick up
+  // current YAML and source modules without polluting Node's require cache.
+  const modules = new Map();
+  const { loadAircraftIntegrationDefinition } = loadTypeScriptCommonJs(
+    path.join(integrationRoot, '..', 'integration-engine', 'integration-yaml.ts'), modules);
+  const definition = loadAircraftIntegrationDefinition(path.join(integrationRoot, 'pmdg-737.yaml'), 'pmdg-737');
+  return { actions: definition.actions, fields: definition.fields };
 }
 
 function defaultValueForField(field) {

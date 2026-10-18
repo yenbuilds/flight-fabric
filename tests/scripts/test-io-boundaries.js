@@ -15,8 +15,19 @@ const RUST_ROOT = path.join(BACKEND_ROOT, 'telemetry-provider', 'rust-simconnect
 // A new file, primitive, or call site fails until this manifest is consciously
 // reviewed and updated alongside its boundary tests.
 const EXPECTED_FS_BOUNDARIES = [
-  ['backend/aircraft/aircraft-profile-loader.ts', 'release-owned-content', 'existsSync=5,lstatSync=1,readFileSync=2,readdirSync=3,statSync=1'],
-  ['backend/aircraft/aircraft-profile-registry.ts', 'release-owned-content', 'existsSync=1,readFileSync=4,readdirSync=1'],
+  // Bundled YAML and its file manifest share a regular-file/size check before
+  // allocation, bounded descriptor reads, changed-size rejection and finally-close.
+  // Limits remain 64 KiB default / 2 MiB definition / 32 KiB filename manifest.
+  // No writes or fallback. Loader tests cover missing/invalid/oversized assets;
+  // Electron startup tests check the actual packaged asset/dependency selection.
+  ['backend/aircraft/integration-engine/definition-yaml.ts', 'release-owned-content', 'closeSync=1,fstatSync=2,lstatSync=1,openSync=1,readSync=1'],
+  // Profile documents now share the bounded YAML parser above. The source index
+  // reads a fixed 32 KiB filename manifest, rejects missing/unlisted/non-file
+  // definitions and caches only validated release-owned data. No profile writes.
+  // Loader retains bounded aircraft.cfg identity reads; registry reads its schema.
+  ['backend/aircraft/aircraft-profile-loader.ts', 'release-owned-content', 'existsSync=1,readFileSync=1,statSync=1'],
+  ['backend/aircraft/aircraft-profile-registry.ts', 'release-owned-content', 'readFileSync=2'],
+  ['backend/aircraft/aircraft-definition-catalogue.ts', 'release-owned-content', 'existsSync=1,lstatSync=1,readdirSync=1'],
   // Read-only installed aircraft sources: bounded handles, total bytes, package
   // enumeration and graph traversal; realpath containment and VFS ambiguity
   // are covered by aircraft-config.test.ts. No simulator package writes.

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { formatBytes } from '../../utils/formatting.js';
 import { RELEASE_WARNING, formatReleaseVersion } from '../../app/version-labels.js';
 import {
   getBrowserStorage,
@@ -131,6 +132,7 @@ function getDefaultVreSampling() {
 function getDefaultRecording() {
   return {
     status: 'stopped',
+    sizeBytes: null,
     outputDir: '',
     filePath: '',
     fileName: '',
@@ -361,39 +363,41 @@ export const useStatusStore = defineStore('status', {
     recordingFailed: (state) => state.recording.status === 'failed' || state.recording.status === 'error',
     recordingFinalizing: (state) => state.recording.status === 'finalizing',
     recordingBadgeLabel() {
-      if (this.recordingFinalizing) return 'SAVE';
-      return this.recordingFailed ? 'NO REC' : 'REC';
+      if (this.recordingFinalizing) return 'Saving flight…';
+      return this.recordingFailed ? 'Flight recording failed' : 'Flight REC';
+    },
+    recordingSizeLabel: (state) => Number.isSafeInteger(state.recording.sizeBytes) && state.recording.sizeBytes >= 0
+      ? formatBytes(state.recording.sizeBytes) : '',
+    recordingAccessibleLabel() {
+      return [this.recordingTitle, this.recording.status === 'recording' && this.recordingSizeLabel, 'Open recording details'].filter(Boolean).join('. ');
     },
     recordingTitle() {
-      if (this.recordingFinalizing) return 'Finalizing Flight Log';
-      return this.recordingFailed ? 'Recording Failed' : 'Recording Flight Log';
+      if (this.recordingFinalizing) return 'Saving flight recording';
+      return this.recordingFailed ? 'Flight recording failed' : 'Recording flight data';
     },
     recordingDetail: (state) => {
       if (state.recording.status === 'failed' || state.recording.status === 'error') {
         return state.recording.error || 'Unable to save flight log';
       }
-      if (state.recording.status === 'finalizing') {
-        return state.recording.fileName || 'Saving recorded flight...';
-      }
-      return state.recording.fileName || state.recording.outputDir || state.recording.filePath || 'Documents/Flight Fabric/Flight Logs';
+      return state.recording.outputDir || state.recording.filePath || state.recording.fileName;
     },
     recordingPillToneClass() {
-      if (this.recordingFinalizing) return 'bg-sky-500/20 border-sky-500/40';
+      if (this.recordingFinalizing) return 'bg-primary/10 border-primary/40';
       return this.recordingFailed
-        ? 'bg-amber-500/20 border-amber-500/40'
-        : 'bg-red-500/15 border-red-500/40';
+        ? 'bg-warning/15 border-warning/40'
+        : 'bg-danger/10 border-danger/40';
     },
     recordingDotToneClass() {
-      if (this.recordingFinalizing) return 'bg-sky-400';
-      return this.recordingFailed ? 'bg-amber-500' : 'bg-red-500';
+      if (this.recordingFinalizing) return 'bg-primary';
+      return this.recordingFailed ? 'bg-warning' : 'bg-danger';
     },
     recordingLabelToneClass() {
-      if (this.recordingFinalizing) return 'text-sky-300';
-      return this.recordingFailed ? 'text-amber-400' : 'text-red-400';
+      if (this.recordingFinalizing) return 'text-primary';
+      return this.recordingFailed ? 'text-warning' : 'text-fg';
     },
     recordingTitleToneClass() {
-      if (this.recordingFinalizing) return 'text-sky-300';
-      return this.recordingFailed ? 'text-amber-400' : 'text-red-400';
+      if (this.recordingFinalizing) return 'text-primary';
+      return this.recordingFailed ? 'text-warning' : 'text-fg';
     },
     surfaceVisible: (state) => state.surface.onGround === true,
     surfaceLabel: (state) => state.surface.name || 'UNKNOWN',
@@ -647,6 +651,8 @@ export const useStatusStore = defineStore('status', {
 
       this.recording = {
         status,
+        sizeBytes: typeof message.sizeBytes === 'number' && Number.isSafeInteger(message.sizeBytes) && message.sizeBytes >= 0
+          ? message.sizeBytes : null,
         outputDir: typeof message.outputDir === 'string' ? message.outputDir : '',
         filePath: typeof message.filePath === 'string' ? message.filePath : '',
         fileName: typeof message.fileName === 'string' ? message.fileName : '',

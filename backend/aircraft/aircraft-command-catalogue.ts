@@ -2,9 +2,9 @@
 
 import { normalizeComFrequencyMhz } from '../utils/radio-frequency.js';
 import { encodeSquawkBco16 } from '../utils/transponder-code.js';
-import { MINIMUMS_INPUTS } from './aircraft-integrations/fbw-a32nx/minimums.js';
+const { defaultAircraftIntegrationRegistry } = require('./integration-engine');
 import { BARO_INPUTS } from './barometer-contract.js';
-import { cockpitLightingGroups } from './aircraft-integrations/cockpit-lighting.js';
+import { cockpitLightingGroups } from './cockpit-lighting.js';
 import { aircraftParityBindings, PARITY_COMMAND_DEFINITIONS } from './aircraft-command-parity.js';
 
 type GenericRecord = Record<string, any>;
@@ -85,13 +85,23 @@ export type NormalizedAircraftCommandRequest = Readonly<{
 const NONE_INPUT = Object.freeze({ kind: 'none' } as const);
 const BOOLEAN_INPUT = Object.freeze({ kind: 'boolean' } as const);
 
+// The catalogue presents the authored command range; the active integration
+// still validates its own input immediately before executing the recipe.
+function minimumsInput(target: 'baro' | 'radio'): AircraftCommandInput {
+  const actionId = `approach.minimums.${target}`;
+  const input = defaultAircraftIntegrationRegistry.list()
+    .map(definition => definition.actions[actionId]?.input).find(Boolean);
+  if (!input) throw new Error(`Missing authored input for ${actionId}`);
+  return { kind: 'number', min: input.min, max: input.max, step: input.step, units: 'feet' };
+}
+
 const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefinition>> = Object.freeze(
   Object.fromEntries(([
     ...PARITY_COMMAND_DEFINITIONS,
     ...(['baro', 'radio'] as const).map((target): AircraftCommandDefinition => ({
       id: `approach.minimums.${target}`, label: `${target.toUpperCase()} minimums`, group: 'approach',
       description: 'Requires local FlyByWire SimBridge and active PERF APPR on the captain MCDU with an empty scratchpad. The MCDU clears the other minimums type.',
-      input: { kind: 'number', min: MINIMUMS_INPUTS[target].min, max: MINIMUMS_INPUTS[target].max, step: 1, units: 'feet' },
+      input: minimumsInput(target),
       speech: { patterns: [`set ${target} minimums {value}`, `${target} minimums {value}`, `set ${target} minimums to {value}`, `captain ${target} minimums {value}`], hints: [`${target.toUpperCase()} MINIMUMS`] },
     })),
     { id: 'surveillance.squawk.set', label: 'Squawk', group: 'surveillance',
@@ -296,6 +306,16 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       input: NONE_INPUT,
       speech: { patterns: ['engage heading hold', 'heading hold'], hints: ['HEADING HOLD'] },
     },
+    ...[
+      ['autoflight', 'AUTOFLIGHT', ['autoflight', 'auto flight', 'press autoflight']],
+      ['fmsSpeed', 'FMS speed', ['fms speed', 'f m s speed', 'press fms speed']],
+      ['navigation', 'NAV', ['nav mode', 'press nav', 'engage nav']],
+      ['profile', 'PROF', ['prof', 'profile mode', 'press prof']],
+    ].map(([name, label, patterns]): AircraftCommandDefinition => ({
+      id: `flightGuidance.${name}.request`, label: String(label), group: 'flightGuidance', input: NONE_INPUT,
+      description: 'Presses the cockpit mode button once. Check the FMA for arming or engagement before repeating.',
+      speech: { patterns: patterns as string[], hints: [String(label).toUpperCase()] },
+    })),
     {
       id: 'flightGuidance.headingReference.set',
       label: 'Heading reference',
@@ -510,6 +530,19 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
           'set otto brake {value}', 'otto brake {value}',
         ],
         hints: ['AUTOBRAKE', 'R T O'],
+      },
+    },
+    {
+      id: 'surfaces.autobrakeArmed.set', label: 'Landing autobrake armed', group: 'surfaces',
+      description: 'Arm or disarm landing autobrake. Configure the arrival runway and BTV exit in the cockpit first.',
+      input: BOOLEAN_INPUT,
+      speech: {
+        patterns: ['landing autobrake {value}', 'arm autobrake', 'disarm autobrake', 'arm btv', 'disarm btv'],
+        fixedInputs: {
+          'arm autobrake': { value: true }, 'disarm autobrake': { value: false },
+          'arm btv': { value: true }, 'disarm btv': { value: false },
+        },
+        hints: ['LANDING AUTOBRAKE', 'B T V'],
       },
     },
     {
@@ -1209,6 +1242,9 @@ const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Ob
 const INIBUILDS_A380_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'inibuilds-a380',
   bindings: Object.freeze([
+    choice('surfaces.gear.set', {
+      up: aircraftAction('controls.gear.up'), down: aircraftAction('controls.gear.down'),
+    }),
     ...([
       ['speed', 100, 350, 1, 'knots'], ['heading', 0, 359, 1, 'degrees'],
       ['altitude', 100, 49000, 100, 'feet'], ['verticalSpeed', -6000, 6000, 100, 'feet-per-minute'],
@@ -1256,6 +1292,16 @@ const INIBUILDS_A380_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguratio
 const INIBUILDS_A350_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'inibuilds-a350',
   bindings: Object.freeze([
+    choice('surfaces.flaps.set', {
+      up: { ...aircraftAction('controls.flaps.set'), value: 0 },
+      1: { ...aircraftAction('controls.flaps.set'), value: 25 },
+      2: { ...aircraftAction('controls.flaps.set'), value: 50 },
+      3: { ...aircraftAction('controls.flaps.set'), value: 75 },
+      full: { ...aircraftAction('controls.flaps.set'), value: 100 },
+    }, { kind: 'enum', values: ['up', '1', '2', '3', 'full'] }),
+    choice('surfaces.autobrakeArmed.set', {
+      false: aircraftAction('controls.autobrake.disarm'), true: aircraftAction('controls.autobrake.arm'),
+    }, BOOLEAN_INPUT),
     apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on'),
     input(
       'flightGuidance.speed.set',
@@ -1538,6 +1584,10 @@ const FBW_A32NX_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = O
 const FENIX_A32X_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Object.freeze({
   id: 'fenix-a32x',
   bindings: Object.freeze([
+    choice('surfaces.gear.set', {
+      up: { control: 'gear', operation: 'up' },
+      down: { control: 'gear', operation: 'down' },
+    }),
     apuStartPreset('systems.apuStart.start', 'systems.apuMaster.on', FBW_APU_OBSERVATIONS, 3),
     ...([
       ['mach', 0.4, 0.99, 0.01, 'mach'],
@@ -1839,6 +1889,40 @@ const md11LightStep = (label: string, actionId: string, value?: number): LightSt
 
 const TFDI_MD11_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = {
   id: 'tfdi-md-11', bindings: [
+    choice('surfaces.flaps.set', {
+      up: { ...aircraftAction('controls.flaps.set'), value: 0 },
+      '0': { ...aircraftAction('controls.flaps.set'), value: 1 },
+      takeoff: { ...aircraftAction('controls.flaps.set'), value: 2 },
+      '28': { ...aircraftAction('controls.flaps.set'), value: 3 },
+      '35': { ...aircraftAction('controls.flaps.set'), value: 4 },
+      '50': { ...aircraftAction('controls.flaps.set'), value: 5 },
+    }, { kind: 'enum', values: ['up', '0', 'takeoff', '28', '35', '50'] }),
+    choice('surfaces.spoilersArmed.set', {
+      false: aircraftAction('controls.spoilers.disarm'), true: aircraftAction('controls.spoilers.arm'),
+    }, BOOLEAN_INPUT),
+    {
+      commandId: 'surfaces.spoilers.set', kind: 'choice-sequence',
+      description: 'Disarm automatic spoilers, then select the manual handle position.',
+      input: { kind: 'enum', values: ['retracted', 'one-third', 'two-thirds', 'full'] },
+      choices: Object.fromEntries(['retracted', 'one-third', 'two-thirds', 'full'].map((name, value) => [name, [
+        { label: 'Disarm automatic spoilers', request: aircraftAction('controls.spoilers.disarm'), settleMs: 400 },
+        { label: `Spoilers ${name}`, request: { ...aircraftAction('controls.spoilers.set'), value } },
+      ]])),
+    },
+    choice('surfaces.autobrake.set', {
+      rto: { ...aircraftAction('controls.autobrake.set'), value: 0 },
+      off: { ...aircraftAction('controls.autobrake.set'), value: 1 },
+      min: { ...aircraftAction('controls.autobrake.set'), value: 2 },
+      med: { ...aircraftAction('controls.autobrake.set'), value: 3 },
+      max: { ...aircraftAction('controls.autobrake.set'), value: 4 },
+    }, { kind: 'enum', values: ['rto', 'off', 'min', 'med', 'max'] }),
+    ...['autoflight', 'fmsSpeed', 'navigation', 'profile'].map(name =>
+      fixed(`flightGuidance.${name}.request`, aircraftAction(`flightGuidance.${name}.request`))),
+    fixed('flightGuidance.approach.engage', aircraftAction('flightGuidance.approach.request')),
+    choice('surfaces.gear.set', {
+      up: { control: 'gear', operation: 'up' },
+      down: { control: 'gear', operation: 'down' },
+    }),
     ...lightPhasePresets({
       takeoff: { description: 'Landing L/R ON · Turnoffs L/R ON · Nose LAND · Strobe ON · Navigation ON', steps: [
         md11LightStep('Left landing light ON', 'lights.landingLeft.set', 2),

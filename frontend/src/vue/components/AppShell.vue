@@ -1,9 +1,10 @@
 <script setup>
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, watch } from 'vue';
 import AppFeedbackToast from './AppFeedbackToast.vue';
 import AppFooter from './AppFooter.vue';
 import AppHeader from './AppHeader.vue';
 import AppNavigator from './AppNavigator.vue';
+import OnboardingModal from './OnboardingModal.vue';
 import DesktopTabs from './DesktopTabs.vue';
 import DataSourcesModal from './DataSourcesModal.vue';
 import DebugTelemetryModal from './DebugTelemetryModal.vue';
@@ -54,6 +55,8 @@ const whatsNew = useWhatsNewStore();
 const voice = useVoiceControlStore();
 const voiceFirstCommand = useVoiceFirstCommandStore();
 const aircraftControls = useAircraftControlsStore();
+let cleanupWelcomeGate = null;
+let welcomeStarted = false;
 let cleanupTabsRuntime = null;
 let cleanupSupportRuntime = null;
 let cleanupWhatsNewRuntime = null;
@@ -85,38 +88,42 @@ onMounted(() => {
     documentRef: document,
   });
 
-  cleanupSupportRuntime = initSupportRuntime({
-    supportStore: support,
-    logbookStore: logbook,
-    promptsStore: prompts,
-    subscribeLandingReceivedSignal: subscribeLandingReceived,
-    windowRef: window,
-    documentRef: document,
-  });
-
-  cleanupWhatsNewRuntime = initWhatsNewRuntime({
-    whatsNewStore: whatsNew,
-    settingsUiStore: settingsUi,
-    windowRef: window,
-  });
-
   cleanupScreenWakeRuntime = initScreenWakeRuntime({
     windowRef: window,
     documentRef: document,
     navigatorRef: navigator,
   });
 
-  cleanupVoiceFirstCommandRuntime = initVoiceFirstCommandRuntime({
-    firstCommandStore: voiceFirstCommand,
-    voiceStore: voice,
-    aircraftControlsStore: aircraftControls,
-    statusStore: status,
-    promptsStore: prompts,
-    windowRef: window,
-  });
+  // Do not mark other welcome cards as seen underneath mandatory setup.
+  cleanupWelcomeGate = watch(() => settingsUi.initialSetupReady, (completed) => {
+    if (!completed || welcomeStarted) return;
+    welcomeStarted = true;
+    cleanupSupportRuntime = initSupportRuntime({
+      supportStore: support,
+      logbookStore: logbook,
+      promptsStore: prompts,
+      subscribeLandingReceivedSignal: subscribeLandingReceived,
+      windowRef: window,
+      documentRef: document,
+    });
+    cleanupWhatsNewRuntime = initWhatsNewRuntime({
+      whatsNewStore: whatsNew,
+      settingsUiStore: settingsUi,
+      windowRef: window,
+    });
+    cleanupVoiceFirstCommandRuntime = initVoiceFirstCommandRuntime({
+      firstCommandStore: voiceFirstCommand,
+      voiceStore: voice,
+      aircraftControlsStore: aircraftControls,
+      statusStore: status,
+      promptsStore: prompts,
+      windowRef: window,
+    });
+  }, { immediate: true });
 });
 
 onUnmounted(() => {
+  cleanupWelcomeGate?.();
   cleanupDesktopUpdates?.();
   cleanupDesktopUpdates = null;
   setAppService('cabinAnnouncements', null);
@@ -175,6 +182,7 @@ onUnmounted(() => {
   </div>
 
   <AppNavigator />
+  <OnboardingModal @ready="settingsUi.initialSetupReady = true" />
 
   <div id="vue-datasources-modal-root">
     <DataSourcesModal />

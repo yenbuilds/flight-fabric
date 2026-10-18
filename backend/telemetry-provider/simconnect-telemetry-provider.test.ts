@@ -12,7 +12,7 @@ const {
   AIRCRAFT_INTEGRATION_DERIVED_LIGHT_SIMVARS,
   STANDARD_LIGHT_FALLBACK_SUBSCRIPTIONS,
 } = require('./simconnect-telemetry-provider');
-const aircraftIntegrationCatalog = require('../aircraft/aircraft-integrations');
+const aircraftIntegrationCatalog = require('../aircraft/integration-engine');
 const { deepStrictEqual } = require('node:assert');
 const { 
   REQUIRED_DISPLAY_FIELDS,

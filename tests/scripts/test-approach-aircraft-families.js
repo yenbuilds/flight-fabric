@@ -5,14 +5,14 @@ const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
 const { buildAircraftControlCapabilities, resolveAircraftCommand } = require(runtime('aircraft/aircraft-control-service.js'));
 const { SimConnectTelemetryProvider } = require(runtime('telemetry-provider/simconnect-telemetry-provider.js'));
 const { LvarSidecarBridge } = require(runtime('telemetry-provider/lvar-sidecar-bridge.js'));
-const { buildAircraftSpecificState } = require(runtime('aircraft/aircraft-specific-state.js'));
-const { defaultAircraftIntegrationRegistry: registry } = require(runtime('aircraft/aircraft-integrations/index.js'));
-const capabilities = { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] };
+const { defaultAircraftIntegrationRegistry: registry } = require(runtime('aircraft/integration-engine/index.js'));
+const capabilities = { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'input-event'] };
 const families = {
   'pmdg-737': ['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900'],
   'pmdg-777': ['pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f'],
   'fenix-a32x': ['fenix-a319', 'fenix-a320', 'fenix-a321'],
   'inibuilds-a350': ['inibuilds-a350-900', 'inibuilds-a350-1000'],
+  'tfdi-md-11': ['tfdi-md-11'],
 };
 
 function harness(profileId, initial) {
@@ -48,6 +48,9 @@ test('every advertised exact flap target has a reviewed lever source rather than
     'pmdg-777': { type: 'sdk', adapter: 'clientdata-manifest', path: 'flaps.label' },
     'fenix-a32x': { type: 'lvar', name: 'L:S_FC_FLAPS' },
     'fbw-a32nx': { type: 'lvar', name: 'L:A32NX_FLAPS_HANDLE_INDEX' },
+    'inibuilds-a350': { type: 'simvar', name: 'FLAPS HANDLE PERCENT' },
+    'inibuilds-a380': { type: 'simvar', name: 'FLAPS HANDLE INDEX' },
+    'tfdi-md-11': { type: 'lvar', name: 'L:MD11_FLAP_RNG' },
   };
   const covered = new Set();
   for (const entry of loader.listProfiles().filter(p => p.simulator === 'msfs')) {
@@ -64,7 +67,17 @@ test('every advertised exact flap target has a reviewed lever source rather than
       const action = registry.resolveAction({ adapterId, profileKey, actionId: resolved.controlRequest.actionId });
       const integration = registry.resolveIntegration(adapterId, { profileKey });
       for (const route of action.routes) {
-        assert.ok(Object.hasOwn(route.readback, 'expectedValue'), 'selection must match an exact target');
+        if (adapterId === 'inibuilds-a350') {
+          assert.equal(route.readback.expectedInput, true);
+          assert.equal(resolved.controlRequest.value, { up: 0, 1: 25, 2: 50, 3: 75, full: 100 }[value]);
+          assert.equal(route.mode, 'step-to-target');
+          assert.equal(route.maxSteps, 4);
+        } else if (adapterId === 'tfdi-md-11') {
+          assert.equal(route.readback.expectedInput, true);
+          assert.equal(resolved.controlRequest.value, { up: 0, 0: 1, takeoff: 2, 28: 3, 35: 4, 50: 5 }[value]);
+          assert.equal(route.mode, 'step-to-target');
+          assert.equal(route.maxSteps, 5);
+        } else assert.ok(Object.hasOwn(route.readback, 'expectedValue'), 'selection must match an exact target');
         assert.notEqual(route.readback.confirmation, 'changed');
         const field = integration.fields[route.readback.fieldId];
         assert.equal(field.sources[0].decode.type, 'enum', 'unknown lever values cannot round into a selection');
@@ -74,21 +87,59 @@ test('every advertised exact flap target has a reviewed lever source rather than
     }
   }
   assert.deepEqual([...covered].sort(), [
-    ...families['pmdg-737'], ...families['pmdg-777'], ...families['fenix-a32x'], 'fbw-a32nx',
+    ...families['pmdg-737'], ...families['pmdg-777'], ...families['fenix-a32x'], ...families['inibuilds-a350'], ...families['tfdi-md-11'], 'fbw-a32nx', 'inibuilds-a380-800-rr',
   ].sort(), 'fixed flap coverage must not disappear silently');
 });
 
-test('all thirteen profiles accept only aircraft-appropriate flap, autobrake and speedbrake voice targets', async () => {
+test('every advertised spoiler command and its direct route share observation-loss feedback', async () => {
+  const { spoilerObservationFailureText } = await import('../../frontend/src/aircraft/spoiler-controls.js');
+  const failure = { ok: false, executionStarted: true, code: 'aircraft_integration_readback_timeout' };
+  const covered = new Set(), directActions = new Set();
+  // Exercise real catalogue bindings, including percentage sliders whose UI
+  // uses the direct action instead of a fixed canonical position.
+  for (const entry of loader.listProfiles().filter(p => p.simulator === 'msfs')) {
+    const profile = loader.loadProfile(`bundled/msfs/${entry.id}`);
+    const options = { profile, capabilities };
+    const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
+    for (const command of catalogue.commands.filter(c => ['surfaces.spoilers.set', 'surfaces.spoilersArmed.set'].includes(c.id))) {
+      covered.add(entry.id);
+      for (const value of command.input.kind === 'boolean' ? [false, true] : command.input.values) {
+        const request = { commandId: command.id, input: { value } };
+        const resolved = resolveAircraftCommand(request, options);
+        assert.equal(resolved.ok, true, `${entry.id}: ${command.id}/${value}`);
+        const canonicalText = spoilerObservationFailureText(failure, request);
+        assert.match(canonicalText, /selection not confirmed/);
+        for (const direct of resolved.controlRequests) {
+          directActions.add(direct.actionId);
+          assert.equal(spoilerObservationFailureText(failure, direct), canonicalText,
+            `${entry.id}: direct ${direct.actionId} must not report rejection when only observation failed`);
+          assert.equal(spoilerObservationFailureText({ ...failure, executionStarted: false }, direct), null);
+          assert.equal(spoilerObservationFailureText({ ...failure, code: 'aircraft_integration_simconnect_exception' }, direct), null);
+          assert.equal(spoilerObservationFailureText({ ok: true, code: 'executed', confirmedValue: 0 }, direct), null);
+        }
+      }
+    }
+  }
+  assert.deepEqual([...covered].sort(), [...families['pmdg-737'], ...families['pmdg-777'], ...families['fenix-a32x'],
+    ...families['inibuilds-a350'], ...families['tfdi-md-11'], 'fbw-a32nx', 'fbw-a380x', 'inibuilds-a380-800-rr'].sort());
+  assert(directActions.has('controls.spoilers.set'));
+  assert(directActions.has('controls.speedbrake.set'));
+  assert(directActions.has('controls.spoilersArmed.on'));
+});
+
+test('reviewed profiles accept only aircraft-appropriate flap, autobrake and speedbrake voice targets', async () => {
   const { interpretAircraftVoiceCommand: interpret } = await import('../../frontend/src/voice/command-interpreter.js');
   const flaps = { 'pmdg-737': ['up', '1', '2', '5', '10', '15', '25', '30', '40'],
-    'pmdg-777': ['up', '1', '5', '15', '20', '25', '30'], 'fenix-a32x': ['up', '1', '2', '3', 'full'], 'inibuilds-a350': [] };
+    'pmdg-777': ['up', '1', '5', '15', '20', '25', '30'], 'fenix-a32x': ['up', '1', '2', '3', 'full'], 'inibuilds-a350': ['up', '1', '2', '3', 'full'],
+    'tfdi-md-11': ['up', '0', 'takeoff', '28', '35', '50'] };
   const brakes = { 'pmdg-737': ['rto', 'off', '1', '2', '3', 'max'], 'pmdg-777': ['rto', 'off', 'disarm', '1', '2', 'max'],
-    'fenix-a32x': ['off', 'low', 'medium', 'max'], 'inibuilds-a350': [] };
+    'fenix-a32x': ['off', 'low', 'medium', 'max'], 'inibuilds-a350': [], 'tfdi-md-11': ['rto', 'off', 'min', 'med', 'max'] };
   for (const [family, profiles] of Object.entries(families)) for (const id of profiles) {
     loader.setActiveProfile(id); const profile = loader.getActiveProfile();
     const catalogue = buildAircraftControlCapabilities(profile, { capabilities }).aircraftCommands;
     for (const [prefix, commandId, choices] of [['flaps', 'surfaces.flaps.set', flaps[family]],
-      ['autobrake', 'surfaces.autobrake.set', brakes[family]], ['speedbrake', 'surfaces.spoilers.set', ['retract', 'half', 'full']]]) {
+      ['autobrake', 'surfaces.autobrake.set', brakes[family]], ['speedbrake', 'surfaces.spoilers.set',
+        family === 'tfdi-md-11' ? ['retract', 'one-third', 'two-thirds', 'full'] : ['retract', 'half', 'full']]]) {
       for (const value of choices) {
         const text = `${prefix} ${value}`, parsed = interpret(text, catalogue);
         assert.equal(parsed.ok, true, `${id}: ${text}: ${JSON.stringify(parsed)}`);
@@ -252,7 +303,8 @@ test('PMDG fixed SDK speedbrake targets use a complete click and confirm the mat
     h.provider._sdkBridge = { getSnapshot: () => sdk, isDataConnected: () => true };
     h.bridge.sendSdkEvent = async (name, value) => {
       h.calls.push({ name, value });
-      if (is777) { sdk.normalized.spoilers.handlePercent = percent; sdk.snapshotSequence++; sdk.updatedAt = new Date().toISOString(); }
+      // SDK lever position is independent of the requested surface fraction.
+      if (is777) { sdk.normalized.spoilers.handlePercent = target === 'half' ? 75 : percent; sdk.snapshotSequence++; sdk.updatedAt = new Date().toISOString(); }
       else h.publish(field, percent);
       return { ok: true };
     };
@@ -264,8 +316,8 @@ test('PMDG fixed SDK speedbrake targets use a complete click and confirm the mat
 });
 
 test('state-selected pulse definitions reject malformed conditions and unsafe or incompatible routes', () => {
-  const { defineAircraftIntegration } = require(runtime('aircraft/aircraft-integrations/registry.js'));
-  const { FENIX_A32X_INTEGRATION } = require(runtime('aircraft/aircraft-integrations/fenix-a32x/index.js'));
+  const { defineAircraftIntegration } = require(runtime('aircraft/integration-engine/registry.js'));
+  const { FENIX_A32X_INTEGRATION } = require(runtime('aircraft/integration-engine/index.js'));
   assert.equal(typeof defineAircraftIntegration, 'function');
   for (const mutate of [
     r => { r.pulses = []; }, r => { delete r.pulses[0].when[0].freshness; },
@@ -283,7 +335,7 @@ test('state-selected pulse definitions reject malformed conditions and unsafe or
 
 test('ambiguous pulse candidates cannot dispatch, and one physical autobrake group blocks overlapping requests', async () => {
   const h = harness('fenix-a320', brakeFields('low'));
-  const { FENIX_A32X_INTEGRATION } = require(runtime('aircraft/aircraft-integrations/fenix-a32x/index.js'));
+  const { FENIX_A32X_INTEGRATION } = require(runtime('aircraft/integration-engine/index.js'));
   const action = FENIX_A32X_INTEGRATION.actions['controls.autobrake.off'];
   const route = JSON.parse(JSON.stringify(action.routes[0]));
   route.pulses.push(route.pulses[0]);
@@ -313,7 +365,7 @@ test('PMDG speedbrake cannot confirm unchanged or retired telemetry and never re
     h.provider._sdkBridge = { getSnapshot: () => sdk, isDataConnected: () => true };
     h.bridge.sendSdkEvent = async (name, value) => {
       h.calls.push({ name, value });
-      if (is777) sdk.normalized.spoilers.handlePercent = 50;
+      if (is777) sdk.normalized.spoilers.handlePercent = 75;
       else h.publish(field, 50, false);
       if (outcome === 'profile') h.retire();
       return { ok: true };

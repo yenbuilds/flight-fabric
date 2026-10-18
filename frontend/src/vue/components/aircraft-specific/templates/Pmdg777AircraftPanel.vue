@@ -358,7 +358,7 @@ const controlSections = [
       ]),
       detentControl('SPEEDBRAKE', 'controls.speedbrakePercent', 'controls.speedbrake', [
         ['stowed', 'STOW', 0], ['armed', 'ARM', 25],
-        ['half', 'HALF', 50], ['full', 'FULL', 100],
+        ['half', 'HALF', 75], ['full', 'FULL', 100],
       ]),
       booleanControl('PARKING BRAKE', 'controls.parkingBrake', 'controls.parkingBrake'),
     ],

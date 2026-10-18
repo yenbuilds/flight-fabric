@@ -5,6 +5,7 @@ import P737 from '../../frontend/src/vue/components/aircraft-specific/templates/
 import P777 from '../../frontend/src/vue/components/aircraft-specific/templates/Pmdg777AircraftPanel.vue';
 import { useAircraftControlsStore } from '../../frontend/src/vue/stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../../frontend/src/vue/stores/aircraft-specific.js';
+import { interpretAircraftVoiceCommand } from '../../frontend/src/voice/command-interpreter.js';
 import '../../frontend/index.css';
 
 const pinia = createPinia(); setActivePinia(pinia);
@@ -20,6 +21,7 @@ const props = reactive({ values: {}, unavailable: [], sourceStatus: 'connected',
 });
 let active;
 const test = { controls, specific, props, sent, tick: nextTick,
+  voice: text => interpretAircraftVoiceCommand(text, controls.aircraftCommandCatalogue),
   clear() { pending.clear(); controls.resetPendingCommands(); },
   async select(profile) {
     active = catalogues[profile]; selected.value = profile; sent.length = 0; test.clear();
@@ -42,5 +44,5 @@ const test = { controls, specific, props, sent, tick: nextTick,
   },
 };
 window.familiesTest = test;
-createApp({ render: () => h(selected.value === 'fenix-a320' ? Fenix : selected.value === 'pmdg-737' ? P737 : P777, { ...props, key: selected.value }) }).use(pinia).mount('#app');
+createApp({ render: () => h(selected.value === 'fenix-a320' ? Fenix : selected.value.startsWith('pmdg-737') ? P737 : P777, { ...props, key: selected.value }) }).use(pinia).mount('#app');
 await test.select('fenix-a320'); window.familiesReady = true;

@@ -785,6 +785,9 @@ export interface FlightRecordingMessage extends BaseMessage {
   filePath?: string;
   flightId?: string;
   recordingSessionId?: string;
+  /** Bytes written across CSV and both recording companions; null when unknown.
+   * Does not imply durable finalization or include derived history caches. */
+  sizeBytes?: number | null;
   rowsWritten?: number;
   rowCount?: number;
   endReason?: string;

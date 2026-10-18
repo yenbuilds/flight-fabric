@@ -1,70 +1,90 @@
-import type { AircraftIntegrationActionRoute } from './aircraft-integrations/types.js';
-import { captureBaroState, executeBaroTransaction } from './aircraft-integrations/fbw-a32nx/baro-control.js';
-import { captureFenixBaroState, executeFenixBaroTransaction } from './aircraft-integrations/fenix-a32x/baro-control.js';
-import { captureA380BaroState, executeA380BaroTransaction } from './aircraft-integrations/fbw-a380x/baro-control.js';
+import type { AircraftIntegrationActionRoute } from './integration-engine/types.js';
+import { captureConditionalWriteState, executeConditionalWrites } from './conditional-write-execution.js';
+import { captureStagedControlState, executeStagedControl, type ControlReadSources } from './staged-control-execution.js';
 
-type ReadSources = {
-  raw: (id: string) => { value: unknown; updatedAt: unknown };
-  decoded: (id: string) => { observed: unknown; fresh: boolean; updatedAtMs: number };
-};
 type ExecutionRequest = {
   value?: number;
   isCurrent: () => boolean;
   /** A fresh, current-profile snapshot gate on every capture, never a cached observation. */
-  capture: () => ReadSources | null;
-  sendEvent: Parameters<typeof executeBaroTransaction>[0]['sendEvent'];
-  setNamedVar: Parameters<typeof executeBaroTransaction>[0]['setNamedVar'];
-  executeCode: Parameters<typeof executeFenixBaroTransaction>[0]['executeCode'];
-  findException: Parameters<typeof executeBaroTransaction>[0]['findException'];
+  capture: () => ControlReadSources | null;
+  sendEvent: (name: string, value: number) => Promise<any>;
+  setNamedVar: (input: { name: string; unit: string; value: number }) => Promise<any>;
+  executeCode: (code: string) => Promise<any>;
+  findException?: (ids: number[], since: number) => unknown;
 };
 
 /**
- * Aircraft-owned compatibility dispatch for the existing, registry-validated
- * barometer contracts. It accepts no provider instance or executable profile
- * callbacks. The three procedures remain distinct pending later engine work.
+ * Public barometer result adaptation for registry-validated neutral recipes.
+ * Sampling contracts, writes and procedures belong to each YAML recipe.
  */
-export function resolveBarometerExecution(adapterId: string, route: AircraftIntegrationActionRoute) {
+export function resolveBarometerExecution(_adapterId: string, route: AircraftIntegrationActionRoute) {
   if (!('baro' in route) || !route.baro) return null;
   const baro = route.baro;
-  if (adapterId === 'fenix-a32x' && route.transport === 'mobiflight-calculator' && route.mode === 'fenix-baro') {
+  if ('stagedControl' in route && route.stagedControl) {
+    const recipe = route.stagedControl;
     return {
-      requiresCalculatorTransport: true,
-      execute: (request: ExecutionRequest) => executeFenixBaroTransaction({
-        ...request, ...baro,
-        capture: () => {
-          const sources = request.capture();
-          return sources && captureFenixBaroState(baro.target, baro.operation, sources.decoded);
-        },
-        executeCode: (code: string) => {
-          if (!route.codes.includes(code)) throw new Error('Unreviewed barometer input.');
-          return request.executeCode(code);
-        },
-      }),
+      requiresCalculatorTransport: route.transport === 'mobiflight-calculator',
+      execute: async (request: ExecutionRequest) => {
+        const { confirmedTargets, ...result } = await executeStagedControl({
+          ...request, recipe,
+          capture: () => {
+            const sources = request.capture();
+            return sources && captureStagedControlState(recipe, sources);
+          },
+          write: (id, key) => {
+            const index = recipe.targets.find(target => target.id === id).writes[key];
+            if (route.transport === 'mobiflight-calculator') return request.executeCode(route.codes[index]);
+            if (route.transport !== 'simconnect-sequence') throw new Error('Unreviewed barometer input.');
+            const operation = route.operations[index];
+            if (operation.type !== 'event' && operation.type !== 'lvar') throw new Error('Unreviewed barometer input.');
+            let value = Number(operation.value);
+            if (operation.inputValue) {
+              const input = operation.inputValue;
+              if ('encoding' in input) throw new Error('Unreviewed barometer input.');
+              value = request.value * (input.scale ?? 1) + (input.offset ?? 0);
+              if (input.round === 'nearest') value = Math.round(value);
+            }
+            return operation.type === 'event' ? request.sendEvent(operation.name, value)
+              : request.setNamedVar({ name: operation.name, unit: operation.unit, value });
+          },
+        });
+        const codes = { stale_context: 'stale_baro_context', transport_rejected: 'baro_write_rejected',
+          write_rejected: 'baro_write_rejected', unavailable: 'baro_unavailable', changed: 'baro_changed',
+          readback_timeout: 'baro_readback_timeout', invalid_value: 'invalid_baro_value', failed: 'baro_write_failed' };
+        return { ...result, code: result.ok ? result.code : codes[result.code] || result.code,
+          baro: { target: baro.target, mode: baro.operation === 'std' ? 'std' : 'qnh',
+            ...(baro.operation === 'std' ? {} : { unit: baro.operation === 'qnhInHg' ? 'inHg' : 'hPa', value: request.value }),
+            confirmedSides: confirmedTargets } };
+      },
     };
   }
   if (route.transport !== 'simconnect-sequence') return null;
-  if (adapterId === 'fbw-a380x') {
+  if (route.conditionalWrites) {
     return {
       requiresCalculatorTransport: false,
-      execute: (request: ExecutionRequest) => executeA380BaroTransaction({
-        ...request, ...baro,
-        capture: () => {
-          const sources = request.capture();
-          return sources && captureA380BaroState(baro.target, sources.decoded);
-        },
-      }),
-    };
-  }
-  if (adapterId === 'fbw-a32nx') {
-    return {
-      requiresCalculatorTransport: false,
-      execute: (request: ExecutionRequest) => executeBaroTransaction({
-        ...request, ...baro,
-        capture: () => {
-          const sources = request.capture();
-          return sources && captureBaroState(baro.target, sources.raw);
-        },
-      }),
+      execute: async (request: ExecutionRequest) => {
+        const { confirmedTargets, ...result } = await executeConditionalWrites({
+          ...request, route,
+          capture: () => {
+            const sources = request.capture();
+            return sources && captureConditionalWriteState(route, sources.decoded);
+          },
+        });
+        // Keep the public barometer response stable while the engine stays neutral.
+        const failures = {
+          stale_context: ['stale_baro_context', 'Aircraft or simulator connection changed. No further barometer writes were sent.'],
+          transport_rejected: ['baro_write_rejected', 'SimConnect rejected the barometer control.'],
+          write_rejected: ['baro_write_rejected', 'The sidecar did not accept the barometer write.'],
+          unavailable: ['baro_unavailable', 'Fresh, active EFIS panels are required.'],
+          readback_timeout: ['baro_readback_timeout', 'STD was not confirmed. No automatic retry was sent.'],
+        };
+        const failure = failures[result.code];
+        return {
+          ...result,
+          ...(result.ok ? {} : { code: failure?.[0] || (result.code === 'failed' ? 'baro_failed' : result.code), error: failure?.[1] || result.error }),
+          baro: { target: baro.target, mode: 'std', confirmedSides: confirmedTargets },
+        };
+      },
     };
   }
   return null;

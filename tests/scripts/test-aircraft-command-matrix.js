@@ -12,6 +12,13 @@ const msfsCapabilities = {
 };
 const liveState = { simconnectConnected: true, inMenu: false };
 
+const gearVoiceProfiles = new Set([
+  'pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900',
+  'pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f',
+  'fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx',
+  'inibuilds-a350-900', 'inibuilds-a350-1000', 'tfdi-md-11', 'inibuilds-a380-800-rr',
+]);
+
 // Explicit coverage expectations prevent a missing binding from passing merely
 // because the command disappeared from the advertised catalogue.
 const takeoffLightsProfiles = new Set([
@@ -76,6 +83,21 @@ for (const entry of loader.listProfiles()) {
       ...stateQueryExamples({ activeProfileKey: profileKey }), ...flightPlanQueryExamples(),
     ]);
     cloudVoice.validateContext(cloudContext);
+    if (entry.simulator === 'msfs' && gearVoiceProfiles.has(entry.id)) {
+      const gear = catalogue.commands.find(command => command.id === 'surfaces.gear.set');
+      assert.ok(gear, `${profileKey}: declared gear voice support must not disappear`);
+      assert.deepEqual(gear.input, { kind: 'enum', values: ['up', 'down'] });
+      for (const value of ['up', 'down']) for (const phrase of [`gear ${value}`, `landing gear ${value}`]) {
+        const voice = interpret(phrase, catalogue);
+        assert.equal(voice.ok, true, `${profileKey}: ${phrase}`);
+        assert.equal(voice.commandId, gear.id);
+        assert.deepEqual(voice.input, { value });
+        assert.equal(resolveAircraftCommand(voice, options).ok, true);
+      }
+      for (const phrase of ['gear', 'gear toggle', 'gear maybe up', 'do not gear up', 'gear up and gear down']) {
+        assert.equal(interpret(phrase, catalogue).ok, false, `${profileKey}: ${phrase}`);
+      }
+    }
     for (const command of cloudContext.commands) {
       for (const value of candidateValues(command.input)) {
         const intent = cloudVoice.validateIntent({ decision: 'command', commandId: command.id,
@@ -286,3 +308,29 @@ for (const entry of loader.listProfiles()) {
     t.diagnostic(`${catalogue.commands.length} commands; ${requestCount} valid inputs; ${phraseCount} voice phrases`);
   });
 }
+
+test('new gear voice bindings retain profile and transport restrictions', () => {
+  for (const id of ['fenix-a319', 'fenix-a320', 'fenix-a321', 'tfdi-md-11', 'inibuilds-a380-800-rr']) {
+    const profile = loader.loadProfile(`bundled/msfs/${id}`);
+    const blockedProfiles = id === 'inibuilds-a380-800-rr' ? [
+      { ...profile, _profileKey: `local/msfs/${id}` },
+    ] : [
+      { ...profile, integration: { ...profile.integration,
+        controls: { ...profile.integration.controls, standardSurfaceFallback: false } } },
+    ];
+    const options = [
+      ...blockedProfiles.map(profile => ({ profile, capabilities: msfsCapabilities })),
+      { profile, capabilities: { ...msfsCapabilities, actionTypes: [] } },
+      ...(id === 'inibuilds-a380-800-rr' ? [{ profile, capabilities: {
+        ...msfsCapabilities, integrationTransports: ['simconnect-sequence'],
+      } }] : []),
+    ];
+    for (const blocked of options) {
+      const catalogue = buildAircraftControlCapabilities(blocked.profile, blocked).aircraftCommands;
+      assert.equal(catalogue.commands.some(command => command.id === 'surfaces.gear.set'), false, id);
+      for (const value of ['up', 'down']) {
+        assert.equal(resolveAircraftCommand({ commandId: 'surfaces.gear.set', input: { value } }, blocked).ok, false, id);
+      }
+    }
+  }
+});

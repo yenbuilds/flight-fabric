@@ -333,9 +333,16 @@ function main() {
     ...listRepoSourceFiles('scripts', { extensions: ['.js', '.ts'] }),
   ];
   const failures = checkOwnership(ROOT, aircraftOwnershipBaseline);
+  for (const file of backendFiles) {
+    if (normalizeRel(file).startsWith('backend/aircraft/aircraft-integrations/')) {
+      failures.push({ rule: 'aircraft-definitions-data-only', file: normalizeRel(file), line: 1,
+        message: 'Aircraft definitions are YAML data; executable code and tests belong in the shared integration engine.',
+      });
+    }
+  }
   checkSharedRegistryParity(failures);
 
-  // Barometer procedures belong to their aircraft integrations. The provider
+  // Barometer procedures are YAML recipes executed by shared operations. The provider
   // supplies current-session observations and transport callbacks through one
   // aircraft-owned resolver; it must not regain individual aircraft dispatch.
   const controlProvider = path.join(ROOT, 'backend', 'telemetry-provider', 'simconnect-telemetry-provider.ts');
@@ -352,14 +359,13 @@ function main() {
   }
   const aircraftControlOwners = [
     'backend/aircraft/aircraft-control-policy.ts',
-    'backend/aircraft/aircraft-integrations/inibuilds-tristar/key-event-policy.ts',
-    'backend/aircraft/aircraft-integrations/pmdg-777/control-feedback.ts',
     'backend/aircraft/barometer-contract.ts', 'backend/aircraft/barometer-execution.ts',
-    ...['fbw-a32nx', 'fenix-a32x', 'fbw-a380x'].flatMap(aircraft =>
-      ['baro.ts', 'baro-control.ts'].map(file => `backend/aircraft/aircraft-integrations/${aircraft}/${file}`)),
+    'backend/aircraft/conditional-write-execution.ts',
+    'backend/aircraft/staged-control-contract.ts', 'backend/aircraft/staged-control-execution.ts',
     'backend/aircraft/minimums-execution.ts',
-    'backend/aircraft/aircraft-integrations/fbw-a32nx/minimums-control.ts',
-    'backend/aircraft/aircraft-integrations/fbw-a32nx/minimums.ts',
+    'backend/aircraft/guarded-display-entry-contract.ts', 'backend/aircraft/guarded-display-entry.ts',
+    'backend/aircraft/integration-behavior.ts', 'backend/aircraft/lighting-overlay.ts',
+    'backend/aircraft/flight-guidance-projection.ts',
   ];
   for (const hit of findViolations(controlProvider,
     /(?:INIBUILDS_TRISTAR|PMDG_777_INTEGRATION_ID|inibuilds-tristar|["']pmdg-777["']|TriStar AFCS|PMDG Realistic|aircraft-integrations[\\/])/)) {
@@ -379,7 +385,7 @@ function main() {
     const rel = normalizeRel(file);
     const directIntegrationImports = findViolations(
       file,
-      /aircraft[\\/]aircraft-integrations[\\/]/,
+      /aircraft[\\/](?:aircraft-integrations|integration-engine)[\\/]/,
     );
     for (const hit of directIntegrationImports) {
       failures.push({

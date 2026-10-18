@@ -40,6 +40,9 @@ stderr.txt
 # Local SimConnect client library overrides (user-owned, never committed)
 .local/simconnect/
 
+# Local cockpit panel Flutter workspace
+/apps/cockpit-panels/
+
 # Video recordings
 recordings/
 

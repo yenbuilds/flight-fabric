@@ -6,17 +6,11 @@ const { pathToFileURL } = require('url');
 const zlib = require('zlib');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const profileRoot = path.join(repoRoot, 'backend', 'aircraft', 'profiles', 'bundled');
+const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
+const { listBundledProfileSources } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-sources.js'));
+const profileRoot = path.join(repoRoot, 'backend', 'aircraft', 'aircraft-integrations');
 const assetRoot = path.join(repoRoot, 'frontend', 'assets', 'aircraft');
 const manifestPath = path.join(repoRoot, 'frontend', 'src', 'aircraft', 'visual-manifest.js');
-
-function collectJsonFiles(root) {
-  return fs.readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
-    const entryPath = path.join(root, entry.name);
-    if (entry.isDirectory()) return collectJsonFiles(entryPath);
-    return entry.isFile() && entry.name.endsWith('.json') ? [entryPath] : [];
-  });
-}
 
 function paethPredictor(left, above, upperLeft) {
   const estimate = left + above - upperLeft;
@@ -95,8 +89,8 @@ async function main() {
     resolveAircraftVisual,
   } = manifest;
 
-  const concreteProfiles = collectJsonFiles(profileRoot)
-    .map((filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8')))
+  const concreteProfiles = listBundledProfileSources(profileRoot)
+    .map(({ rawProfile }) => rawProfile)
     .filter((profile) => profile.abstract !== true);
 
   for (const profile of concreteProfiles) {

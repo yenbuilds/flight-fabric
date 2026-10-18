@@ -466,7 +466,11 @@ function validatePackagedBackendDependencies() {
       const entryPath = path.join(current, entry.name);
       const lowerName = entry.name.toLowerCase();
       if (entry.isDirectory()) {
-        if (FORBIDDEN_PACKAGED_DEPENDENCY_DIRECTORIES.has(lowerName)) {
+        // yaml's Document implementation is executable parser code. Traverse
+        // this exact directory so forbidden files within it are still checked.
+        const isYamlRuntimeDirectory = path.relative(PACKAGED_BACKEND_NODE_MODULES, entryPath)
+          .replace(/\\/g, '/') === 'yaml/dist/doc';
+        if (FORBIDDEN_PACKAGED_DEPENDENCY_DIRECTORIES.has(lowerName) && !isYamlRuntimeDirectory) {
           unwanted.push(path.relative(PACKAGED_BACKEND_NODE_MODULES, entryPath));
         } else {
           pending.push(entryPath);

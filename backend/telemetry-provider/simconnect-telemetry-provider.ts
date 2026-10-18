@@ -50,7 +50,7 @@ const profileLoader = require('../aircraft/aircraft-profile-loader');
 const {
   defaultAircraftIntegrationRegistry,
   normalizeAircraftIntegrationActionInput,
-} = require('../aircraft/aircraft-integrations') as {
+} = require('../aircraft/integration-engine') as {
   defaultAircraftIntegrationRegistry: AnyRecord;
   normalizeAircraftIntegrationActionInput: (
     action: AnyRecord | null | undefined,
@@ -2149,6 +2149,14 @@ class SimConnectTelemetryProvider {
   }
 
   _captureAircraftIntegrationReadback(bridge, readback, context: AnyRecord = {}) {
+    if (readback?.readyWhen) {
+      const { readyWhen, ...valueReadback } = readback;
+      const value = this._captureAircraftIntegrationReadback(bridge, valueReadback, context);
+      const ready = this._captureAircraftIntegrationReadback(bridge,
+        { fieldId: readyWhen.fieldId, freshness: 'field' }, context);
+      return { ...value, fresh: value.fresh && ready.fresh
+        && ready.updatedAtMs >= value.updatedAtMs && Object.is(ready.observed, readyWhen.expectedValue) };
+    }
     const field = this._getAircraftIntegrationFieldConfig(
       context.profileKey,
       context.adapterId,
@@ -2278,7 +2286,7 @@ class SimConnectTelemetryProvider {
       && (readback?.freshness !== 'field' || sample.updatedAtMs > baseline.updatedAtMs);
     return {
       confirmed: sample.fresh && sequenceAdvanced && (readback?.confirmation === 'changed'
-        ? !Object.is(sample.observed, baseline.observed)
+        ? sample.observed != null && !Object.is(sample.observed, baseline.observed)
         : Object.is(sample.observed, readback?.expectedValue)),
       observed: sample.observed,
       sequence: sample.sequence,

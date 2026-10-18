@@ -1,0 +1,853 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: workingtitle-747-8/index.ts
+# The adapter ID follows the existing stable profile ID. Working Title supplies
+# the avionics and is credited for the manuals; the stock identity remains Microsoft/Asobo.
+
+# Mapping source notes: workingtitle-747-8/actions.ts
+# Microsoft/Asobo/Working Title do not publish an external 747-8 control
+# contract. Keep this page monitoring-only until exact interactions and
+# independent system-effect readbacks are verified in-sim.
+
+# Mapping source notes: workingtitle-747-8/fields.ts
+# No first-party external LVAR/B-var/InputEvent catalogue is published for
+# the included 747-8. Expose only an explicit standard-SimVar read allowlist;
+# unavailable mirrors stay blank instead of being replaced by unverified values.
+
+schemaVersion: 1
+integration:
+  id: workingtitle-747-8
+  aircraft:
+    vendor: Microsoft / Asobo Studio
+    family: Boeing 747-8i / 747-8F
+  trustedProfileKeys:
+    - bundled/msfs/workingtitle-747-8
+  presentation:
+    templateId: workingtitle-747-8
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # mcp
+    mcp.speedKts:
+      id: mcp.speedKts
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT AIRSPEED HOLD VAR
+            unit: Knots
+          decode:
+            type: number
+            precision: 0
+    mcp.headingDeg:
+      id: mcp.headingDeg
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT HEADING LOCK DIR
+            unit: Degrees
+          decode:
+            type: number
+            precision: 0
+    mcp.altitudeFt:
+      id: mcp.altitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT ALTITUDE LOCK VAR
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    mcp.verticalSpeedFpm:
+      id: mcp.verticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT VERTICAL HOLD VAR
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+
+    # afds
+    afds.apMaster:
+      id: afds.apMaster
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT MASTER
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.flightDirector:
+      id: afds.flightDirector
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT FLIGHT DIRECTOR ACTIVE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.autothrottleActive:
+      id: afds.autothrottleActive
+      sources:
+        - route:
+            type: simvar
+            name: AUTOTHROTTLE ACTIVE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.autothrottleArmed:
+      id: afds.autothrottleArmed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT THROTTLE ARM
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.speed:
+      id: afds.speed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT AIRSPEED HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.headingSelect:
+      id: afds.headingSelect
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT HEADING LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.navLockMirror:
+      id: afds.navLockMirror
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT NAV1 LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.altitudeHold:
+      id: afds.altitudeHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT ALTITUDE LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.verticalSpeed:
+      id: afds.verticalSpeed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT VERTICAL HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.levelChange:
+      id: afds.levelChange
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT FLIGHT LEVEL CHANGE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afds.approach:
+      id: afds.approach
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT APPROACH HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # lights
+    lights.strobe:
+      id: lights.strobe
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT STROBE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT BEACON
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.nav:
+      id: lights.nav
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT NAV
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.logo:
+      id: lights.logo
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LOGO
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.wing:
+      id: lights.wing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT WING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.landing:
+      id: lights.landing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LANDING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.taxi:
+      id: lights.taxi
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.runwayTurnoff:
+      id: lights.runwayTurnoff
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # controls
+    controls.flapsPercent:
+      id: controls.flapsPercent
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE PERCENT
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.flapsIndex:
+      id: controls.flapsIndex
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE INDEX
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    controls.flapAngleDeg:
+      id: controls.flapAngleDeg
+      sources:
+        - route:
+            type: simvar
+            name: TRAILING EDGE FLAPS LEFT ANGLE
+            unit: Degrees
+          decode:
+            type: number
+            precision: 1
+    controls.speedbrakePercent:
+      id: controls.speedbrakePercent
+      sources:
+        - route:
+            type: simvar
+            name: SPOILERS HANDLE POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearHandleDown:
+      id: controls.gearHandleDown
+      sources:
+        - route:
+            type: simvar
+            name: GEAR HANDLE POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearNosePct:
+      id: controls.gearNosePct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR CENTER POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearLeftPct:
+      id: controls.gearLeftPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR LEFT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearRightPct:
+      id: controls.gearRightPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR RIGHT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.parkingBrake:
+      id: controls.parkingBrake
+      sources:
+        - route:
+            type: simvar
+            name: BRAKE PARKING POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # systems
+    systems.engine1N1:
+      id: systems.engine1N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:1
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine2N1:
+      id: systems.engine2N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:2
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine3N1:
+      id: systems.engine3N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:3
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine4N1:
+      id: systems.engine4N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:4
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine1Running:
+      id: systems.engine1Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine2Running:
+      id: systems.engine2Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine3Running:
+      id: systems.engine3Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:3
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine4Running:
+      id: systems.engine4Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:4
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.fuelTotalPct:
+      id: systems.fuelTotalPct
+      sources:
+        - route:
+            type: simvar
+            name: FUEL SELECTED QUANTITY PERCENT:99
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.fuelTotalWeightLbs:
+      id: systems.fuelTotalWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: FUEL TOTAL QUANTITY WEIGHT EX1
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.grossWeightLbs:
+      id: systems.grossWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: TOTAL WEIGHT
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.cabinAltitudeFt:
+      id: systems.cabinAltitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    systems.cabinVerticalSpeedFpm:
+      id: systems.cabinVerticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE RATE
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+    systems.cabinDeltaPressurePsi:
+      id: systems.cabinDeltaPressurePsi
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION PRESSURE DIFFERENTIAL
+            unit: PSI
+          decode:
+            type: number
+            precision: 2
+    systems.outsideAirTemperatureC:
+      id: systems.outsideAirTemperatureC
+      sources:
+        - route:
+            type: simvar
+            name: AMBIENT TEMPERATURE
+            unit: Celsius
+          decode:
+            type: number
+            precision: 1
+    systems.mach:
+      id: systems.mach
+      sources:
+        - route:
+            type: simvar
+            name: AIRSPEED MACH
+            unit: Mach
+          decode:
+            type: number
+            precision: 3
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+    {}
+  catalogue:
+    order: 10
+    legacyExports:
+      MICROSOFT_747_8_ADAPTER_ID:
+        kind: id
+        order: 14
+      MICROSOFT_747_8_INTEGRATION:
+        kind: integration
+        order: 15
+      MICROSOFT_747_8_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/workingtitle-747-8
+        order: 16
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/workingtitle-747-8:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: workingtitle-747-8
+    name: Microsoft / Asobo Studio Boeing 747-8i / 747-8F
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-06-09T00:00:00Z
+    updatedAt: 2026-08-02T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/widebody-base
+    abstract: false
+    aircraft:
+      category: D
+      flaps:
+        _comment: 747-8 profile uses Boeing 747-family detent labels. Working Title 747 tutorial material explicitly
+          uses takeoff flaps 10, approach flaps 20, and landing flaps 25/30; flaps 1/5 are retained as
+          standard intermediate 747 detents but need in-sim percent verification.
+        notches:
+          - value: 0
+            label: UP
+          - value: 1
+            label: "1"
+          - value: 5
+            label: "5"
+          - value: 10
+            label: "10"
+          - value: 20
+            label: "20"
+          - value: 25
+            label: "25"
+          - value: 30
+            label: "30"
+        landingNotches:
+          - 25
+          - 30
+      engines:
+        count: 4
+        type: jet
+      landing:
+        grades:
+          perfectMinFpm: -120
+          goodMinFpm: -250
+          firmMinFpm: -500
+          hardMinFpm: -700
+          _comment: Conservative heavy-aircraft bands for the included 747-8. Keep partial until manual/in-sim landing
+            thresholds are confirmed.
+    integration:
+      aircraftSpecific:
+        adapter: workingtitle-747-8
+      matching:
+        priority: 92
+        titleContains: []
+        titleExcludes:
+          - Salty
+          - PMDG
+          - FSLTL
+          - Captain Sim
+          - Global Supertanker
+          - Dreamlifter
+          - 747-400
+          - PassiveAircraft
+        titleRegex: ^(?!.*(?:salty|pmdg|fsltl|captain[\s_-]*sim|global[\s_-]*supertanker|dreamlifter|747[\s_-]*400))(?:(?:(?:microsoft|asobo(?:[\s_-]*studio)?|working[\s_-]*title)[\s_/-]+){0,3})(?:boeing[\s_/-]+)?(?:b?747[\s_-]*8i(?:[\s_-]*intercontinental)?|b?747[\s_-]*8f|b?747[\s_-]*8[\s_-]*(?:intercontinental|freighter)|b?747[\s_-]*8i(?:[\s_-]*intercontinental)?[\s_/-]+(?:b?747[\s_-]*)?-?8f|b?747[\s_-]*8i[\s_-]*(?:\([\s_-]*-?8f[\s_-]*\)|&[\s_-]*8f)|b?747[\s_-]*8(?=[\s_/-]+working[\s_-]*title(?:[\s_-]*simulations?)?))(?:[\s_/-]+working[\s_-]*title(?:[\s_-]*simulations?)?)?$
+        configPathExcludes:
+          - Community
+          - PassiveAircraft
+          - FSLTL
+          - Salty
+          - PMDG
+          - Captain Sim
+          - Dreamlifter
+          - Supertanker
+        configPathRegex: ^(?!.*(?:passiveaircraft|fsltl|salty|pmdg|captain[\s_-]*sim|community))(?:.*[\\/])?(?:fs(?:20|24)-asobo-aircraft-b7478i|asobo-aircraft-b7478i|asobo_b747_8i)(?:[\\/].*)?$
+        aircraftCfg:
+          _comment: High-confidence fallback requires the exact B748 type, a flyable/user-selectable config, first-party
+            creator evidence, and a 747-8i/-8F product field. This excludes passive and traffic-only B748
+            models.
+          equals:
+            icao_type_designator: B748
+            isairtraffic:
+              - "0"
+              - "false"
+            isuserselectable:
+              - "1"
+              - "true"
+          containsAll:
+            ui_createdby:
+              - Asobo
+              - Microsoft
+              - Working Title
+          containsAny:
+            title:
+              - Asobo_B747_8i
+              - Asobo_B747_8F
+              - Boeing 747-8i
+              - Boeing 747-8F
+              - Boeing 747-8 Intercontinental
+            ui_type:
+              - 747-8i
+              - 747-8F
+              - 747-8 Intercontinental
+              - 747-8 Freighter
+      telemetry:
+        preferred: simconnect
+        lvars:
+          _comment: This profile uses an explicit standard-SimVar monitoring allowlist; no Microsoft/Asobo/Working
+            Title-specific telemetry routes are enabled.
+        spoilers:
+          scale: percent
+        lights:
+          source: simconnect
+      controls:
+        backend: simconnect
+        genericFallback: false
+        standardSurfaceFallback: true
+        _comment: Only standard gear/flaps surface fallback is allowed. The Working Title tutorial warns against a
+          simple autopilot-master toggle for Boeing behavior, so autopilot writes remain unavailable until
+          profile-specific engage/disconnect actions are verified.
+      presentation:
+        visualSupport: basic
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - logo
+            - wing
+          labels:
+            beacon: BCN
+            nav: NAV
+            strobe: STRB
+            landing: LND
+            taxi: NOSE
+            logo: LOGO
+            wing: WING
+    meta:
+      developer: Asobo Studio
+      platforms:
+        - msfs2020
+        - msfs2024
+      updated: 2026-08-02
+      status: partial
+      notes: First-party Boeing 747-8 profile published by Microsoft and developed by Asobo Studio. It covers the
+        MSFS 2024 passenger 747-8i and freighter 747-8F; MSFS 2020 included the 747-8i. Working Title supplies
+        the documented avionics and is credited for the manuals. The exact trusted adapter exposes four-engine
+        standard-SimVar monitoring only; custom telemetry and aircraft-specific writes remain inactive.
+    provenance:
+      sources:
+        - type: official-docs
+          name: Microsoft Flight Simulator 2024 FAQ - aircraft matrix
+          url: https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ
+          retrievedAt: 2026-07-19
+          notes: Lists Boeing 747-8i (-8F) as included with Microsoft Flight Simulator 2024 Standard, Deluxe, Premium
+            Deluxe, and Aviator editions.
+        - type: official-docs
+          name: Microsoft Flight Simulator - Aircraft Manuals
+          url: https://www.flightsimulator.com/aircraft-manuals/
+          retrievedAt: 2026-07-19
+          notes: Uses the official heading Boeing 747-8i & 8f and credits the manuals to Working Title. It does not
+            identify Working Title as the base-aircraft vendor or publish an external telemetry/control
+            variable map.
+        - type: official-docs
+          name: Boeing 747-8i / -8F Tutorial Flight - Instructions and Reference
+          url: https://flightsimulator.azureedge.net/wp-content/uploads/2024/11/B747-8i-8f-Tutorial-Flight-Instructions-and-Reference.pdf
+          retrievedAt: 2026-07-19
+          notes: Official MSFS 2024 manual identifies both the passenger 747-8i and freighter 747-8F, gives ICAO B748,
+            and warns that Boeing autopilot requires separate ON/OFF commands rather than a generic master
+            toggle.
+        - type: official-sdk
+          name: MSFS 2024 Avionics Framework - Key Events
+          url: https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/
+          retrievedAt: 2026-07-19
+          notes: Documents key events as simulator control bindings. This profile does not add custom key-event
+            mappings; it only permits FlightFabric's narrow standard gear/flaps fallback.
+      verification:
+        status: partial
+        lastVerified: 2026-07-19
+        knownIssues:
+          - Package and SimObject matching uses documented product identifiers; stock 747-8i and 747-8F
+            runtime titles still need in-sim verification.
+          - Flap detent labels are source-backed, but their runtime handle-index order needs in-sim
+            verification.
+          - The cited Microsoft, Asobo, and Working Title sources do not define a 747-8 LVAR, B-var, or
+            input-event integration map.
+          - The cited sources do not define an external control contract, so aircraft-specific writes remain
+            blocked; the official manual's separate autopilot ON/OFF requirement also rules out generic
+            autopilot-master fallback.

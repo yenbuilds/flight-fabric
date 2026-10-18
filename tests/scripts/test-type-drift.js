@@ -853,6 +853,7 @@ test('AppSettings section fields exactly match buildAppSettingsMessage() nested 
 
   const sectionExpectations = [
     ['AppSettings', 'return {'],
+    ['AppSettingsOnboarding', 'onboarding: {'],
     ['AppSettingsAircraft', 'aircraft: {'],
     ['AppSettingsSimulator', 'simulator: {'],
     ['AppSettingsNetwork', 'network: {'],
@@ -882,6 +883,7 @@ test('Backend DEFAULT_SETTINGS covers every normalized app-settings field', () =
   }
 
   const sectionAnchors = {
+    onboarding: 'onboarding: {',
     aircraft: 'aircraft: {',
     simulator: 'simulator: {',
     network: 'network: {',
@@ -903,7 +905,7 @@ test('Backend DEFAULT_SETTINGS covers every normalized app-settings field', () =
   assert(missingStability.length === 0, `DEFAULT_SETTINGS.debrief.stabilityCriteria missing fields: ${missingStability.join(', ')}`);
 });
 
-test('Settings editor mappings cover every normalized app-settings path', () => {
+test('Settings editor mappings and modal-owned state cover every normalized app-settings path', () => {
   const normalized = getNormalizedAppSettingsFixture();
   const expectedPaths = new Set(collectLeafPaths(normalized).map(collapseSettingsEditorPath));
   const bindings = [
@@ -931,8 +933,16 @@ test('Settings editor mappings cover every normalized app-settings path', () => 
     }],
   ];
 
-  compareSets(new Set(bindings.map(([path]) => path)), expectedPaths, {
-    actualName: 'settings editor binding map',
+  // Completion is owned by OnboardingModal, not an editable preference. The
+  // ordinary editor may serialize the normalizer's default false; the patch
+  // sanitizer must omit it so stale settings forms cannot reset completion.
+  const modalOwnedPaths = new Set(['onboarding.completed']);
+  const boundPaths = new Set(bindings.map(([path]) => path));
+  for (const path of modalOwnedPaths) {
+    assert(!boundPaths.has(path), `${path} must not also be a settings editor binding`);
+  }
+  compareSets(new Set([...boundPaths, ...modalOwnedPaths]), expectedPaths, {
+    actualName: 'settings editor bindings and explicitly modal-owned paths',
     expectedName: 'normalizeAppSettings leaf paths',
   });
 
@@ -958,6 +968,15 @@ test('Settings editor mappings cover every normalized app-settings path', () => 
       serializeBody.includes(serializeNeedle),
       `serializeSettings missing ${stateName} -> ${settingsPath} mapping (${serializeNeedle})`,
     );
+  }
+});
+
+test('Onboarding completion requires an explicit completed patch and cannot be reset by ordinary settings', () => {
+  const completed = sharedSettings.sanitizeAppSettingsPatch({ onboarding: { completed: true } });
+  assert(completed.onboarding?.completed === true, 'onboarding can persist successful completion');
+  for (const settings of [{}, { onboarding: { completed: false } }, getNormalizedAppSettingsFixture()]) {
+    const patch = sharedSettings.sanitizeAppSettingsPatch(settings);
+    assert(!Object.hasOwn(patch, 'onboarding'), 'missing or default completion must leave persisted onboarding state intact');
   }
 });
 

@@ -1,0 +1,1007 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Shared source notes: cockpit-lighting.ts
+# These helper notes retain their stated aircraft and verification scope.
+# Explicit aircraft contracts, not generic MSFS potentiometer guesses. FBW
+# indices come from each aircraft's Flight Deck API. Headwind was separately
+# checked against its installed A330_NEO_INTERIOR.xml. Fenix names and 0..1
+# bounds come from the shipped Cockpit_Behavior.xml and knob templates.
+# iniBuilds A350 1.2.6 A350_Interior.behavior.xml: knob setters clamp
+# these LVARs to 0..100; display BRT buttons write 35/37/39/41 in that
+# same range. The adjacent even indices control contrast, not brightness.
+# See docs/COCKPIT-LIGHTING-VALIDATION.md for source and live evidence.
+# Headwind 10/11 are discrete ceiling/map lamps, unlike the FBW table knobs.
+# Indexed pots are read through the sidecar's A: variable reader;
+# they are not part of the generic telemetry SimVar subscription.
+# LIGHT_POTENTIOMETER_SET takes index first, brightness second.
+
+# Shared source notes: indexed-exterior-lights.ts
+# These helper notes retain their stated aircraft and verification scope.
+#  Explicit indices from each installed aircraft's cockpit XML and systems.cfg.
+# A380's wing landing lamps share index 2. Headwind has separate 2/3 lamps.
+# Both use taxi index 1 for the nose and taxi indices 2/3 for runway turnoffs.
+
+# Shared source notes: headwind-strobe-lights.ts
+# These helper notes retain their stated aircraft and verification scope.
+# Headwind 0.8.1-09203ddc: config/a339x/a330-941/aircraft_preset_procedures.xml
+# explicitly resets strobes OFF for 50 ms before ON/AUTO. The selector is an
+# observation, not a write target; AUTO can legitimately extinguish the lamps.
+
+schemaVersion: 1
+integration:
+  id: headwind-a330
+  aircraft:
+    vendor: Headwind Simulations
+    family: Airbus A330-900neo
+  trustedProfileKeys:
+    - bundled/msfs/headwind-a330
+  presentation:
+    templateId: generic
+    cockpitLightingGroups:
+      - actionId: lighting.preset.panels.set
+        label: Panel backlighting
+        fields:
+          - lighting.glareshieldPercent
+          - lighting.glareshieldLcdPercent
+          - lighting.mainAndPedestalPercent
+          - lighting.overheadPercent
+      - actionId: lighting.preset.flood.set
+        label: Flood lighting
+        fields:
+          - lighting.mainFloodPercent
+          - lighting.pedestalFloodPercent
+      - actionId: lighting.preset.captainDisplays.set
+        label: Captain displays
+        displays: true
+        fields:
+          - lighting.captainPfdPercent
+          - lighting.captainNdPercent
+          - lighting.captainWeatherPercent
+      - actionId: lighting.preset.firstOfficerDisplays.set
+        label: First officer displays
+        displays: true
+        fields:
+          - lighting.firstOfficerPfdPercent
+          - lighting.firstOfficerNdPercent
+          - lighting.firstOfficerWeatherPercent
+      - actionId: lighting.preset.engineDisplays.set
+        label: Engine and system displays
+        displays: true
+        fields:
+          - lighting.upperDisplayPercent
+          - lighting.lowerDisplayPercent
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # lighting
+    lighting.glareshieldPercent:
+      id: lighting.glareshieldPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:84
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.glareshieldLcdPercent:
+      id: lighting.glareshieldLcdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:87
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.mainAndPedestalPercent:
+      id: lighting.mainAndPedestalPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:85
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.overheadPercent:
+      id: lighting.overheadPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:86
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.mainFloodPercent:
+      id: lighting.mainFloodPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:83
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.pedestalFloodPercent:
+      id: lighting.pedestalFloodPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:76
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.captainPfdPercent:
+      id: lighting.captainPfdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:88
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.captainNdPercent:
+      id: lighting.captainNdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:89
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.captainWeatherPercent:
+      id: lighting.captainWeatherPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:94
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerPfdPercent:
+      id: lighting.firstOfficerPfdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:90
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerNdPercent:
+      id: lighting.firstOfficerNdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:91
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerWeatherPercent:
+      id: lighting.firstOfficerWeatherPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:95
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.upperDisplayPercent:
+      id: lighting.upperDisplayPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:92
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.lowerDisplayPercent:
+      id: lighting.lowerDisplayPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:93
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+
+    # lights
+    lights.individual.landing2:
+      id: lights.individual.landing2
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT LANDING:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+    lights.individual.landing3:
+      id: lights.individual.landing3
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT LANDING:3
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+    lights.individual.taxi1:
+      id: lights.individual.taxi1
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT TAXI:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+    lights.individual.runwayTurnoff2:
+      id: lights.individual.runwayTurnoff2
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT TAXI:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+    lights.individual.runwayTurnoff3:
+      id: lights.individual.runwayTurnoff3
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT TAXI:3
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+    lights.strobeMode:
+      id: lights.strobeMode
+      sources:
+        - route:
+            type: lvar
+            name: L:LIGHTING_STROBE_0
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": on
+              "1": auto
+              "2": off
+    lights.strobeActive:
+      id: lights.strobeActive
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT STROBE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+
+    # lighting
+    lighting.preset.panels.set:
+      id: lighting.preset.panels.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: headwind-a330.lighting.preset.panels.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 84
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 87
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 85
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 86
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.glareshieldPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.glareshieldLcdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.mainAndPedestalPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.overheadPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.flood.set:
+      id: lighting.preset.flood.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: headwind-a330.lighting.preset.flood.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 83
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 76
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.mainFloodPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.pedestalFloodPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.captainDisplays.set:
+      id: lighting.preset.captainDisplays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: headwind-a330.lighting.preset.captainDisplays.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 88
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 89
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 94
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.captainPfdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.captainNdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.captainWeatherPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.firstOfficerDisplays.set:
+      id: lighting.preset.firstOfficerDisplays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: headwind-a330.lighting.preset.firstOfficerDisplays.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 90
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 91
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 95
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.firstOfficerPfdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerNdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerWeatherPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.engineDisplays.set:
+      id: lighting.preset.engineDisplays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: headwind-a330.lighting.preset.engineDisplays.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 92
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 93
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.upperDisplayPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.lowerDisplayPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+
+    # lights
+    lights.individual.landing.off:
+      id: lights.individual.landing.off
+      guard:
+        groupId: headwindA330.lights.landing
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwind-a330.lights.individual.landing.off
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 0
+              parameters:
+                - 2
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 0
+              parameters:
+                - 3
+          readbacks:
+            - fieldId: lights.individual.landing2
+              expectedValue: false
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: lights.individual.landing3
+              expectedValue: false
+              timeoutMs: 3000
+              freshness: field
+      verification: untested
+    lights.individual.landing.on:
+      id: lights.individual.landing.on
+      guard:
+        groupId: headwindA330.lights.landing
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwind-a330.lights.individual.landing.on
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 1
+              parameters:
+                - 2
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 1
+              parameters:
+                - 3
+          readbacks:
+            - fieldId: lights.individual.landing2
+              expectedValue: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: lights.individual.landing3
+              expectedValue: true
+              timeoutMs: 3000
+              freshness: field
+      verification: untested
+    lights.individual.taxi.off:
+      id: lights.individual.taxi.off
+      guard:
+        groupId: headwindA330.lights.taxi
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwind-a330.lights.individual.taxi.off
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 0
+              parameters:
+                - 1
+          readback:
+            fieldId: lights.individual.taxi1
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: untested
+    lights.individual.taxi.on:
+      id: lights.individual.taxi.on
+      guard:
+        groupId: headwindA330.lights.taxi
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwind-a330.lights.individual.taxi.on
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 1
+              parameters:
+                - 1
+          readback:
+            fieldId: lights.individual.taxi1
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: untested
+    lights.individual.runwayTurnoff.off:
+      id: lights.individual.runwayTurnoff.off
+      guard:
+        groupId: headwindA330.lights.runwayTurnoff
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwind-a330.lights.individual.runwayTurnoff.off
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 0
+              parameters:
+                - 2
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 0
+              parameters:
+                - 3
+          readbacks:
+            - fieldId: lights.individual.runwayTurnoff2
+              expectedValue: false
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: lights.individual.runwayTurnoff3
+              expectedValue: false
+              timeoutMs: 3000
+              freshness: field
+      verification: untested
+    lights.individual.runwayTurnoff.on:
+      id: lights.individual.runwayTurnoff.on
+      guard:
+        groupId: headwindA330.lights.runwayTurnoff
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwind-a330.lights.individual.runwayTurnoff.on
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 1
+              parameters:
+                - 2
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 1
+              parameters:
+                - 3
+          readbacks:
+            - fieldId: lights.individual.runwayTurnoff2
+              expectedValue: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: lights.individual.runwayTurnoff3
+              expectedValue: true
+              timeoutMs: 3000
+              freshness: field
+      verification: untested
+    lights.strobe.off:
+      id: lights.strobe.off
+      guard:
+        groupId: headwindA330.lights.strobe
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwindA330.lights.strobe.off
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:STROBE_0_AUTO
+              unit: Number
+              value: 0
+            - type: event
+              name: STROBES_OFF
+              value: 0
+          readbacks:
+            - fieldId: lights.strobeMode
+              expectedValue: off
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: lights.strobeActive
+              expectedValue: false
+              timeoutMs: 3000
+              freshness: field
+      verification: untested
+    lights.strobe.on:
+      id: lights.strobe.on
+      guard:
+        groupId: headwindA330.lights.strobe
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwindA330.lights.strobe.on
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:STROBE_0_AUTO
+              unit: Number
+              value: 0
+            - type: event
+              name: STROBES_OFF
+              value: 0
+            - type: delay
+              milliseconds: 50
+            - type: lvar
+              name: L:STROBE_0_AUTO
+              unit: Number
+              value: 0
+            - type: event
+              name: STROBES_ON
+              value: 0
+          readbacks:
+            - fieldId: lights.strobeMode
+              expectedValue: on
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: lights.strobeActive
+              expectedValue: true
+              timeoutMs: 3000
+              freshness: field
+      verification: untested
+    lights.strobe.auto:
+      id: lights.strobe.auto
+      guard:
+        groupId: headwindA330.lights.strobe
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: headwindA330.lights.strobe.auto
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:STROBE_0_AUTO
+              unit: Number
+              value: 0
+            - type: event
+              name: STROBES_OFF
+              value: 0
+            - type: delay
+              milliseconds: 50
+            - type: lvar
+              name: L:STROBE_0_AUTO
+              unit: Number
+              value: 1
+            - type: event
+              name: STROBES_ON
+              value: 0
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: auto
+            timeoutMs: 3000
+            freshness: field
+      verification: untested
+  catalogue:
+    order: 1
+    legacyExports: {}
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/headwind-a330:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: headwind-a330
+    name: Headwind A330-900neo
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-05-15T00:00:00Z
+    updatedAt: 2026-07-24T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/airbus-base
+    abstract: false
+    aircraft:
+      category: D
+      flaps:
+        _comment: A330-900neo flap lever positions 0-4. Config 1 is transitional; lever position 1 selects Config 1+F.
+          Aircraft-specific speed limits remain provisional until supported by vendor documentation.
+        notches:
+          - value: 0
+            label: "0"
+          - value: 1
+            label: 1+F
+          - value: 2
+            label: "2"
+          - value: 3
+            label: "3"
+          - value: 4
+            label: FULL
+        landingNotches:
+          - 3
+          - 4
+      stability:
+        speedBand:
+          belowVrefKts: 5
+          aboveVrefKts: 15
+        vsLimits:
+          downFpm: 1000
+          upFpm: 200
+        thrustMinPct: 20
+        pitch:
+          minDeg: -3
+          maxDeg: 12
+        stabilizedGates:
+          imcRaFt: 1000
+          vmcRaFt: 500
+      landing:
+        grades:
+          perfectMinFpm: -120
+          goodMinFpm: -250
+          firmMinFpm: -400
+          hardMinFpm: -550
+          _comment: Provisional wide-body landing-rate bands pending aircraft-specific source verification.
+      engines:
+        count: 2
+        type: jet
+    integration:
+      matching:
+        priority: 90
+        titleContains:
+          - Headwind A330
+          - Headwind A330-900neo
+          - Headwind A339X
+          - A339X
+        titleRegex: headwind.*A330|A330.*headwind|headwind.*A339X|A339X
+        configPathContains:
+          - headwind-a330
+          - headwind-a339x
+          - headwind-aircraft-a330
+          - headwind-aircraft-a339x
+        configPathRegex: headwind.*(a330|a339x)|(a330|a339x).*headwind
+      telemetry:
+        preferred: simconnect
+        _comment: Headwind does not publish a compatibility contract for the complete FlyByWire interface, so standard
+          SimConnect is the only active telemetry path pending A339X-specific verification.
+        lights: {}
+      controls:
+        backend: simconnect
+        _comment: The exact Headwind adapter exposes only bounded cockpit and flight-display lighting presets, checked
+          against the installed A330_NEO_INTERIOR.xml. Other custom cockpit writes remain unmapped.
+      presentation:
+        visualSupport: basic
+      aircraftSpecific:
+        adapter: headwind-a330
+    meta:
+      developer: Headwind Simulations
+      platforms:
+        - msfs2020
+        - msfs2024
+      updated: 2026-07-24
+      status: experimental
+      notes: Headwind A330-900neo (A330-941, Trent 7000). Independently reviewed cockpit lighting, indexed exterior
+        lamps and strobe OFF/AUTO/ON routes use the installed A339X interfaces recorded in provenance. Broader
+        inherited A32NX telemetry and custom FCU writes remain unmapped pending A339X-specific verification.
+    provenance:
+      sources:
+        - type: official-sdk
+          name: Headwind A339X source repository
+          url: https://github.com/headwindsim/aircraft
+          retrievedAt: 2026-06-05
+          notes: Official Headwind project repository. Documents that the A339X is based on the FlyByWire System A32NX
+            and identifies the A330-941 / Trent 7000 target aircraft. No inherited aircraft-specific variables
+            are activated without a documented compatibility contract and in-sim verification.
+        - type: official-docs
+          name: Headwind A339X product page
+          url: https://www.headwindsim.net/a339x.html
+          retrievedAt: 2026-06-05
+          notes: Official Headwind A339X product page confirming the aircraft is based on FlyByWire A32NX, includes
+            SimBridge resources, and targets the Airbus A330-900neo.
+        - type: official-sdk
+          name: FlyByWire A32NX Flight Deck API
+          url: https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-flightdeck-api/
+          retrievedAt: 2026-06-05
+          notes: Documents the FlyByWire A32NX flight-deck interface. This profile does not assume those
+            aircraft-specific routes are compatible with the Headwind A339X.
+        - type: official-sdk
+          name: FlyByWire A32NX Developer API
+          url: https://docs.flybywiresim.com/aircraft/a32nx/a32nx-api/a32nx-systems-api/
+          retrievedAt: 2026-06-05
+          notes: Documents the FlyByWire A32NX systems interface. This profile does not activate inherited A32NX routes
+            without a Headwind compatibility contract.
+        - type: official-docs
+          name: Headwind aircraft releases
+          url: https://github.com/headwindsim/aircraft/releases
+          retrievedAt: 2026-06-05
+          notes: Release history records FBW Core Module updates, demonstrating why inherited A32NX interfaces must be
+            revalidated per Headwind release rather than assumed compatible.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: Installed Headwind A339X cockpit lighting behavior
+          url: https://github.com/headwindsim/aircraft
+          retrievedAt: 2026-09-10
+          notes: The installed headwindsim-aircraft-a330-900
+            SimObjects/Airplanes/Headwind_A330neo/model/A330_NEO_INTERIOR.xml explicitly assigns cockpit panel
+            potentiometers 84,87,85,86; flood 83,76; PFD/ND/weather/ECAM displays 88,89,94,90,91,95,92,93.
+            Uses the standard LIGHT_POTENTIOMETER_SET index then percentage contract, with independent knob
+            readback. Discrete ceiling/map and dome controls are excluded. No general A32NX compatibility is
+            inferred.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator SDK - indexed cockpit light potentiometers
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm
+          retrievedAt: 2026-09-10
+          notes: LIGHT_POTENTIOMETER_SET takes potentiometer index in parameter 0, brightness percentage in parameter 1.
+            Aircraft-specific indices are grounded separately in vendor evidence. The caller supplies only a
+            bounded whole percentage.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: Installed aircraft exterior lighting selectors and light indices
+          url: https://github.com/headwindsim/aircraft
+          retrievedAt: 2026-09-10
+          notes: "A330_NEO_INTERIOR.xml: paired landing lamps LIGHT LANDING:2 and LIGHT LANDING:3. Both aircraft use
+            LIGHT TAXI:1 for nose taxi lighting, LIGHT TAXI:2 and LIGHT TAXI:3 for runway turnoff lamps.
+            Bounded LANDING_LIGHTS_SET and TAXI_LIGHTS_SET events use state first, fixed light index second,
+            matching the shipped switch templates. All changed indexed outputs require independent newer
+            readback. Existing takeoff preset actions are retained. See docs/EXTERIOR-LIGHTS-VALIDATION.md."
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: Installed Headwind A339X strobe preset procedures
+          url: https://github.com/headwindsim/aircraft
+          retrievedAt: 2026-09-14
+          notes: Installed 0.8.1-09203ddc9ccb1003b739e264b9613a16981e0628
+            config/a339x/a330-941/aircraft_preset_procedures.xml specifies STROBE_0_AUTO plus STROBES_OFF, a
+            50 ms reset interval, then STROBES_ON for ON/AUTO. LIGHTING_STROBE_0 reports ON=0, AUTO=1, OFF=2
+            and is never written. ON/OFF require both selector and LIGHT STROBE output confirmation; AUTO
+            requires selector confirmation because output may be off on the ground. No broader A32NX
+            compatibility is inferred. Live verification is pending; see docs/EXTERIOR-LIGHTS-VALIDATION.md.
+      verification:
+        status: unverified
+        testedTitles: []
+        knownIssues:
+          - No inherited A32NX_* telemetry is active because the cited Headwind sources do not define
+            compatibility for those exact interfaces.
+          - Custom FCU writes remain inactive because the cited Headwind sources do not define them and the
+            current MSFS provider has no applicable custom-event route.
+          - Flap lever value mapping (0-4 indices) not confirmed in MSFS
+          - A330 Config 1 (slats only, 240 kt) is not a dedicated lever position in MSFS implementation —
+            lever 1 = Config 1+F
+      dataQuality:
+        flaps: estimated
+        gear: estimated
+        spoilers: unknown
+        lights: unknown

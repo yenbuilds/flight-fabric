@@ -774,6 +774,9 @@ async function runSettingsSmoke(windowRef) {
     "document.getElementById('settings-save-btn')?.disabled === true",
     'clean settings form state',
   );
+  // Earlier voice checks intentionally scroll Settings to its Voice section.
+  // Inspect General's layout after bringing it back into the viewport.
+  await evaluate(windowRef, "document.getElementById('settings-general').scrollIntoView({block:'start',behavior:'instant'}); true;");
   await assertUsableLayout(windowRef, 'Settings tab', [
     '#tab-settings.active',
     '#tab-settings .page-stack',

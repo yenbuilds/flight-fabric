@@ -11,7 +11,7 @@ const profileLoader = require('./aircraft-profile-loader.js') as {
 const {
   defaultAircraftIntegrationRegistry,
   normalizeAircraftIntegrationActionInput,
-} = require('./aircraft-integrations') as {
+} = require('./integration-engine') as {
   defaultAircraftIntegrationRegistry: AircraftIntegrationRegistry;
   normalizeAircraftIntegrationActionInput: (
     action: AircraftIntegrationAction | null | undefined,

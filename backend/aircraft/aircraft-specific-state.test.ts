@@ -72,6 +72,24 @@ test('strict decoders preserve explicit false and reject implicit truthiness', (
   }), -998.9, 'sentinel matching must remain exact');
 });
 
+test('numeric enum intervals preserve gaps and reject ambiguous or nonnumeric state', () => {
+  // Decoder contract fixture; these numbers do not model an aircraft.
+  const decoder = { type: 'enum', values: { '0': 0, '30': 3 },
+    numberRanges: [{ min: 10, max: 25, value: 2 }] };
+  for (const value of [10, 17.5, 25]) assert.equal(decodeAircraftSpecificValue(value, decoder), 2);
+  assert.equal(decodeAircraftSpecificValue(0, decoder), 0);
+  assert.equal(decodeAircraftSpecificValue(30, decoder), 3);
+  for (const value of [undefined, null, NaN, Infinity, -1, 9.99, 25.01, 31, '17.5', true]) {
+    assert.equal(decodeAircraftSpecificValue(value, decoder), undefined);
+  }
+  for (const numberRanges of [[], [{ min: 25, max: 10, value: 2 }],
+    [{ min: 0, max: 25, value: 2 }], [{ min: 10, max: 25, value: 2 }, { min: 25, max: 29, value: 3 }],
+    [{ min: 10, max: Infinity, value: 2 }], [{ min: 10, max: 25, value: null }]]) {
+    assert.equal(decodeAircraftSpecificValue(0, { ...decoder, numberRanges }), undefined,
+      'a malformed interval invalidates the entire field, including exact values');
+  }
+});
+
 test('number sentinels become canonical unavailable fields instead of recorded values', () => {
   const sentinelConfig = {
     profileKey: 'bundled/msfs/tfdi-md-11',

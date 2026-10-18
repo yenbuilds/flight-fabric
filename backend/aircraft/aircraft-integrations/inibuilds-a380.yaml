@@ -1,0 +1,2333 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: inibuilds-a380/index.ts
+# A380 package 1.0.0, loaded vendor behavior + two independent cockpit cycles.
+# These detents are the reverse of the A350 mappings. Do not share its adapter.
+# Exact source, hashes and live observations: docs/aircraft-intake/inibuilds-a380-behavior.evidence.json.
+# Standard COM1/2 events agree with both RMP displays and independent INI_VHF
+# state on package 1.0.0. Keep the shared fresh-data/spacing/one-swap transaction.
+# Evidence: docs/aircraft-intake/inibuilds-a380-radios.evidence.json.
+# Lever selections, independently checked against the pedestal and powered
+# surfaces. These readbacks do not imply completed travel or landing deployment.
+# Source and live evidence: inibuilds-a380-surfaces.evidence.json.
+# AIRLINER_PED_SPOILERS only changes animation. Use the custom events actually
+# dispatched by the installed mouse behavior, with vendor state confirmation.
+# The generic FLIGHT DIRECTOR ACTIVE SimVar stayed true with the cockpit FD off.
+# Loaded behavior and two cockpit cycles establish this independent state.
+# Observed cockpit detents and repeated native writes; see cabin evidence.
+# Air-system button selections. These are not valve position or supplied airflow.
+# Every Set callback toggles; fixed intents require fresh same-state no-op handling.
+# System state, not the auto-resetting *_CMD variables or animation positions.
+# Both master intents press the same aircraft button. Fresh same-state no-op
+# handling is mandatory: repeating ON must not switch it OFF.
+
+# Mapping source notes: inibuilds-a380/fcu.ts
+# Exact RR Basic 1.0.0 observations, not an inherited A350 write contract.
+# Both the vendor target AND its independently updated autopilot SimVar must
+# confirm. A write echoed by the same LVAR alone cannot establish acceptance.
+# Ground selector evidence: docs/aircraft-intake/inibuilds-a380-fcu.evidence.json.
+# The two INI_PRESET*_IS_MACH candidates and the generic managed-Mach flag
+# stayed zero in MACH. Require the observed knots domain instead.
+# First touch reveals V/S using the aircraft's own command. It can replace an
+# expired preselection; setting a target is a separate intent and never pulls
+# the knob or claims V/S engagement. Repeated reveal is an ordinary no-op.
+
+# Shared source notes: com-radio.ts
+# These helper notes retain their stated aircraft and verification scope.
+#  Opt in only after reviewing the aircraft's actual COM panel interface.
+
+schemaVersion: 1
+integration:
+  id: inibuilds-a380
+  aircraft:
+    vendor: iniBuilds
+    family: A380-800 RR
+  trustedProfileKeys:
+    - bundled/msfs/inibuilds-a380-800-rr
+  presentation:
+    templateId: inibuilds-a380
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # flightGuidance
+    flightGuidance.powered:
+      id: flightGuidance.powered
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_POWERED_VAR
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.trackFpa:
+      id: flightGuidance.trackFpa
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_TRACK_FPA_STATE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.speedDashed:
+      id: flightGuidance.speedDashed
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_SPD_DASHED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.headingDashed:
+      id: flightGuidance.headingDashed
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_HDG_DASHED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.verticalSpeedDashed:
+      id: flightGuidance.verticalSpeedDashed
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_VS_DASHED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.speedManaged:
+      id: flightGuidance.speedManaged
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_SPD_DOT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.headingManaged:
+      id: flightGuidance.headingManaged
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_HDG_DOT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.speedValue:
+      id: flightGuidance.speedValue
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIRSPEED_DIAL
+            unit: Number
+          decode:
+            type: number
+    flightGuidance.speedConfirmed:
+      id: flightGuidance.speedConfirmed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT AIRSPEED HOLD VAR
+            unit: knots
+          decode:
+            type: number
+    flightGuidance.headingValue:
+      id: flightGuidance.headingValue
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_HEADING_DIAL
+            unit: Number
+          decode:
+            type: number
+    flightGuidance.headingConfirmed:
+      id: flightGuidance.headingConfirmed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT HEADING LOCK DIR
+            unit: degrees
+          decode:
+            type: number
+    flightGuidance.altitudeValue:
+      id: flightGuidance.altitudeValue
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_ALTITUDE_DIAL
+            unit: Number
+          decode:
+            type: number
+    flightGuidance.altitudeConfirmed:
+      id: flightGuidance.altitudeConfirmed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT ALTITUDE LOCK VAR
+            unit: feet
+          decode:
+            type: number
+    flightGuidance.verticalSpeedValue:
+      id: flightGuidance.verticalSpeedValue
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_VVI_DIAL
+            unit: Number
+          decode:
+            type: number
+    flightGuidance.verticalSpeedConfirmed:
+      id: flightGuidance.verticalSpeedConfirmed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT VERTICAL HOLD VAR
+            unit: feet per minute
+          decode:
+            type: number
+
+    # radios
+    radios.com1.installed:
+      id: radios.com1.installed
+      sources:
+        - route:
+            type: simvar
+            name: COM AVAILABLE:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    radios.com1.status:
+      id: radios.com1.status
+      sources:
+        - route:
+            type: simvar
+            name: COM STATUS:1
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    radios.com1.spacingMode:
+      id: radios.com1.spacingMode
+      sources:
+        - route:
+            type: simvar
+            name: COM SPACING MODE:1
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    radios.com1.activeMhz:
+      id: radios.com1.activeMhz
+      sources:
+        - route:
+            type: simvar
+            name: COM ACTIVE FREQUENCY:1
+            unit: MHz
+          decode:
+            type: number
+            precision: 3
+    radios.com1.standbyMhz:
+      id: radios.com1.standbyMhz
+      sources:
+        - route:
+            type: simvar
+            name: COM STANDBY FREQUENCY:1
+            unit: MHz
+          decode:
+            type: number
+            precision: 3
+    radios.com2.installed:
+      id: radios.com2.installed
+      sources:
+        - route:
+            type: simvar
+            name: COM AVAILABLE:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    radios.com2.status:
+      id: radios.com2.status
+      sources:
+        - route:
+            type: simvar
+            name: COM STATUS:2
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    radios.com2.spacingMode:
+      id: radios.com2.spacingMode
+      sources:
+        - route:
+            type: simvar
+            name: COM SPACING MODE:2
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    radios.com2.activeMhz:
+      id: radios.com2.activeMhz
+      sources:
+        - route:
+            type: simvar
+            name: COM ACTIVE FREQUENCY:2
+            unit: MHz
+          decode:
+            type: number
+            precision: 3
+    radios.com2.standbyMhz:
+      id: radios.com2.standbyMhz
+      sources:
+        - route:
+            type: simvar
+            name: COM STANDBY FREQUENCY:2
+            unit: MHz
+          decode:
+            type: number
+            precision: 3
+
+    # controls
+    controls.flaps:
+      id: controls.flaps
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE INDEX
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": up
+              "1": "1"
+              "2": "2"
+              "3": "3"
+              "4": full
+    controls.speedbrake:
+      id: controls.speedbrake
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_SPOILERS_HANDLE_POSITION
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": retracted
+              "1": full
+              "0.5": half
+    controls.spoilersArmed:
+      id: controls.spoilersArmed
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_SPOILERS_ARMED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+
+    # flightGuidance
+    flightGuidance.flightDirector:
+      id: flightGuidance.flightDirector
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FD_ON
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+
+    # lights
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_BEACON
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": true
+              "1": false
+    lights.nav:
+      id: lights.nav
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_NAV
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": true
+              "1": false
+    lights.landing:
+      id: lights.landing
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_LANDING
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": true
+              "1": false
+    lights.wing:
+      id: lights.wing
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_WING
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": true
+              "1": false
+    lights.runwayTurnoff:
+      id: lights.runwayTurnoff
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_TURNOFF_LIGHT_SWITCH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": true
+              "1": false
+    lights.strobeMode:
+      id: lights.strobeMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_STROBE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": on
+              "1": auto
+              "2": off
+    lights.logoMode:
+      id: lights.logoMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_LOGO
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": on
+              "1": auto
+              "2": off
+    lights.noseMode:
+      id: lights.noseMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_NOSE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": takeoff
+              "1": taxi
+              "2": off
+
+    # cabin
+    cabin.seatBeltsMode:
+      id: cabin.seatBeltsMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_SEATBELTS_SWITCH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": on
+              "1": auto
+              "2": off
+    cabin.noMobileMode:
+      id: cabin.noMobileMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_SIGNS_NO_MOBILE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": on
+              "1": auto
+              "2": off
+    cabin.emergencyExitMode:
+      id: cabin.emergencyExitMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_EMER_EXIT_SWITCH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": on
+              "1": arm
+              "2": off
+
+    # systems
+    systems.apuBleedMode:
+      id: systems.apuBleedMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_BLEED_APU
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": on
+    systems.engineBleed1Mode:
+      id: systems.engineBleed1Mode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_BLEED_ENG1
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": on
+    systems.engineBleed2Mode:
+      id: systems.engineBleed2Mode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_BLEED_ENG2
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": on
+    systems.engineBleed3Mode:
+      id: systems.engineBleed3Mode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_BLEED_ENG3
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": on
+    systems.engineBleed4Mode:
+      id: systems.engineBleed4Mode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_BLEED_ENG4
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": on
+    systems.pack1Mode:
+      id: systems.pack1Mode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_PACK1_BUTTON
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": on
+    systems.pack2Mode:
+      id: systems.pack2Mode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_PACK2_BUTTON
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": on
+    systems.apuMaster:
+      id: systems.apuMaster
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_APU_MASTER_SWITCH
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.apuStart:
+      id: systems.apuStart
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_APU_START_BUTTON
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.apuAvailable:
+      id: systems.apuAvailable
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_APU_AVAILABLE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.apuMasterFault:
+      id: systems.apuMasterFault
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_APU_MASTER_FAULT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    controls.gearHandleDown:
+      id: controls.gearHandleDown
+      sources:
+        - route:
+            type: lvar
+            name: A:GEAR HANDLE POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    controls.onGround:
+      id: controls.onGround
+      sources:
+        - route:
+            type: lvar
+            name: A:SIM ON GROUND
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+
+    # flightGuidance
+    flightGuidance.speed.set:
+      id: flightGuidance.speed.set
+      input:
+        type: number
+        min: 100
+        max: 350
+        step: 1
+      guard:
+        groupId: flightGuidance.fcu
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: flightGuidance.powered
+            expectedValue: true
+            freshness: field
+          - fieldId: flightGuidance.speedValue
+            freshness: field
+            min: 100
+            max: 350
+          - fieldId: flightGuidance.speedDashed
+            expectedValue: false
+            freshness: field
+          - fieldId: flightGuidance.speedManaged
+            expectedValue: false
+            freshness: field
+      routes:
+        - id: iniA380.speed.target
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_AIRSPEED_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: flightGuidance.speedValue
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: flightGuidance.speedConfirmed
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+      verification: partial
+    flightGuidance.heading.set:
+      id: flightGuidance.heading.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        groupId: flightGuidance.fcu
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: flightGuidance.powered
+            expectedValue: true
+            freshness: field
+          - fieldId: flightGuidance.trackFpa
+            expectedValue: false
+            freshness: field
+          - fieldId: flightGuidance.headingDashed
+            expectedValue: false
+            freshness: field
+          - fieldId: flightGuidance.headingManaged
+            expectedValue: false
+            freshness: field
+      routes:
+        - id: iniA380.heading.target
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_HEADING_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: flightGuidance.headingValue
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: flightGuidance.headingConfirmed
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+      verification: partial
+    flightGuidance.altitude.set:
+      id: flightGuidance.altitude.set
+      input:
+        type: number
+        min: 100
+        max: 49000
+        step: 100
+      guard:
+        groupId: flightGuidance.fcu
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: flightGuidance.powered
+            expectedValue: true
+            freshness: field
+      routes:
+        - id: iniA380.altitude.target
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_ALTITUDE_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: flightGuidance.altitudeValue
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: flightGuidance.altitudeConfirmed
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+      verification: partial
+    flightGuidance.verticalSpeed.set:
+      id: flightGuidance.verticalSpeed.set
+      input:
+        type: number
+        min: -6000
+        max: 6000
+        step: 100
+      guard:
+        groupId: flightGuidance.fcu
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: flightGuidance.powered
+            expectedValue: true
+            freshness: field
+          - fieldId: flightGuidance.trackFpa
+            expectedValue: false
+            freshness: field
+          - fieldId: flightGuidance.verticalSpeedDashed
+            expectedValue: false
+            freshness: field
+      routes:
+        - id: iniA380.verticalSpeed.target
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_VVI_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: flightGuidance.verticalSpeedValue
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: flightGuidance.verticalSpeedConfirmed
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+      verification: partial
+    flightGuidance.verticalSpeed.reveal:
+      id: flightGuidance.verticalSpeed.reveal
+      guard:
+        groupId: flightGuidance.fcu
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: flightGuidance.powered
+            expectedValue: true
+            freshness: field
+          - fieldId: flightGuidance.trackFpa
+            expectedValue: false
+            freshness: field
+      routes:
+        - id: iniA380.verticalSpeed.reveal
+          transport: input-event
+          inputEvent: AIRLINER_FCU_VS_KNOB
+          value: 1
+          readback:
+            fieldId: flightGuidance.verticalSpeedDashed
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: partial
+
+    # radios
+    radios.com1.setStandby:
+      id: radios.com1.setStandby
+      guard:
+        groupId: iniA380.radios.com1
+        cooldownMs: 750
+        retry: never
+      input:
+        type: number
+        min: 118
+        max: 136.99
+        step: 0.005
+      routes:
+        - id: iniA380.radios.com1.setStandby.simconnectSequence
+          transport: simconnect-sequence
+          comRadio:
+            index: 1
+            operation: setStandby
+          operations:
+            - type: event
+              name: COM_STBY_RADIO_SET_HZ
+              inputValue:
+                source: input
+                scale: 1000000
+                round: nearest
+          readback:
+            fieldId: radios.com1.standbyMhz
+            timeoutMs: 2500
+            expectedInput: true
+      verification: verified
+    radios.com1.swap:
+      id: radios.com1.swap
+      guard:
+        groupId: iniA380.radios.com1
+        cooldownMs: 750
+        retry: never
+      routes:
+        - id: iniA380.radios.com1.swap.simconnectSequence
+          transport: simconnect-sequence
+          comRadio:
+            index: 1
+            operation: swap
+          operations:
+            - type: event
+              name: COM1_RADIO_SWAP
+              value: 0
+          readback:
+            fieldId: radios.com1.activeMhz
+            timeoutMs: 2500
+            confirmation: changed
+      verification: verified
+    radios.com1.switchTo:
+      id: radios.com1.switchTo
+      guard:
+        groupId: iniA380.radios.com1
+        cooldownMs: 750
+        retry: never
+      input:
+        type: number
+        min: 118
+        max: 136.99
+        step: 0.005
+      routes:
+        - id: iniA380.radios.com1.switchTo.simconnectSequence
+          transport: simconnect-sequence
+          comRadio:
+            index: 1
+            operation: switchTo
+          operations:
+            - type: event
+              name: COM_STBY_RADIO_SET_HZ
+              inputValue:
+                source: input
+                scale: 1000000
+                round: nearest
+            - type: event
+              name: COM1_RADIO_SWAP
+              value: 0
+          readback:
+            fieldId: radios.com1.activeMhz
+            timeoutMs: 2500
+            expectedInput: true
+      verification: verified
+    radios.com2.setStandby:
+      id: radios.com2.setStandby
+      guard:
+        groupId: iniA380.radios.com2
+        cooldownMs: 750
+        retry: never
+      input:
+        type: number
+        min: 118
+        max: 136.99
+        step: 0.005
+      routes:
+        - id: iniA380.radios.com2.setStandby.simconnectSequence
+          transport: simconnect-sequence
+          comRadio:
+            index: 2
+            operation: setStandby
+          operations:
+            - type: event
+              name: COM2_STBY_RADIO_SET_HZ
+              inputValue:
+                source: input
+                scale: 1000000
+                round: nearest
+          readback:
+            fieldId: radios.com2.standbyMhz
+            timeoutMs: 2500
+            expectedInput: true
+      verification: verified
+    radios.com2.swap:
+      id: radios.com2.swap
+      guard:
+        groupId: iniA380.radios.com2
+        cooldownMs: 750
+        retry: never
+      routes:
+        - id: iniA380.radios.com2.swap.simconnectSequence
+          transport: simconnect-sequence
+          comRadio:
+            index: 2
+            operation: swap
+          operations:
+            - type: event
+              name: COM2_RADIO_SWAP
+              value: 0
+          readback:
+            fieldId: radios.com2.activeMhz
+            timeoutMs: 2500
+            confirmation: changed
+      verification: verified
+    radios.com2.switchTo:
+      id: radios.com2.switchTo
+      guard:
+        groupId: iniA380.radios.com2
+        cooldownMs: 750
+        retry: never
+      input:
+        type: number
+        min: 118
+        max: 136.99
+        step: 0.005
+      routes:
+        - id: iniA380.radios.com2.switchTo.simconnectSequence
+          transport: simconnect-sequence
+          comRadio:
+            index: 2
+            operation: switchTo
+          operations:
+            - type: event
+              name: COM2_STBY_RADIO_SET_HZ
+              inputValue:
+                source: input
+                scale: 1000000
+                round: nearest
+            - type: event
+              name: COM2_RADIO_SWAP
+              value: 0
+          readback:
+            fieldId: radios.com2.activeMhz
+            timeoutMs: 2500
+            expectedInput: true
+      verification: verified
+
+    # controls
+    controls.flaps.up:
+      id: controls.flaps.up
+      guard:
+        groupId: controls.flaps
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.flaps.up.native
+          transport: input-event
+          inputEvent: AIRLINER_FLAPS
+          value: 0
+          readback:
+            fieldId: controls.flaps
+            expectedValue: up
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.flaps.one:
+      id: controls.flaps.one
+      guard:
+        groupId: controls.flaps
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.flaps.one.native
+          transport: input-event
+          inputEvent: AIRLINER_FLAPS
+          value: 4096
+          readback:
+            fieldId: controls.flaps
+            expectedValue: "1"
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.flaps.two:
+      id: controls.flaps.two
+      guard:
+        groupId: controls.flaps
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.flaps.two.native
+          transport: input-event
+          inputEvent: AIRLINER_FLAPS
+          value: 8192
+          readback:
+            fieldId: controls.flaps
+            expectedValue: "2"
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.flaps.three:
+      id: controls.flaps.three
+      guard:
+        groupId: controls.flaps
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.flaps.three.native
+          transport: input-event
+          inputEvent: AIRLINER_FLAPS
+          value: 12288
+          readback:
+            fieldId: controls.flaps
+            expectedValue: "3"
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.flaps.full:
+      id: controls.flaps.full
+      guard:
+        groupId: controls.flaps
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.flaps.full.native
+          transport: input-event
+          inputEvent: AIRLINER_FLAPS
+          value: 16384
+          readback:
+            fieldId: controls.flaps
+            expectedValue: full
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.speedbrake.stowed:
+      id: controls.speedbrake.stowed
+      guard:
+        groupId: controls.speedbrake
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.speedbrake.stowed.event
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: INI.SPOILERS_SET
+              value: 0
+          readback:
+            fieldId: controls.speedbrake
+            expectedValue: retracted
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.speedbrake.half:
+      id: controls.speedbrake.half
+      guard:
+        groupId: controls.speedbrake
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.speedbrake.half.event
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: INI.SPOILERS_SET
+              value: 8192
+          readback:
+            fieldId: controls.speedbrake
+            expectedValue: half
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.speedbrake.full:
+      id: controls.speedbrake.full
+      guard:
+        groupId: controls.speedbrake
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.speedbrake.full.event
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: INI.SPOILERS_SET
+              value: 16384
+          readback:
+            fieldId: controls.speedbrake
+            expectedValue: full
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.spoilersArmed.on:
+      id: controls.spoilersArmed.on
+      guard:
+        groupId: controls.speedbrake
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.spoilersArmed.on.event
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: INI.SPOILERS_ARM_ON
+              value: 0
+          readback:
+            fieldId: controls.spoilersArmed
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    controls.spoilersArmed.off:
+      id: controls.spoilersArmed.off
+      guard:
+        groupId: controls.speedbrake
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.controls.spoilersArmed.off.event
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: INI.SPOILERS_ARM_OFF
+              value: 0
+          readback:
+            fieldId: controls.spoilersArmed
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+
+    # flightGuidance
+    flightGuidance.flightDirector.on:
+      id: flightGuidance.flightDirector.on
+      guard:
+        groupId: flightGuidance.flightDirector
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.flightGuidance.flightDirector.on.native
+          transport: input-event
+          inputEvent: AIRLINER_FCU_FD
+          value: 1
+          readback:
+            fieldId: flightGuidance.flightDirector
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    flightGuidance.flightDirector.off:
+      id: flightGuidance.flightDirector.off
+      guard:
+        groupId: flightGuidance.flightDirector
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.flightGuidance.flightDirector.off.native
+          transport: input-event
+          inputEvent: AIRLINER_FCU_FD
+          value: 1
+          readback:
+            fieldId: flightGuidance.flightDirector
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+
+    # lights
+    lights.beacon.on:
+      id: lights.beacon.on
+      guard:
+        groupId: lights.beacon
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.beacon.on.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_BEACON
+          value: 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.beacon.off:
+      id: lights.beacon.off
+      guard:
+        groupId: lights.beacon
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.beacon.off.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_BEACON
+          value: 1
+          readback:
+            fieldId: lights.beacon
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.nav.on:
+      id: lights.nav.on
+      guard:
+        groupId: lights.nav
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.nav.on.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_NAV
+          value: 0
+          readback:
+            fieldId: lights.nav
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.nav.off:
+      id: lights.nav.off
+      guard:
+        groupId: lights.nav
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.nav.off.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_NAV
+          value: 1
+          readback:
+            fieldId: lights.nav
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.landing.on:
+      id: lights.landing.on
+      guard:
+        groupId: lights.landing
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.landing.on.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_LANDING
+          value: 0
+          readback:
+            fieldId: lights.landing
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.landing.off:
+      id: lights.landing.off
+      guard:
+        groupId: lights.landing
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.landing.off.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_LANDING
+          value: 1
+          readback:
+            fieldId: lights.landing
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.wing.on:
+      id: lights.wing.on
+      guard:
+        groupId: lights.wing
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.wing.on.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_WING
+          value: 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.wing.off:
+      id: lights.wing.off
+      guard:
+        groupId: lights.wing
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.wing.off.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_WING
+          value: 1
+          readback:
+            fieldId: lights.wing
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.runwayTurnoff.on:
+      id: lights.runwayTurnoff.on
+      guard:
+        groupId: lights.runwayTurnoff
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.runwayTurnoff.on.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_TURNOFF
+          value: 0
+          readback:
+            fieldId: lights.runwayTurnoff
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.runwayTurnoff.off:
+      id: lights.runwayTurnoff.off
+      guard:
+        groupId: lights.runwayTurnoff
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.runwayTurnoff.off.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_TURNOFF
+          value: 1
+          readback:
+            fieldId: lights.runwayTurnoff
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.strobe.on:
+      id: lights.strobe.on
+      guard:
+        groupId: lights.strobe
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.strobe.on.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_STROBE
+          value: 0
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.strobe.auto:
+      id: lights.strobe.auto
+      guard:
+        groupId: lights.strobe
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.strobe.auto.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_STROBE
+          value: 1
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: auto
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.strobe.off:
+      id: lights.strobe.off
+      guard:
+        groupId: lights.strobe
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.strobe.off.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_STROBE
+          value: 2
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.logo.on:
+      id: lights.logo.on
+      guard:
+        groupId: lights.logo
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.logo.on.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_LOGO
+          value: 0
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.logo.auto:
+      id: lights.logo.auto
+      guard:
+        groupId: lights.logo
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.logo.auto.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_LOGO
+          value: 1
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: auto
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.logo.off:
+      id: lights.logo.off
+      guard:
+        groupId: lights.logo
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.logo.off.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_LOGO
+          value: 2
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.nose.takeoff:
+      id: lights.nose.takeoff
+      guard:
+        groupId: lights.nose
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.nose.takeoff.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_NOSE
+          value: 0
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: takeoff
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.nose.taxi:
+      id: lights.nose.taxi
+      guard:
+        groupId: lights.nose
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.nose.taxi.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_NOSE
+          value: 1
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: taxi
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    lights.nose.off:
+      id: lights.nose.off
+      guard:
+        groupId: lights.nose
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.lights.nose.off.native
+          transport: input-event
+          inputEvent: AIRLINER_LIGHTS_EXT_NOSE
+          value: 2
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+
+    # cabin
+    cabin.seatBelts.on:
+      id: cabin.seatBelts.on
+      guard:
+        groupId: cabin.seatBelts
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.seatBelts.on.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_SEAT_BELTS
+          value: 0
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    cabin.seatBelts.auto:
+      id: cabin.seatBelts.auto
+      guard:
+        groupId: cabin.seatBelts
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.seatBelts.auto.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_SEAT_BELTS
+          value: 1
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: auto
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    cabin.seatBelts.off:
+      id: cabin.seatBelts.off
+      guard:
+        groupId: cabin.seatBelts
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.seatBelts.off.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_SEAT_BELTS
+          value: 2
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    cabin.noMobile.on:
+      id: cabin.noMobile.on
+      guard:
+        groupId: cabin.noMobile
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.noMobile.on.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_NO_MOBILE
+          value: 0
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    cabin.noMobile.auto:
+      id: cabin.noMobile.auto
+      guard:
+        groupId: cabin.noMobile
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.noMobile.auto.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_NO_MOBILE
+          value: 1
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: auto
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    cabin.noMobile.off:
+      id: cabin.noMobile.off
+      guard:
+        groupId: cabin.noMobile
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.noMobile.off.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_NO_MOBILE
+          value: 2
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    cabin.emergencyExit.on:
+      id: cabin.emergencyExit.on
+      guard:
+        groupId: cabin.emergencyExit
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.emergencyExit.on.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_EMER_EXIT
+          value: 0
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    cabin.emergencyExit.arm:
+      id: cabin.emergencyExit.arm
+      guard:
+        groupId: cabin.emergencyExit
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.emergencyExit.arm.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_EMER_EXIT
+          value: 1
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: arm
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    cabin.emergencyExit.off:
+      id: cabin.emergencyExit.off
+      guard:
+        groupId: cabin.emergencyExit
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.cabin.emergencyExit.off.native
+          transport: input-event
+          inputEvent: AIRLINER_SIGNS_EMER_EXIT
+          value: 2
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+
+    # systems
+    systems.apuBleed.off:
+      id: systems.apuBleed.off
+      guard:
+        groupId: systems.apuBleed
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.apuBleed.off.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_APU_BLEED
+          value: 1
+          readback:
+            fieldId: systems.apuBleedMode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.apuBleed.on:
+      id: systems.apuBleed.on
+      guard:
+        groupId: systems.apuBleed
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.apuBleed.on.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_APU_BLEED
+          value: 1
+          readback:
+            fieldId: systems.apuBleedMode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.engineBleed1.off:
+      id: systems.engineBleed1.off
+      guard:
+        groupId: systems.engineBleed1
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.engineBleed1.off.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_BLEED_ENG_1
+          value: 1
+          readback:
+            fieldId: systems.engineBleed1Mode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.engineBleed1.on:
+      id: systems.engineBleed1.on
+      guard:
+        groupId: systems.engineBleed1
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.engineBleed1.on.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_BLEED_ENG_1
+          value: 1
+          readback:
+            fieldId: systems.engineBleed1Mode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.engineBleed2.off:
+      id: systems.engineBleed2.off
+      guard:
+        groupId: systems.engineBleed2
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.engineBleed2.off.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_BLEED_ENG_2
+          value: 1
+          readback:
+            fieldId: systems.engineBleed2Mode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.engineBleed2.on:
+      id: systems.engineBleed2.on
+      guard:
+        groupId: systems.engineBleed2
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.engineBleed2.on.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_BLEED_ENG_2
+          value: 1
+          readback:
+            fieldId: systems.engineBleed2Mode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.engineBleed3.off:
+      id: systems.engineBleed3.off
+      guard:
+        groupId: systems.engineBleed3
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.engineBleed3.off.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_BLEED_ENG_3
+          value: 1
+          readback:
+            fieldId: systems.engineBleed3Mode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.engineBleed3.on:
+      id: systems.engineBleed3.on
+      guard:
+        groupId: systems.engineBleed3
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.engineBleed3.on.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_BLEED_ENG_3
+          value: 1
+          readback:
+            fieldId: systems.engineBleed3Mode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.engineBleed4.off:
+      id: systems.engineBleed4.off
+      guard:
+        groupId: systems.engineBleed4
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.engineBleed4.off.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_BLEED_ENG_4
+          value: 1
+          readback:
+            fieldId: systems.engineBleed4Mode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.engineBleed4.on:
+      id: systems.engineBleed4.on
+      guard:
+        groupId: systems.engineBleed4
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.engineBleed4.on.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_BLEED_ENG_4
+          value: 1
+          readback:
+            fieldId: systems.engineBleed4Mode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.pack1.off:
+      id: systems.pack1.off
+      guard:
+        groupId: systems.pack1
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.pack1.off.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_PACK_1
+          value: 1
+          readback:
+            fieldId: systems.pack1Mode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.pack1.on:
+      id: systems.pack1.on
+      guard:
+        groupId: systems.pack1
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.pack1.on.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_PACK_1
+          value: 1
+          readback:
+            fieldId: systems.pack1Mode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.pack2.off:
+      id: systems.pack2.off
+      guard:
+        groupId: systems.pack2
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.pack2.off.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_PACK_2
+          value: 1
+          readback:
+            fieldId: systems.pack2Mode
+            expectedValue: off
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.pack2.on:
+      id: systems.pack2.on
+      guard:
+        groupId: systems.pack2
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: iniA380.systems.pack2.on.native
+          transport: input-event
+          inputEvent: AIRLINER_AIR_PACK_2
+          value: 1
+          readback:
+            fieldId: systems.pack2Mode
+            expectedValue: on
+            timeoutMs: 3000
+            freshness: field
+      verification: verified
+    systems.apuMaster.on:
+      id: systems.apuMaster.on
+      guard:
+        groupId: systems.apuMaster
+        cooldownMs: 500
+        retry: never
+      routes:
+        - id: iniA380.systems.apuMaster.on.native
+          transport: input-event
+          inputEvent: AIRLINER_APU_MASTER_SWITCH
+          value: 1
+          readback:
+            fieldId: systems.apuMaster
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: partial
+    systems.apuMaster.off:
+      id: systems.apuMaster.off
+      guard:
+        groupId: systems.apuMaster
+        cooldownMs: 500
+        retry: never
+      routes:
+        - id: iniA380.systems.apuMaster.off.native
+          transport: input-event
+          inputEvent: AIRLINER_APU_MASTER_SWITCH
+          value: 1
+          readback:
+            fieldId: systems.apuMaster
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: partial
+    systems.apuStart.start:
+      id: systems.apuStart.start
+      guard:
+        groupId: systems.apuStart
+        cooldownMs: 500
+        retry: never
+      routes:
+        - id: iniA380.apuStart.native
+          transport: input-event
+          inputEvent: AIRLINER_APU_START
+          value: 1
+          precondition:
+            fieldId: systems.apuMaster
+            expectedValue: true
+            freshness: field
+          readback:
+            fieldId: systems.apuStart
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: partial
+    controls.gear.up:
+      id: controls.gear.up
+      guard:
+        groupId: iniA380.controls.gear
+        cooldownMs: 750
+        retry: never
+        requires:
+          - fieldId: controls.onGround
+            freshness: field
+            expectedValue: false
+      verification: partial
+      routes:
+        - id: iniA380.controls.gear.up.native
+          transport: input-event
+          inputEvent: AIRLINER_MIP_LG_HANDLE
+          value: 0
+          readback:
+            fieldId: controls.gearHandleDown
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+    controls.gear.down:
+      id: controls.gear.down
+      guard:
+        groupId: iniA380.controls.gear
+        cooldownMs: 750
+        retry: never
+      verification: partial
+      routes:
+        - id: iniA380.controls.gear.down.native
+          transport: input-event
+          inputEvent: AIRLINER_MIP_LG_HANDLE
+          value: 1
+          readback:
+            fieldId: controls.gearHandleDown
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+  catalogue:
+    order: 0
+    legacyExports:
+      INIBUILDS_A380_ADAPTER_ID:
+        kind: id
+        order: 59
+      INIBUILDS_A380_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/inibuilds-a380-800-rr
+        order: 60
+      INIBUILDS_A380_INTEGRATION:
+        kind: integration
+        order: 61
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/inibuilds-a380-800-rr:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: inibuilds-a380-800-rr
+    name: iniBuilds Airbus A380-800 RR
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-09-23T00:00:00Z
+    updatedAt: 2026-09-23T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/airbus-base
+    abstract: false
+    aircraft:
+      engines:
+        count: 4
+        type: jet
+    integration:
+      matching:
+        priority: 95
+        titleContains: []
+        titleRegex: ""
+        configPathContains: []
+        configPathRegex: (?:^|[\\/])SimObjects[\\/]Airplanes[\\/]inibuilds-a380[\\/]presets[\\/]inibuilds[\\/]a380-800_rr_basic[\\/]config[\\/]aircraft\.cfg$
+      aircraftSpecific:
+        adapter: inibuilds-a380
+      telemetry:
+        preferred: simconnect
+        lights:
+          source: simconnect
+      controls:
+        backend: simconnect
+        genericFallback: false
+        standardSurfaceFallback: false
+      presentation:
+        visualSupport: basic
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - logo
+            - wing
+          labels:
+            beacon: BCN
+            nav: NAV
+            strobe: STRB
+            landing: LND
+            taxi: NOSE
+            logo: LOGO
+            wing: WING
+    meta:
+      developer: iniBuilds
+      platforms:
+        - msfs2024
+      contributor: YenBuilds
+      updated: 2026-09-23
+      status: partial
+      variant: A380-800 RR Basic
+      notes: Selected FCU numeric targets have powered-ground validation with independent confirmation. Flight
+        director, exterior lights, lighting presets, COM1/COM2 tuning and swapping, cabin signs, seven
+        air-system buttons and flap/speedbrake/ground-spoiler lever selections validated on A380 AIRLINER
+        1.0.0. APU startup has separate confirmation and restart limitations. Only RR Basic is matched; flight
+        engagement, managed/Mach/TRK/FPA modes, automatic surface behavior and other variants remain under
+        validation.
+    provenance:
+      sources:
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 documented LVAR read/write surface, with A380-specific live validation
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimConnect/API_Reference/Events_And_Data/SimConnect_AddToDataDefinition.htm
+          retrievedAt: 2026-09-23
+          notes: "The simulator SDK documents FLOAT64 Number reads/writes of named LVARs; it does not publish an
+            A380-specific target recipe. Reproducible in-simulator verification established exact discovered
+            variables INI_AIRSPEED_DIAL (selected knots 100-350), INI_HEADING_DIAL (HDG 0-359 degrees),
+            INI_ALTITUDE_DIAL (100-49000 feet, 100-foot targets independent of knob scale), INI_VVI_DIAL
+            (visible V/S -6000 to 6000 ft/min in 100-foot increments). Both calculator and SimConnect
+            named-variable writes changed the FCU/PFD, independent autopilot targets and subsequent native
+            knob movement. They are not accepted on self-echo alone. Read-only guards: INI_FCU_POWERED_VAR,
+            INI_TRACK_FPA_STATE, INI_FCU_SPD_DASHED, INI_FCU_HDG_DASHED, INI_FCU_VS_DASHED, INI_FCU_SPD_DOT,
+            INI_FCU_HDG_DOT. Exact source inventory, simulator/package identity, mode rejections, cycles,
+            boundaries and restoration are recorded in docs/aircraft-intake/inibuilds-a380-fcu.evidence.json.
+            Ground selector scope only; flight engagement and managed/Mach/TRK/FPA writes are excluded."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 independent autopilot target readbacks
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Aircraft_SimVars/Aircraft_AutopilotAssistant_Variables.htm
+          retrievedAt: 2026-09-23
+          notes: AUTOPILOT AIRSPEED HOLD VAR knots, AUTOPILOT HEADING LOCK DIR degrees, AUTOPILOT ALTITUDE LOCK VAR
+            feet, AUTOPILOT VERTICAL HOLD VAR feet per minute. These readbacks agreed with visible A380
+            targets after the recorded direct-variable writes and native knob steps. V/S is only meaningful
+            for this transaction when INI_FCU_VS_DASHED is 0 and INI_TRACK_FPA_STATE is 0. The generic
+            managed-Mach flag failed the A380 mode test and is not used. These are readback contracts, not
+            authority to use standard autopilot setter events; those setters were rejected by earlier A380
+            trials.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 COM1/COM2 standby tuning and swap events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Radio_Navigation_Events.htm
+          retrievedAt: 2026-09-23
+          notes: "COM_STBY_RADIO_SET_HZ and COM2_STBY_RADIO_SET_HZ take exact Hz; COM1_RADIO_SWAP and COM2_RADIO_SWAP
+            exchange banks. A380 package 1.0.0 applicability was independently established against both
+            cockpit RMPs and INI_VHF1/2_ACTIVE_FREQ and STANDBY_FREQ (kHz). Twenty complete production
+            requests included 18 confirmed successes (six no-ops) and two invalid-channel rejections without
+            writes; both radios restored. The shared transaction confirms standby before one swap and both
+            resulting banks afterward, with fresh power/status/spacing checks and no automatic retry. Source,
+            observations, hashes and live samples: docs/aircraft-intake/inibuilds-a380-radios.evidence.json.
+            COM3 and audio/ATC synchronization are outside this evidence."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 radio state variables
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Aircraft_SimVars/Aircraft_RadioNavigation_Variables.htm
+          retrievedAt: 2026-09-23
+          notes: COM AVAILABLE:n Bool, COM STATUS:n Number (0 OK), COM SPACING MODE:n Number (0 25 kHz, 1 8.33 kHz), COM
+            ACTIVE FREQUENCY:n and COM STANDBY FREQUENCY:n MHz for indices 1 and 2. A380 vendor-state and
+            both-RMP agreement in external-power ground conditions is recorded in
+            docs/aircraft-intake/inibuilds-a380-radios.evidence.json. A generic variable's presence alone does
+            not establish support for other indices or systems.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: iniBuilds A380 1.0.0 loaded flap and spoiler behavior
+          url: https://docs.flightsimulator.com/msfs2024/html/2_DevMode/Menus/Tools/Behaviours_Debug/Behaviors_Debug.htm
+          retrievedAt: 2026-09-23
+          notes: The URL documents the simulator inspection tool; the mapping source is the installed vendor behavior.
+            Loaded interior export SHA256 5dd0b57e906e9c537c64411264fc39f41100a08d57e36fd0c9ef2b7647276700.
+            AIRLINER_FLAPS sends INI.FLAPS_SET with payload 0/4096/8192/12288/16384 for UP/1/2/3/FULL,
+            independently confirmed by FLAPS HANDLE INDEX. AIRLINER_PED_SPOILERS is animation-only and is not
+            used. The mouse behavior (String ID 1163488971869229644) sends INI.SPOILERS_SET 0/8192/16384 for
+            STOW/HALF/FULL and INI.SPOILERS_ARM_ON and INI.SPOILERS_ARM_OFF with payload 0. Stable readbacks
+            are INI_SPOILERS_HANDLE_POSITION 0/0.5/1 and INI_SPOILERS_ARMED 0/1. Independent pedestal
+            observations, both-wing powered flap/slat settling, spoiler surface response, 43 production
+            requests and restoration are recorded in
+            docs/aircraft-intake/inibuilds-a380-surfaces.evidence.json. Readbacks confirm lever selection, not
+            completed surface travel or automatic landing deployment.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: iniBuilds A380 AIRLINER 1.0.0 loaded interior behavior, MSFS Behaviors export
+          url: https://docs.flightsimulator.com/msfs2024/html/2_DevMode/Menus/Tools/Behaviours_Debug/Behaviors_Debug.htm
+          retrievedAt: 2026-09-23
+          notes: "The URL documents the simulator inspection tool; the mapping source is the installed vendor behavior
+            exported from function_a388_interior - a388_interior.xml[0]. SHA256
+            5dd0b57e906e9c537c64411264fc39f41100a08d57e36fd0c9ef2b7647276700. Exact excerpts and live
+            evidence: docs/aircraft-intake/inibuilds-a380-behavior.evidence.json. AIRLINER_LIGHTS_EXT_BEACON /
+            INI_LIGHTS_BEACON; AIRLINER_LIGHTS_EXT_NAV / INI_LIGHTS_NAV; AIRLINER_LIGHTS_EXT_LANDING /
+            INI_LIGHTS_LANDING; AIRLINER_LIGHTS_EXT_WING / INI_LIGHTS_WING; AIRLINER_LIGHTS_EXT_TURNOFF /
+            INI_TURNOFF_LIGHT_SWITCH: payload 0 ON, 1 OFF. AIRLINER_LIGHTS_EXT_STROBE / INI_LIGHTS_STROBE and
+            AIRLINER_LIGHTS_EXT_LOGO / INI_LIGHTS_LOGO: 0 ON, 1 AUTO, 2 OFF. AIRLINER_LIGHTS_EXT_NOSE /
+            INI_LIGHTS_NOSE: 0 TAKEOFF, 1 TAXI, 2 OFF. Stable APU state: INI_APU_MASTER_SWITCH,
+            INI_APU_START_BUTTON, INI_APU_AVAILABLE, INI_APU_MASTER_FAULT. Selector meanings independently
+            observed in the cockpit; command ACK is never considered state confirmation.
+            AIRLINER_APU_MASTER_SWITCH and AIRLINER_APU_START take payload 1 to pulse
+            INI_APU_MASTER_SWITCH_CMD and INI_APU_START_BUTTON_CMD. Stable readback remains separate. The
+            master is a toggle; repeated target intents require same-state no-op handling. The vendor manual
+            printed page 183 specifies a minimum five-second delay. Both five- and ten-second recent-shutdown
+            trials failed. A five-second sequence after a longer shutdown interval confirmed START and later
+            AVAIL. The preset follows the manual minimum; restart-readiness telemetry remains unresolved. See
+            the acceptance evidence for repeats and limits. Two startups reached AVAIL; production-path
+            evidence: docs/aircraft-intake/inibuilds-a380-acceptance.evidence.json. Cabin selectors:
+            AIRLINER_SIGNS_SEAT_BELTS / INI_SEATBELTS_SWITCH and AIRLINER_SIGNS_NO_MOBILE /
+            INI_SIGNS_NO_MOBILE: 0 ON, 1 AUTO, 2 OFF. AIRLINER_SIGNS_EMER_EXIT / INI_EMER_EXIT_SWITCH: 0 ON, 1
+            ARM, 2 OFF. Loaded Set recipes and 21 native writes:
+            docs/aircraft-intake/inibuilds-a380-cabin.evidence.json. Air-system buttons:
+            AIRLINER_AIR_APU_BLEED / INI_AIR_BLEED_APU; AIRLINER_AIR_BLEED_ENG_1, AIRLINER_AIR_BLEED_ENG_2,
+            AIRLINER_AIR_BLEED_ENG_3, AIRLINER_AIR_BLEED_ENG_4 / INI_AIR_BLEED_ENG1, INI_AIR_BLEED_ENG2,
+            INI_AIR_BLEED_ENG3, INI_AIR_BLEED_ENG4; AIRLINER_AIR_PACK_1, AIRLINER_AIR_PACK_2 /
+            INI_AIR_PACK1_BUTTON, INI_AIR_PACK2_BUTTON. Each payload 1 toggles stable state; raw 0 OFF, 1 ON
+            selection, not airflow. Source excerpts and repeated live checks:
+            docs/aircraft-intake/inibuilds-a380-air.evidence.json. Flight director: AIRLINER_FCU_FD payload 1
+            toggles INI_FD_ON; 0 OFF, 1 ON, verified against FCU and PFD in two cycles. Generic AUTOPILOT
+            FLIGHT DIRECTOR ACTIVE stayed true in the OFF states and is not used for this control. Source and
+            observations: docs/aircraft-intake/inibuilds-a380-guidance.evidence.json. AIRLINER_FCU_VS_KNOB
+            positive Set payload writes 1 to INI_VVI_DIAL_UP_COMMAND; the accepted reveal action uses this
+            loaded behavior only when INI_FCU_VS_DASHED is true and confirms false. Repeated reveal while
+            already visible is a no-op. Exact source and live tests:
+            docs/aircraft-intake/inibuilds-a380-fcu.evidence.json."
+        - type: manual-testing
+          authority: community
+          access: vendor-install
+          supportsActiveMappings: false
+          name: A380 RR Basic live ground acceptance, MSFS 2024 1.8.16.0
+          retrievedAt: 2026-09-23
+          notes: 46 native exterior-light writes, independent fresh LVAR readbacks, all positions visually checked and
+            repeated, original positions restored. APU master, start and availability observed against blue ON
+            and green AVAIL cockpit indications. See docs/INIBUILDS-A380-ONBOARDING.md.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: iniBuilds A380 1.0.0 normal gear handle behavior
+          url: https://docs.flightsimulator.com/msfs2024/html/2_DevMode/Menus/Tools/Behaviours_Debug/Behaviors_Debug.htm
+          retrievedAt: 2026-10-17
+          notes: Loaded vendor behavior export SHA256 5dd0b57e906e9c537c64411264fc39f41100a08d57e36fd0c9ef2b7647276700,
+            AIRLINER_MIP_LG_HANDLE owner 1540. Set 0 invokes INI.GEAR_UP only airborne; Set 1 invokes INI.GEAR_DOWN. The
+            native input event retains this aircraft-owned ground interlock. FlightFabric also requires fresh SIM ON
+            GROUND=false before UP and confirms GEAR HANDLE POSITION, not completed gear travel. Generic surface
+            fallback remains disabled. On 2026-10-17, A380-800 RR Basic in MSFS 2024 passed production recognized-text
+            DOWN no-op and UP ground inhibition with no writes. Airborne UP, repeat UP no-op, DOWN and repeat DOWN no-op
+            passed with two native writes; the three standard gear-position readings reached 0 then 100 percent. Handle
+            selection confirmed in about one second, independently of the approximately 21-second retraction and
+            35-second extension. Final handle and standard gear positions were DOWN. Current package/simulator build
+            numbers and other variants were not established. See docs/INIBUILDS-A380-ONBOARDING.md.
+      verification:
+        status: partial
+        lastVerified: 2026-09-23
+        knownIssues:
+          - COM1/COM2 tuning and swapping passed on external power in 8.33 kHz spacing mode. Audio/transmit
+            selection, COM3, NAV/TCAS, ATC-client synchronization, live power-loss/reload/interference and
+            microphone recognition were not covered by this acceptance group.
+          - Only the installed A380-800 RR Basic preset on package 1.0.0 is matched. Other packages, engines
+            and liveries need identity and behavior checks.
+          - Exterior selector positions were verified on the ground with external power. AUTO output behavior
+            in flight is not yet verified.
+          - Standard APU RPM and external-power SimVars disagree with cockpit state; they are not used for APU
+            confirmation.
+          - Selected IAS/HDG/altitude/visible V/S targets passed powered-ground acceptance with independent
+            confirmation. In-flight target behavior, managed/Mach/TRK/FPA writes, flight modes and automatic
+            surface behavior remain under validation. General fallback writes are disabled.
+          - Flap, speedbrake and ground-spoiler controls confirm lever selection. Ground hydraulic movement
+            was checked; flight-dependent inhibition, load relief and landing deployment remain unverified.
+            Parking-brake handle animation needs further acceptance.
+          - APU START did not confirm in two recent-shutdown trials. Five seconds after master ON succeeded
+            after a longer shutdown interval; reliable shutdown-complete/readiness telemetry remains
+            unresolved. START confirmation is not AVAIL.
+          - Generic flight-director active SimVar disagrees with the cockpit; the dedicated FD control uses
+            INI_FD_ON. AP1/AP2/A-THR engagement remains unverified.

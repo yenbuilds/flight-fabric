@@ -203,6 +203,7 @@ function flightDateTimeLabel(flight) {
         <span>Search flights</span>
         <input
           ref="routeFilterInput"
+          id="timeline-flight-search"
           :value="timeline.routeFilter"
           type="search"
           aria-label="Search flights by route or airport"

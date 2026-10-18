@@ -12,8 +12,9 @@ const {
   finalizeLoadedProfile,
   normalizeProfileDocument,
 } = require('./aircraft-profile-model');
-const genericProfileDocument = require('./profiles/bundled/msfs/generic.json');
-const tristarProfileDocument = require('./profiles/bundled/msfs/inibuilds-tristar.json');
+const { readBundledProfile } = require('./aircraft-profile-sources');
+const genericProfileDocument = readBundledProfile('bundled/msfs/generic');
+const tristarProfileDocument = readBundledProfile('bundled/msfs/inibuilds-tristar');
 function buildProfile(overrides = {}) {
   return {
     id: 'generic',

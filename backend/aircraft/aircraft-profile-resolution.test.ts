@@ -105,7 +105,7 @@ test('resolveLoadedProfile logs and fails closed on invalid profile documents', 
   });
 
   assert.equal(result, null);
-  assert.deepEqual(logs, ['Skipping invalid profile JSON: /tmp/bad-aircraft.json']);
+  assert.deepEqual(logs, ['Skipping invalid profile definition: /tmp/bad-aircraft.json']);
 });
 
 console.log(`PASS aircraft-profile-resolution ${passed}`);

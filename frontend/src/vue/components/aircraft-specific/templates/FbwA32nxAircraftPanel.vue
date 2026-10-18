@@ -393,7 +393,7 @@ const controlSections = [
 ];
 
 const exteriorIndicators = [
-  { id: 'lights.strobeActive', label: 'STROBE ACTIVE' },
+  { id: 'lights.strobeActive', label: 'STROBE ENABLED' },
   { id: 'lights.beacon', label: 'BEACON' },
   { id: 'lights.nav', label: 'NAV' },
   { id: 'lights.logo', label: 'LOGO' },
@@ -553,12 +553,15 @@ function controlStatus(control) {
     return 'This control is unavailable.';
   }
   if (control.fieldId === 'lights.strobeMode') {
+    const enabledStatus = value('lights.strobeActive') === null
+      ? 'Strobe enabled state unavailable.'
+      : `Strobe enabled: ${valueText('lights.strobeActive')}.`;
     if (controlValue(control) === 'auto') {
       return value('lights.strobeAuto') === true
-        ? `AUTO armed; actual strobe output is ${value('lights.strobeActive') === true ? 'ON' : 'OFF'}.`
+        ? `AUTO armed. ${enabledStatus}`
         : 'Waiting for the live AUTO-mode flag.';
     }
-    return `Selector and actual strobe output are tracked independently; output is ${value('lights.strobeActive') === true ? 'ON' : 'OFF'}.`;
+    return enabledStatus;
   }
   if (control.fieldId === 'controls.flapsHandle') {
     return 'Lever selection; flap surfaces may still be moving.';
@@ -732,6 +735,7 @@ function alignmentText() {
     <div id="fbw-a32nx-section-light-readback" class="aircraft-mobile-navigable-section" tabindex="-1">
       <div class="dashboard-section-kicker">Exterior Light Readback</div>
       <p class="mb-2 text-[10px] leading-relaxed text-gray-500">
+        Strobe enabled state does not confirm visible flashes. AUTO can suppress flashes on the ground.
         Landing-light selector and illuminated-circuit states are tracked independently.
       </p>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">

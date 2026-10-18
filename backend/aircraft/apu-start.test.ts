@@ -3,7 +3,7 @@ const test = require('node:test');
 const { executeAircraftCommand, buildAircraftControlCapabilities } = require('./aircraft-control-service');
 const { resolveAircraftCommandConfiguration } = require('./aircraft-command-catalogue');
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
-const { defaultAircraftIntegrationRegistry, createAircraftIntegrationRegistry } = require('./aircraft-integrations');
+const { defaultAircraftIntegrationRegistry, createAircraftIntegrationRegistry } = require('./integration-engine');
 
 const families = [
   ['fbw-a32nx', 'fbw-a32nx', 'systems.apuStart.start', 'systems.apuMaster.on'],

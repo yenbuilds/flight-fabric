@@ -67,10 +67,12 @@ function isRuntimeTestOrSpecFile(name) {
     || /^(?:test|spec)-/i.test(name);
 }
 
-function shouldExcludeRuntimeModuleEntry(entry) {
+function shouldExcludeRuntimeModuleEntry(entry, relativePath = '') {
   const lowerName = String(entry?.name || '').toLowerCase();
   if (entry?.isDirectory() && RUNTIME_MODULE_EXCLUDED_DIRECTORIES.has(lowerName)) {
-    return true;
+    // yaml's Node parser imports its Document implementation from dist/doc;
+    // this exact directory is executable code, not package documentation.
+    return String(relativePath).replace(/\\/g, '/') !== 'yaml/dist/doc';
   }
   if (!entry?.isFile()) return false;
   if (RUNTIME_MODULE_EXCLUDED_FILES.has(lowerName)) return true;
@@ -219,8 +221,8 @@ function copyDirSync(src, dest, sourceRoot = src) {
 
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    if (shouldExcludeRuntimeModuleEntry(entry)) continue;
     const srcPath = path.join(src, entry.name);
+    if (shouldExcludeRuntimeModuleEntry(entry, path.relative(resolvedSourceRoot, srcPath))) continue;
     const destPath = path.join(dest, entry.name);
     const stat = fs.lstatSync(srcPath);
     const realSourcePath = fs.realpathSync(srcPath);

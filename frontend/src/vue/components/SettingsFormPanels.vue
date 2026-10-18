@@ -4,7 +4,9 @@ import HelpTooltip from './HelpTooltip.vue';
 import ToolbarPanelSettingsPanel from './ToolbarPanelSettingsPanel.vue';
 import SettingsSectionWatermark from './SettingsSectionWatermark.vue';
 import { useSettingsEditorStore } from '../stores/settings-editor.js';
+import { useSettingsUiStore } from '../stores/settings-ui.js';
 const settings = useSettingsEditorStore();
+const settingsUi = useSettingsUiStore();
 defineProps({ section: { type: String, default: 'all' } });
 const startupDelaySeconds = computed({
   get: () => Number(settings.cabinAnnouncementsStartupGraceMs) / 1000,
@@ -131,6 +133,15 @@ const startupDelaySeconds = computed({
             </span>
           </div>
         </div>
+      </div>
+      <div class="settings-option-row mt-4 flex flex-col items-start gap-3">
+        <div>
+          <div class="text-sm font-medium text-fg">Introduction</div>
+          <p id="settings-intro-help" class="mt-1 text-xs leading-relaxed text-muted-fg">{{ settingsUi.introBlockedReason || 'Revisit voice control, flight recording and the MSFS toolbar setup.' }}</p>
+        </div>
+        <button id="settings-show-intro" type="button" class="ff-button-secondary sm:self-start"
+          :disabled="Boolean(settingsUi.introBlockedReason)" aria-describedby="settings-intro-help"
+          @click="settingsUi.introOpen = true">Show intro again</button>
       </div>
     </section>
 

@@ -136,6 +136,7 @@
     const remoteAccess = sanitizeBool(network.remoteAccess, defaults.remoteAccess);
 
     return {
+      onboarding: { completed: Boolean(root.onboarding && root.onboarding.completed === true) },
       aircraft: {
         profile: sanitizeNonEmptyString(aircraft.profile, defaults.aircraftProfile),
       },
@@ -177,6 +178,10 @@
     const settings = input && typeof input === 'object' ? input : {};
     const normalized = normalizeAppSettings(settings, options);
     const next = {};
+
+    // Completion is monotonic. Older settings forms and stale clients must
+    // never reset it by omitting the field or sending their default false.
+    if (settings.onboarding && settings.onboarding.completed === true) next.onboarding = { completed: true };
 
     if (settings.aircraft && typeof settings.aircraft === 'object') next.aircraft = normalized.aircraft;
     if (settings.simulator && typeof settings.simulator === 'object') next.simulator = normalized.simulator;

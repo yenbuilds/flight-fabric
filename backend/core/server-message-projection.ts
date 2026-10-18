@@ -665,6 +665,9 @@ function projectFlightRecording(message: ServerMessage): ServerMessage {
     if (hasOwn(message, key)) projected[key] = message[key];
   }
   const fileName = safeFileName(message.fileName);
+  if (hasOwn(message, 'sizeBytes')) {
+    projected.sizeBytes = Number.isSafeInteger(message.sizeBytes) && message.sizeBytes >= 0 ? message.sizeBytes : null;
+  }
   const error = safeBoundedString(message.error, 300);
   if (fileName) projected.fileName = fileName;
   if (error) projected.error = error;

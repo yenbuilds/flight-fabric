@@ -278,6 +278,7 @@ export async function initAppRuntime({
   let wasSimconnectConnected = false;
   const flightStore = requireRuntimeStore(runtimeStores, 'flight');
   const appSettingsStore = requireRuntimeStore(runtimeStores, 'appSettings');
+  const settingsUiStore = requireRuntimeStore(runtimeStores, 'settingsUi');
   const feedbackStore = requireRuntimeStore(runtimeStores, 'feedback');
   const statusStore = requireRuntimeStore(runtimeStores, 'status');
   const preferencesStore = requireRuntimeStore(runtimeStores, 'preferences');
@@ -374,8 +375,20 @@ export async function initAppRuntime({
     aircraftSpecificStore,
     simbriefStore,
     voiceStore,
+    isInputAllowed: () => settingsUiStore.initialSetupReady === true,
     globalRef: window,
   });
+  // Mandatory setup is resolved once per page lifetime. Optional replays and
+  // later reconnects preserve readiness and the saved native voice preference.
+  let cleanupVoiceSetupGate = null;
+  if (!settingsUiStore.initialSetupReady) {
+    cleanupVoiceSetupGate = settingsUiStore.$subscribe((_mutation, state) => {
+      if (!state.initialSetupReady) return;
+      cleanupVoiceSetupGate?.();
+      cleanupVoiceSetupGate = null;
+      voiceController.refreshReadyState();
+    }, { detached: true, flush: 'sync' });
+  }
 
   const autopilotPanel = createAutopilotPanel({
     aircraftControl,
@@ -471,8 +484,9 @@ export async function initAppRuntime({
     ui: uiHelpers,
   });
   appSettingsStore?.bindRuntimeActions?.({
-    onSaveSettings(nextSettings) {
-      return connection.send({ type: 'saveAppSettings', settings: nextSettings });
+    onSaveSettings(nextSettings, { requestId } = {}) {
+      return connection.getAuthorizationScope() === 'full-control'
+        && connection.send({ type: 'saveAppSettings', settings: nextSettings, requestId });
     },
   });
   simbriefStore?.bindRuntime?.({
@@ -735,7 +749,11 @@ export async function initAppRuntime({
   simbriefStore?.restore?.();
   connection.initialize();
   void voiceController.initialize();
-  window.addEventListener('beforeunload', () => { void voiceController.dispose(); }, { once: true });
+  window.addEventListener('beforeunload', () => {
+    cleanupVoiceSetupGate?.();
+    cleanupVoiceSetupGate = null;
+    void voiceController.dispose();
+  }, { once: true });
 }
 
 

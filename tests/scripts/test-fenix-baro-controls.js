@@ -1,11 +1,25 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
-const { captureFenixBaroState, executeFenixBaroTransaction } = require(runtime('aircraft/aircraft-integrations/fenix-a32x/baro-control.js'));
+const { captureStagedControlState, executeStagedControl } = require(runtime('aircraft/staged-control-execution.js'));
+const { defaultAircraftIntegrationRegistry } = require(runtime('aircraft/integration-engine/index.js'));
 const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
 const { buildAircraftControlCapabilities, resolveAircraftCommand } = require(runtime('aircraft/aircraft-control-service.js'));
 const capabilities = { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] };
 const sides = ['captain', 'firstOfficer'];
+
+const integration = () => defaultAircraftIntegrationRegistry.list().find(item => item.id === 'fenix-a32x');
+const routeFor = (target, operation) => integration().actions[`baro.${target}.${operation}`].routes[0];
+// Preserve the independent physical fixture while exercising the neutral engine.
+// Public result formatting remains covered through the real provider and unchanged provider parity suite.
+function executeRecipe(params) {
+  const route = routeFor(params.target, params.operation);
+  return executeStagedControl({ ...params, recipe: route.stagedControl, capture: () => {
+    const state = params.capture();
+    return state && { available: state.healthy, targets: Object.fromEntries(Object.entries(state.sides).map(([id, s]) =>
+      [id, { values: { qnh: s.qnh, units: s.units, pressure: s.pressure }, times: s.times }])) };
+  }, write: (id, key) => params.executeCode(route.codes[route.stagedControl.targets.find(t => t.id === id).writes[key]]) });
+}
 
 function harness(operation = 'qnhHpa', value = 1016, target = 'both') {
   let time = 10000, current = true;
@@ -25,7 +39,7 @@ function harness(operation = 'qnhHpa', value = 1016, target = 'both') {
       if (code.includes('_MODE') || code.includes('_STD')) h.update(side, 'pressure', state.sides[side].pressure);
       return { ok: true };
     },
-    run: (patch = {}) => executeFenixBaroTransaction({ target, operation, value, capture: () => structuredClone(state),
+    run: (patch = {}) => executeRecipe({ target, operation, value, capture: () => structuredClone(state),
       isCurrent: () => current, executeCode: code => h.write(code), now: () => time, sleep: async ms => {
         time += ms;
         if (!h.after) for (const side of sides) state.sides[side].times.pressure = time;
@@ -43,7 +57,7 @@ test('Fenix QNH confirms units, leaves STD once and steps each side to hPa/inHg 
     assert.equal(h.calls.filter(c => c.includes('_MODE')).length, count);
     assert.equal(h.calls.filter(c => c.includes('_STD')).length, count);
     assert.equal(h.calls.filter(c => c.includes('(L:E_')).length, count * 3);
-    assert.deepEqual(r.baro.confirmedSides, target === 'both' ? sides : [target]);
+    assert.deepEqual(r.confirmedTargets, target === 'both' ? sides : [target]);
     if (target !== 'both') assert.ok(h.calls.every(c => c.includes(target === 'captain' ? 'EFIS1' : 'EFIS2')));
   }
 });
@@ -86,7 +100,7 @@ test('QNH cannot confirm cached matching pressure from before a mode or unit cha
     };
     const r = await h.run();
     assert.equal(r.ok, refresh === 'both', `${linked}/${transition}/${refresh}: ${JSON.stringify(r)}`);
-    assert.deepEqual(r.baro.confirmedSides, refresh === 'both' ? sides : refresh === 'captain' ? ['captain'] : []);
+    assert.deepEqual(r.confirmedTargets, refresh === 'both' ? sides : refresh === 'captain' ? ['captain'] : []);
     assert.equal(h.calls.length, linked ? 1 : 2, 'missing pressure updates must not cause knob input or retries');
   }
 });
@@ -99,8 +113,8 @@ test('missing or stale detent confirmation is not retried or counted as success'
       h.update(side, 'pressure', confirmed || outcome === 'stale' ? 1014 : 1013, confirmed);
       return { ok: true };
     };
-    const r = await h.run(); assert.equal(r.ok, false); assert.equal(r.code, 'baro_readback_timeout');
-    assert.deepEqual(r.baro.confirmedSides, target === 'both' ? ['captain'] : []);
+    const r = await h.run(); assert.equal(r.ok, false); assert.equal(r.code, 'readback_timeout');
+    assert.deepEqual(r.confirmedTargets, target === 'both' ? ['captain'] : []);
     assert.equal(h.calls.length, 1, 'no retry or peer detent based on an old sample');
   }
 });
@@ -142,7 +156,7 @@ test('linked altimeters wait for a dispatched detent before deciding whether the
     } });
     assert.equal(r.ok, true, `${operation}: ${JSON.stringify(r)}`);
     assert.equal(h.calls.length, 3, 'one confirmed input per linked detent');
-    assert.deepEqual(r.baro.confirmedSides, sides);
+    assert.deepEqual(r.confirmedTargets, sides);
     assert.ok(sides.every(side => h.state.sides[side].pressure === value));
   }
 });
@@ -196,14 +210,14 @@ test('a mirrored pressure or mode value with an old own timestamp cannot confirm
       return { ok: true };
     };
     const r = await h.run();
-    assert.equal(r.ok, false); assert.equal(r.code, 'baro_readback_timeout');
-    assert.deepEqual(r.baro.confirmedSides, ['captain']); assert.equal(h.calls.length, 1);
+    assert.equal(r.ok, false); assert.equal(r.code, 'readback_timeout');
+    assert.deepEqual(r.confirmedTargets, ['captain']); assert.equal(h.calls.length, 1);
   }
 });
 
 test('Fenix pressure bounds reject invalid input before writing and full range remains bounded', async () => {
   for (const [op, values] of [['qnhHpa', [947, 1085, 1016.5, NaN]], ['qnhInHg', [27.98, 32.02, 29.921]]]) for (const value of values) {
-    const h = harness(op, value); assert.equal((await h.run()).code, 'invalid_baro_value'); assert.deepEqual(h.calls, []);
+    const h = harness(op, value); assert.equal((await h.run()).code, 'invalid_value'); assert.deepEqual(h.calls, []);
   }
   const h = harness('qnhInHg', 32.01); for (const side of sides) h.state.sides[side] = { ...h.state.sides[side], units: 'inhg', pressure: 27.99 };
   assert.equal((await h.run()).ok, true); assert.equal(h.calls.length, 804);
@@ -212,9 +226,10 @@ test('Fenix pressure bounds reject invalid input before writing and full range r
 test('capture requires independently recent mode, units and power; STD permits a blank pressure', () => {
   const values = { 'baro.healthy': true, 'baro.captain.qnh': false, 'flightGuidance.baroUnitCaptain': 'hpa' };
   const sample = id => ({ observed: values[id], fresh: true, updatedAtMs: 9000 });
-  assert.equal(captureFenixBaroState('captain', 'std', sample, 10000).sides.captain.pressure, null);
+  const capture = decoded => captureStagedControlState(routeFor('captain', 'std').stagedControl, { decoded, raw: () => null }, 10000);
+  assert.equal(capture(sample).targets.captain.values.pressure, null);
   for (const id of Object.keys(values)) for (const patch of [{ fresh: false }, { updatedAtMs: 7000 }, { updatedAtMs: 10001 }, { observed: null }]) {
-    assert.equal(captureFenixBaroState('captain', 'std', key => ({ ...sample(key), ...(key === id ? patch : {}) }), 10000), null);
+    assert.equal(capture(key => ({ ...sample(key), ...(key === id ? patch : {}) })), null);
   }
   const h = harness('std'); h.state.healthy = false;
   return h.run().then(r => { assert.equal(r.ok, false); assert.deepEqual(h.calls, []); });
@@ -235,15 +250,29 @@ test('all three Fenix profiles expose nine targeted UI/voice commands; unreviewe
   }
 });
 
-test('registry rejects modified recipes, weakened guards, missing confirmations and wrong aircraft', () => {
-  const { defineAircraftIntegration } = require(runtime('aircraft/aircraft-integrations/registry.js'));
-  const { FENIX_A32X_INTEGRATION } = require(runtime('aircraft/aircraft-integrations/fenix-a32x/index.js'));
+test('shipped Fenix writes remain independently specified; malformed staged contracts fail closed', () => {
+  const { defineAircraftIntegration } = require(runtime('aircraft/integration-engine/registry.js'));
+  const FENIX_A32X_INTEGRATION = integration();
+  for (const target of [...sides, 'both']) for (const operation of ['qnhHpa', 'qnhInHg', 'std']) {
+    const action = FENIX_A32X_INTEGRATION.actions[`baro.${target}.${operation}`];
+    const numbers = target === 'both' ? [1, 2] : [target === 'captain' ? 1 : 2], std = operation === 'std', inHg = operation === 'qnhInHg';
+    assert.deepEqual(action.guard, { groupId: 'fenixA32x.baro', cooldownMs: 750, retry: 'never' });
+    assert.deepEqual(action.input, std ? undefined : { type: 'number', min: inHg ? 27.99 : 948, max: inHg ? 32.01 : 1084, step: inHg ? .01 : 1 });
+    assert.deepEqual(action.routes[0].codes, numbers.flatMap(number => std
+      ? [`(L:S_FCU_EFIS${number}_BARO_STD, Number) ++ (>L:S_FCU_EFIS${number}_BARO_STD, Number)`]
+      : [`${inHg ? 0 : 1} (>L:S_FCU_EFIS${number}_BARO_MODE, Number)`,
+        `(L:S_FCU_EFIS${number}_BARO_STD, Number) -- (>L:S_FCU_EFIS${number}_BARO_STD, Number)`,
+        `(L:E_FCU_EFIS${number}_BARO, Number) -- (>L:E_FCU_EFIS${number}_BARO, Number)`,
+        `(L:E_FCU_EFIS${number}_BARO, Number) ++ (>L:E_FCU_EFIS${number}_BARO, Number)`]));
+  }
   for (const mutate of [
-    a => { a.routes[0].codes[0] = '1 (>L:UNREVIEWED, Number)'; }, a => { a.routes[0].readbacks.pop(); },
-    a => { a.guard.groupId = 'other'; }, a => { a.input.max = 9999; }, a => { delete a.routes[0].baro; },
+    a => { a.routes[0].stagedControl.targets[0].writes.decrease = 99; }, a => { a.routes[0].readbacks.pop(); },
+    a => { a.guard.retry = 'automatic'; }, a => { a.input.max = 9999; }, a => { delete a.routes[0].baro; },
+    a => { a.routes[0].stagedControl.stages[2].maxSteps = 1001; },
+    a => { a.routes[0].stagedControl.targets[0].observations.qnh.fieldId = 'missing.mode'; },
   ]) {
     const integration = structuredClone(FENIX_A32X_INTEGRATION); mutate(integration.actions['baro.both.qnhHpa']);
-    assert.throws(() => defineAircraftIntegration(integration), /barometer|calculator|invalid action/);
+    assert.throws(() => defineAircraftIntegration(integration), /barometer|calculator|invalid action|staged.control|dispatch guard/);
   }
   for (const side of ['Captain', 'FirstOfficer']) for (const unit of ['hpa', 'inhg']) {
     assert.equal(FENIX_A32X_INTEGRATION.actions[`flightGuidance.baroUnit${side}.${unit}`].guard.groupId, 'fenixA32x.baro');

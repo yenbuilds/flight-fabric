@@ -8,6 +8,7 @@ import { comRadioResultText } from './com-radio.js';
 import { baroResultText } from './baro.js';
 import { flapResultText } from './flap-controls.js';
 import { gearResultText } from './gear-controls.js';
+import { spoilerObservationFailureText } from './spoiler-controls.js';
 
 export function createAircraftControlController({
   WebSocketRef = WebSocket,
@@ -376,6 +377,15 @@ export function createAircraftControlController({
       ? `${completedStepCount} of ${stepCount} steps`
       : '';
 
+    const spoilerUnconfirmed = spoilerObservationFailureText(msg);
+    if (spoilerUnconfirmed) {
+      const routeText = [msg.error, 'Check the spoiler lever in the cockpit.'].filter(Boolean).join(' \u00b7 ');
+      setFeedback({ actionText: spoilerUnconfirmed, routeText, profileText: profileKey,
+        status: 'unconfirmed', commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request) });
+      emitToast('warning', spoilerUnconfirmed, routeText, { durationMs: 6000 });
+      notifyResult(pending, msg);
+      return;
+    }
     const gear = gearResultText(msg);
     if (gear) {
       const needsAttention = gear.outcome === 'failed' || gear.outcome === 'unconfirmed';
@@ -403,7 +413,7 @@ export function createAircraftControlController({
       const routeText = msg.error || (flap.outcome === 'confirmed'
         ? 'Flap lever selection confirmed. Surfaces may still be moving.' : 'Check the flap lever in the cockpit.');
       setFeedback({ actionText: flap.text, routeText, profileText: profileKey,
-        status: ['confirmed', 'sent'].includes(flap.outcome) ? 'sent' : 'failed', commandKey: pending?.pendingKey });
+        status: flap.outcome === 'unconfirmed' ? 'unconfirmed' : flap.outcome === 'failed' ? 'failed' : 'sent', commandKey: pending?.pendingKey });
       emitToast(flap.outcome === 'confirmed' ? 'success' : flap.outcome === 'failed' ? 'error' : 'warning',
         flap.text, routeText, { durationMs: 6000 });
       notifyResult(pending, msg);

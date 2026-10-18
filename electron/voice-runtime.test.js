@@ -134,6 +134,17 @@ test('generated FlyByWire A32NX command hints stay represented in the Zipformer 
   assert.deepEqual(required.filter((hint) => !hotwordPhrases.has(hint)), []);
 });
 
+test('generated MD-11 command hints stay represented in the Zipformer hotwords', () => {
+  const hotwordPhrases = new Set(
+    fs.readFileSync(path.resolve(__dirname, 'resources', 'voice', 'hotwords.txt'), 'utf8')
+      .split(/\r?\n/u)
+      .map((line) => line.split(':', 1)[0].trim())
+      .filter(Boolean),
+  );
+  const required = ['AUTOFLIGHT', 'FMS SPEED', 'NAV', 'PROF'];
+  assert.deepEqual(required.filter((hint) => !hotwordPhrases.has(hint)), []);
+});
+
 test('push-to-talk shortcuts accept one bounded key with optional modifiers', () => {
   assert.equal(DEFAULT_PUSH_TO_TALK_SHORTCUT, '');
   assert.equal(normalizePushToTalkShortcut('ctrl + alt + spacebar'), 'Control+Alt+Space');
@@ -943,7 +954,7 @@ test('voice recognition is default-off and starts local resources only after exp
     shutdown: async () => { engineShutdowns += 1; engineReady = false; },
     start: () => ({ sessionId: 'session_12345678', sampleRate: 16000, timeoutMs: 10000 }),
   };
-  const runtime = createVoiceRuntime({
+  const makeRuntime = () => createVoiceRuntime({
     app: { isPackaged: true, getPath: () => userDataDir },
     appDir: path.resolve('C:\\app'),
     getMainWindow: () => null,
@@ -960,6 +971,7 @@ test('voice recognition is default-off and starts local resources only after exp
     resourcesPath: path.resolve('C:\\resources'),
     speechEngine,
   });
+  let runtime = makeRuntime();
 
   try {
     const initial = await runtime.initialize();
@@ -994,6 +1006,18 @@ test('voice recognition is default-off and starts local resources only after exp
       () => handlers.get('voice:speech-start')({ sender: { id: 7 } }),
       /disabled/i,
     );
+    for (const choice of [true, false]) {
+      await handlers.get('voice:set-recognition-enabled')({}, choice);
+      await runtime.shutdown();
+      const initializationsBeforeRestart = engineInitializations;
+      const hooksBeforeRestart = hookCreations;
+      runtime = makeRuntime();
+      const restored = await runtime.initialize();
+      assert.equal(restored.enabled, choice, 'a new runtime restores the saved voice choice');
+      assert.equal(restored.available, choice, 'the restored preference controls recognition availability');
+      assert.equal(engineInitializations - initializationsBeforeRestart, Number(choice), 'startup only loads recognition when enabled');
+      assert.equal(hookCreations - hooksBeforeRestart, Number(choice), 'startup only acquires push-to-talk input when enabled');
+    }
   } finally {
     await runtime.shutdown();
     fs.rmSync(userDataDir, { recursive: true, force: true });

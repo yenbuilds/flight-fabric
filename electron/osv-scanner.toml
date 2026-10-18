@@ -1,12 +1,12 @@
-# Temporary, owner-approved exceptions; review before 2026-10-18.
+# Temporary, owner-approved exceptions; review before 2026-11-01.
 # Scope: this directory's package-lock.json only.
-# Evidence and follow-up: docs/RELEASE-0.12.0-DEPENDENCY-REVIEW.md
+# Evidence and follow-up: docs/RELEASE-0.12.5-DEPENDENCY-REVIEW.md
 [[IgnoredVulns]]
 id = "GHSA-vfj7-8cjw-p6xm"
-ignoreUntil = 2026-10-18
-reason = "braces 3.0.3 is development-only through Tailwind/chokidar/micromatch; fixed repository globs, no app input, absent from the desktop payload. No upstream patch available on 2026-10-04."
+ignoreUntil = 2026-11-01
+reason = "braces 3.0.3 is development-only through Tailwind/chokidar/micromatch; repository-controlled globs, no app-input path identified, excluded from the packaged dependency allowlist. No upstream patch available on 2026-10-18; owner approved this bounded build-tool risk until 2026-11-01."
 
 [[IgnoredVulns]]
 id = "GHSA-ch52-4w7c-c8xp"
-ignoreUntil = 2026-10-18
-reason = "http-cache-semantics 4.2.0 is development-only through electron-builder/@electron/get/got; no shared authenticated HTTP cache is configured and the package is absent from the desktop payload. No upstream patch available on 2026-10-04."
+ignoreUntil = 2026-11-01
+reason = "http-cache-semantics 4.2.0 is development-only through electron-builder/@electron/get/got; no shared authenticated HTTP cache is configured, and the package is excluded from the packaged dependency allowlist. No confirmed upstream fix for the reported max-stale behavior on 2026-10-18; owner approved this bounded build-tool risk until 2026-11-01."

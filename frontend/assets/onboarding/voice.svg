@@ -1,0 +1,92 @@
+<svg id="still" xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600" fill="none">
+  <defs>
+    <radialGradient id="halo"><stop stop-color="#327294" stop-opacity=".38"/><stop offset="1" stop-color="#183541" stop-opacity="0"/></radialGradient>
+    <linearGradient id="shirt" x1="191" y1="272" x2="363" y2="450" gradientUnits="userSpaceOnUse"><stop stop-color="#8AECCC"/><stop offset=".48" stop-color="#3DC7A7"/><stop offset="1" stop-color="#15847F"/></linearGradient>
+    <linearGradient id="sleeve" x1="294" y1="318" x2="415" y2="424" gradientUnits="userSpaceOnUse"><stop stop-color="#62DBBA"/><stop offset="1" stop-color="#239893"/></linearGradient>
+    <linearGradient id="resting-sleeve" x1="194" y1="298" x2="253" y2="430" gradientUnits="userSpaceOnUse"><stop stop-color="#71DDBD"/><stop offset="1" stop-color="#2A9E8F"/></linearGradient>
+    <linearGradient id="hand" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FAC6A6"/><stop offset="1" stop-color="#DC8C79"/></linearGradient>
+    <linearGradient id="skin" x1="275" y1="165" x2="357" y2="288" gradientUnits="userSpaceOnUse"><stop stop-color="#FFE0C1"/><stop offset=".6" stop-color="#F4B491"/><stop offset="1" stop-color="#D17B70"/></linearGradient>
+    <linearGradient id="trousers" x1="210" y1="409" x2="358" y2="521" gradientUnits="userSpaceOnUse"><stop stop-color="#5C8EED"/><stop offset="1" stop-color="#294E9A"/></linearGradient>
+    <linearGradient id="hardware" x1="378" y1="230" x2="480" y2="348" gradientUnits="userSpaceOnUse"><stop stop-color="#536C89"/><stop offset="1" stop-color="#283B53"/></linearGradient>
+    <linearGradient id="glass" x1="378" y1="219" x2="476" y2="335" gradientUnits="userSpaceOnUse"><stop stop-color="#B4F8E1" stop-opacity=".18"/><stop offset="1" stop-color="#B4F8E1" stop-opacity=".03"/></linearGradient>
+    <linearGradient id="shoe" x1="220" y1="492" x2="308" y2="548" gradientUnits="userSpaceOnUse"><stop stop-color="#F4F7E8"/><stop offset="1" stop-color="#ADCECA"/></linearGradient>
+    <filter id="shadow" x="-35%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#07111E" flood-opacity=".3"/></filter>
+    <filter id="soft"><feGaussianBlur stdDeviation="9"/></filter>
+  </defs>
+  <style>
+    :root:target * { animation:none !important; }
+    .voice-wave { transform-box:fill-box; transform-origin:center; animation:speak 1.2s ease-in-out 3; }
+    .wave-two { animation-delay:.13s; } .wave-three { animation-delay:.26s; }
+    @keyframes speak { 0%,100% { transform:scaleY(.72); opacity:.7; } 50% { transform:scaleY(1); opacity:1; } }
+    @media (prefers-reduced-motion:reduce) { .voice-wave { animation:none; } }
+  </style>
+  <circle cx="300" cy="293" r="245" fill="url(#halo)"/>
+  <path d="M90 370C46 277 106 146 218 112C348 72 486 132 514 244" stroke="#9AC7D1" stroke-opacity=".12"/>
+  <path d="M92 440C175 507 374 498 486 416" stroke="#9AC7D1" stroke-opacity=".16"/>
+  <circle cx="218" cy="112" r="5" fill="#6CABB8"/>
+  <circle cx="91" cy="370" r="3" fill="#9DE5C8"/>
+  <ellipse cx="305" cy="533" rx="159" ry="17" fill="#061520" opacity=".4" filter="url(#soft)"/>
+  <!-- A distant aircraft ties the human scene to the simulator. -->
+  <g transform="translate(430 132) rotate(18)">
+    <path d="M0-23C3-23 4-18 4-13L5-3L26 11V16L5 9L4 23L11 29V32L0 28L-11 32V29L-4 23L-5 9L-26 16V11L-5-3L-4-13C-4-18-3-23 0-23Z" fill="#BEEADA"/>
+    <path d="M0-22V28L11 32V29L4 23L5 9L26 16V11L5-3L4-13C4-18 3-22 0-22Z" fill="#6AB3AE"/>
+  </g>
+  <!-- Curved chair and relaxed seated pose. -->
+  <path d="M183 314C161 303 147 315 147 340V420C147 438 161 450 179 451L287 454" stroke="#526B83" stroke-width="15" stroke-linecap="round"/>
+  <path d="M171 451L151 522M259 453L273 525" stroke="#30475E" stroke-width="9" stroke-linecap="round"/>
+  <path d="M219 404C248 394 284 404 304 424C328 447 317 474 295 491L250 523L221 505L267 456L203 456C178 453 174 421 195 410Z" fill="url(#trousers)"/>
+  <path d="M261 411C290 402 320 409 331 431C340 450 345 483 352 510L320 521L297 462L253 459" fill="url(#trousers)"/>
+  <path d="M254 432C269 430 285 438 291 451" stroke="#183C79" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M222 501L250 517L242 532L216 524Z" fill="url(#skin)"/>
+  <path d="M320 505L350 502L355 521L325 529Z" fill="url(#skin)"/>
+  <path d="M219 518L243 528C238 537 225 540 214 540L181 540C174 540 172 533 179 528L203 516C208 513 213 515 219 518Z" fill="url(#shoe)"/>
+  <path d="M179 540H226C234 540 240 537 244 533" stroke="#55C9A8" stroke-width="6" stroke-linecap="round"/>
+  <path d="M325 520L353 514L362 526L388 533C395 535 394 543 386 546L329 548C322 547 320 532 325 520Z" fill="url(#shoe)"/>
+  <path d="M328 547L387 544" stroke="#55C9A8" stroke-width="6" stroke-linecap="round"/>
+  <!-- The far arm reaches toward the desk, behind the torso. -->
+  <path d="M315 296C332 288 349 298 353 317L366 368C368 373 373 375 379 377L409 385L401 407L365 400C348 396 338 389 332 374L309 335C300 315 302 302 315 296Z" fill="url(#sleeve)"/>
+  <path d="M406 384C416 382 427 385 435 390L451 401C455 405 451 410 447 407L432 398C427 395 422 396 418 399L411 404L401 402Z" fill="url(#hand)"/>
+  <path d="M400 382L409 385L403 407L394 405Z" fill="#49BFA3"/>
+  <path d="M332 315L348 369C351 380 357 385 371 389L393 395" stroke="#C6F6E4" stroke-opacity=".36" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- The torso and near arm resting on the lap sit in front. -->
+  <path d="M253 273C218 270 192 289 185 322L169 382C161 415 181 435 211 434L295 429C321 427 339 410 345 385L358 322C362 296 337 280 309 278Z" fill="url(#shirt)"/>
+  <path d="M235 330L221 378C219 387 224 391 233 395L272 412" stroke="#157B76" stroke-opacity=".35" stroke-width="5" stroke-linecap="round"/>
+  <path d="M222 291C204 286 190 299 187 318L173 371C169 389 176 403 193 411L255 435L268 413L210 383L235 329C243 309 239 296 222 291Z" fill="url(#resting-sleeve)"/>
+  <path d="M211 306C201 327 193 355 190 374C188 385 193 391 205 397L246 414" stroke="#B5F0D3" stroke-opacity=".42" stroke-width="3" stroke-linecap="round"/>
+  <path d="M267 413L280 417C286 418 290 422 295 426L308 436C312 440 309 444 305 442L291 435L296 440C298 443 295 446 292 444L278 438C270 437 263 435 257 431Z" fill="url(#hand)"/>
+  <path d="M253 407L270 414L260 435L246 430Z" fill="#60CDB0"/>
+  <path d="M285 428L297 436" stroke="#BB796C" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- Head, sculpted hair and microphone. -->
+  <path d="M281 245L278 278C284 294 312 299 321 280L314 243" fill="url(#skin)"/>
+  <path d="M281 252C293 266 306 267 316 258L314 244L283 237Z" fill="#BB6C63" opacity=".32"/>
+  <path d="M274 177C296 147 346 154 356 189L356 211L369 229C370 233 364 235 357 235C355 257 341 270 320 267C291 263 275 244 271 218Z" fill="url(#skin)"/>
+  <path d="M272 224C245 219 245 191 253 176C259 147 294 133 323 145C350 132 372 157 362 185C357 199 342 205 328 201L322 180C316 198 300 211 284 207L278 227Z" fill="#17293E"/>
+  <path d="M262 178C276 158 301 154 315 158M326 157C340 151 354 157 356 166" stroke="#3B536B" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="335" cy="219" rx="3" ry="4" fill="#3D303D"/>
+  <path d="M330 209L340 210M344 246C349 247 352 245 355 242" stroke="#804F4F" stroke-width="2.5" stroke-linecap="round"/>
+  <ellipse cx="326" cy="237" rx="8" ry="5" fill="#E6867A" opacity=".5"/>
+  <path d="M264 207C257 172 273 150 300 148C324 147 340 160 344 176" stroke="#0B1A2A" stroke-width="13" stroke-linecap="round"/>
+  <path d="M264 195C264 170 278 155 299 154C316 153 330 161 336 170" stroke="#A3BEC8" stroke-width="3" stroke-linecap="round"/>
+  <rect x="255" y="201" width="32" height="47" rx="15" transform="rotate(-8 255 201)" fill="#1B3149"/>
+  <rect x="260" y="208" width="16" height="32" rx="8" transform="rotate(-8 260 208)" fill="#526D84"/>
+  <path d="M276 239C288 258 311 263 337 254" stroke="#142A3D" stroke-width="5" stroke-linecap="round"/>
+  <rect x="332" y="247" width="20" height="11" rx="5.5" transform="rotate(-13 332 247)" fill="#BCEFD8"/>
+  <!-- A translucent voice card, with a finite waveform animation. -->
+  <g filter="url(#shadow)">
+    <rect x="390" y="238" width="122" height="97" rx="23" fill="#162F40"/>
+    <rect x="390" y="238" width="122" height="97" rx="23" fill="url(#glass)" stroke="#89D8D0" stroke-opacity=".4"/>
+    <g stroke="#9DEBCB" stroke-width="6" stroke-linecap="round">
+      <path class="voice-wave" d="M418 280V293"/><path class="voice-wave wave-two" d="M434 267V306"/>
+      <path class="voice-wave wave-three" d="M451 256V316"/><path class="voice-wave wave-two" d="M468 270V303"/>
+      <path class="voice-wave" d="M485 281V292"/>
+    </g>
+    <path d="M421 335L408 351L445 335" fill="#203F4D"/>
+  </g>
+  <!-- The desk and push-to-talk control stay secondary to the person. -->
+  <path d="M365 415H487L471 432H350Z" fill="url(#hardware)"/>
+  <path d="M350 432H471V439H350Z" fill="#172A40"/>
+  <path d="M368 439L357 514M454 439L466 514" stroke="#345069" stroke-width="7" stroke-linecap="round"/>
+  <path d="M414 409L438 401L453 407L429 416Z" fill="#9AE9C9"/>
+  <circle cx="121" cy="242" r="7" fill="#F2C188"/>
+  <path d="M151 181V193M145 187H157" stroke="#7DC5C2" stroke-width="2" stroke-linecap="round"/>
+</svg>

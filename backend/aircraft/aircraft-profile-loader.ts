@@ -13,6 +13,8 @@
 
 'use strict';
 
+import { BUNDLED_PROFILE_SOURCE_DIR, clearBundledProfileSourceCache, getBundledProfileSource, listBundledProfileSources, readBundledProfile } from './aircraft-profile-sources.js';
+
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
 const Debug = require('../core/debug.js') as {
@@ -34,7 +36,7 @@ const {
 };
 const {
   defaultAircraftIntegrationRegistry,
-} = require('./aircraft-integrations') as {
+} = require('./integration-engine') as {
   defaultAircraftIntegrationRegistry: {
     resolveIntegration: (
       adapterId: unknown,
@@ -162,7 +164,7 @@ type ProfileSummary = {
 // -----------------------------------------------------------------------------
 
 const BUILTIN_ROOT_DIR = path.join(__dirname, 'profiles');
-const BUILTIN_BUNDLED_DIR = path.join(BUILTIN_ROOT_DIR, 'bundled');
+const BUILTIN_BUNDLED_DIR = BUNDLED_PROFILE_SOURCE_DIR;
 const GENERIC_ID = 'generic';
 const AIRCRAFT_CFG_MAX_BYTES = 256 * 1024;
 const INTERNAL_PROFILE_KEYS = new Set([
@@ -241,32 +243,9 @@ function getSimulatorSearchOrder(preferredSimulator: unknown = getConfiguredSimu
   ];
 }
 
-function isManagedProfileFileName(fileName: unknown): boolean {
-  return !!(
-    typeof fileName === 'string' &&
-    fileName.endsWith('.json') &&
-    !fileName.startsWith('_') &&
-    fileName !== 'aircraft-profile.schema.json' &&
-    fileName !== 'reference-data.json'
-  );
-}
-
-function readProfileFile(filePath: string): GenericRecord | null {
-  try {
-    const stat = fs.lstatSync(filePath);
-    if (!stat.isFile() || stat.size > MAX_PROFILE_JSON_BYTES) {
-      Debug.log('profile-loader', `Refusing aircraft profile outside size budget: ${filePath}`, {
-        bytes: stat.size,
-        maxBytes: MAX_PROFILE_JSON_BYTES,
-      });
-      return null;
-    }
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (error) {
-    const err = error as Error;
-    Debug.log('profile-loader', `Failed to read profile: ${filePath}`, { error: err.message });
-    return null;
-  }
+function readProfileFile(filePath: string, profileKey: string): GenericRecord | null {
+  const source = getBundledProfileSource(profileKey);
+  return source?.filePath === filePath ? readBundledProfile(profileKey) : null;
 }
 
 function isProfileDefinition(profile: unknown): profile is GenericRecord & { id: string } {
@@ -517,84 +496,19 @@ function stripInternalFields(profile: GenericRecord | null | undefined): Generic
   return cleaned;
 }
 
-function getProfileFilePath(namespace: unknown, simulator: unknown, id: string): string {
-  if (normalizeNamespace(namespace) !== 'bundled') return '';
-  const normalizedSimulator = normalizeSimulator(simulator);
-  return normalizedSimulator
-    ? path.join(BUILTIN_BUNDLED_DIR, normalizedSimulator, `${id}.json`)
-    : path.join(BUILTIN_BUNDLED_DIR, `${id}.json`);
-}
-
-function getLegacyProfileFilePath(namespace: unknown, id: string): string | null {
-  if (namespace === 'bundled') return path.join(BUILTIN_BUNDLED_DIR, `${id}.json`);
-  return null;
-}
-
-function getResolutionCandidates(locator: {
-  id?: unknown;
-  namespace?: string | null;
-  simulator?: string | null;
-} | null | undefined): ResolvedProfilePath[] {
-  const id = normalizeProfileId(locator && locator.id);
-  if (!id) return [];
-
-  if (locator?.namespace && locator.namespace !== 'bundled') return [];
-  const namespaces = ['bundled'];
-  const simulators = locator && locator.simulator
-    ? [locator.simulator]
-    : getSimulatorSearchOrder(getConfiguredSimulator());
-
-  const candidates: ResolvedProfilePath[] = [];
-
-  for (const simulator of simulators) {
-    for (const namespace of namespaces) {
-      candidates.push({
-        namespace,
-        simulator,
-        id,
-        filePath: getProfileFilePath(namespace, simulator, id),
-        profileKey: buildProfileKey({ namespace, simulator, id }),
-        legacy: false,
-      });
-    }
-  }
-
-  for (const simulator of simulators) {
-    for (const namespace of namespaces) {
-      const legacyFilePath = getLegacyProfileFilePath(namespace, id);
-      if (!legacyFilePath) continue;
-      candidates.push({
-        namespace,
-        simulator,
-        id,
-        filePath: legacyFilePath,
-        profileKey: buildProfileKey({ namespace, simulator, id }),
-        legacy: true,
-      });
-    }
-  }
-
-  return candidates;
-}
-
 function resolveProfilePath(locatorValue: unknown): ResolvedProfilePath | null {
   if (!locatorValue || typeof locatorValue !== 'string') return null;
-
-  const parsed = parseProfileLocator(locatorValue, {
-    defaultSimulator: getConfiguredSimulator(),
-  });
-  if (!parsed || !parsed.id) {
-    Debug.log('profile-loader', `Profile ID rejected: "${locatorValue}"`);
-    return null;
-  }
-
-  const candidates = getResolutionCandidates(parsed);
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate.filePath)) {
-      return candidate;
+  const parsed = parseProfileLocator(locatorValue, { defaultSimulator: getConfiguredSimulator() });
+  if (!parsed?.id || (parsed.namespace && parsed.namespace !== 'bundled')) return null;
+  const simulators = parsed.simulator ? [parsed.simulator] : getSimulatorSearchOrder();
+  for (const simulator of simulators) {
+    const profileKey = buildProfileKey({ namespace: 'bundled', simulator, id: parsed.id });
+    const source = getBundledProfileSource(profileKey);
+    if (source) {
+      return { filePath: source.filePath, id: source.id, legacy: false,
+        namespace: source.namespace, profileKey, simulator: source.simulator };
     }
   }
-
   return null;
 }
 
@@ -1152,123 +1066,19 @@ function detectProfile(title: unknown, { hint, xplane }: DetectOptions = {}): Lo
 // Listing
 // -----------------------------------------------------------------------------
 
-function scanNamespaceSimulatorDir(
-  namespace: string,
-  simulator: string,
-  dir: string,
-  profiles: ProfileSummary[],
-  seen: Set<string>,
-): void {
-  if (!fs.existsSync(dir)) return;
-
-  const files = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of files) {
-    if (!entry.isFile() || !isManagedProfileFileName(entry.name)) continue;
-    const filePath = path.join(dir, entry.name);
-    const rawProfile = readProfileFile(filePath);
-    if (!isProfileDefinition(rawProfile)) continue;
-
-    const normalized = normalizeProfileDocument(rawProfile, {
-      defaultNamespace: namespace,
-      defaultSimulator: simulator,
-    });
-    const profileKey = buildProfileKey({
-      namespace: normalizeNamespace(normalized.namespace) || namespace,
-      simulator: normalizeSimulator(normalized.simulator) || simulator,
-      id: normalizeProfileId(normalized.id),
-    });
-    if (!profileKey || seen.has(profileKey)) continue;
-
-    const normalizedNamespace = normalizeNamespace(normalized.namespace) || namespace;
-    const normalizedSimulator = normalizeSimulator(normalized.simulator) || simulator;
-    seen.add(profileKey);
-
-    profiles.push({
-      id: normalized.id,
-      name: normalized.name,
-      namespace: normalizedNamespace,
-      simulator: normalizedSimulator,
-      qualifiedId: profileKey,
-      abstract: normalized.abstract === true,
-      source: normalizedNamespace,
-      remoteInstall: null,
-      bundledProfileKey: null,
-      localOverrideUpdateStatus: null,
-    });
-  }
-}
-
-function scanNamespaceLegacyRoot(
-  namespace: string,
-  rootDir: string,
-  profiles: ProfileSummary[],
-  seen: Set<string>,
-): void {
-  if (!fs.existsSync(rootDir)) return;
-
-  const files = fs.readdirSync(rootDir, { withFileTypes: true });
-  for (const entry of files) {
-    if (!entry.isFile() || !isManagedProfileFileName(entry.name)) continue;
-    const filePath = path.join(rootDir, entry.name);
-    const rawProfile = readProfileFile(filePath);
-    if (!isProfileDefinition(rawProfile)) continue;
-
-    const defaultSimulator = normalizeSimulator(rawProfile.simulator) || getConfiguredSimulator();
-    const normalized = normalizeProfileDocument(rawProfile, {
-      defaultNamespace: namespace,
-      defaultSimulator,
-    });
-    const normalizedNamespace = normalizeNamespace(normalized.namespace) || namespace;
-    const normalizedSimulator = normalizeSimulator(normalized.simulator) || defaultSimulator;
-    const profileKey = buildProfileKey({
-      namespace: normalizedNamespace,
-      simulator: normalizedSimulator,
-      id: normalizeProfileId(normalized.id),
-    });
-    if (!profileKey || seen.has(profileKey)) continue;
-    seen.add(profileKey);
-
-    profiles.push({
-      id: normalized.id,
-      name: normalized.name,
-      namespace: normalizedNamespace,
-      simulator: normalizedSimulator,
-      qualifiedId: profileKey,
-      abstract: normalized.abstract === true,
-      source: normalizedNamespace,
-      remoteInstall: null,
-      bundledProfileKey: null,
-      localOverrideUpdateStatus: null,
-    });
-  }
-}
-
-function scanNamespaceRoot(
-  namespace: string,
-  rootDir: string,
-  profiles: ProfileSummary[],
-  seen: Set<string>,
-): void {
-  if (!fs.existsSync(rootDir)) return;
-
-  const entries = fs.readdirSync(rootDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.isDirectory() && PROFILE_SIMULATORS.includes(entry.name)) {
-      scanNamespaceSimulatorDir(namespace, entry.name, path.join(rootDir, entry.name), profiles, seen);
-    }
-  }
-}
-
 function listProfiles(): ProfileSummary[] {
   ensureBundledProfilesAvailable();
-
-  const profiles: ProfileSummary[] = [];
-  const seen = new Set<string>();
-
-  scanNamespaceRoot('bundled', BUILTIN_BUNDLED_DIR, profiles, seen);
-  scanNamespaceLegacyRoot('bundled', BUILTIN_BUNDLED_DIR, profiles, seen);
-
-  return profiles;
+  return listBundledProfileSources().map(({ rawProfile, namespace, simulator, profileKey }) => {
+    const normalized = normalizeProfileDocument(rawProfile, {
+      defaultNamespace: namespace, defaultSimulator: simulator,
+    });
+    return {
+      id: normalized.id, name: normalized.name, namespace, simulator,
+      qualifiedId: profileKey, abstract: normalized.abstract === true,
+      source: namespace, remoteInstall: null, bundledProfileKey: null,
+      localOverrideUpdateStatus: null,
+    };
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -1371,6 +1181,7 @@ function getLastDetectedTitle(): string | null {
 
 function clearCache(): void {
   profileCache.clear();
+  clearBundledProfileSourceCache();
   aircraftCfgMetadataCache.clear();
   activeProfile = null;
   activeProfileId = null;
@@ -1690,6 +1501,8 @@ function getLvarConfig(): {
         for (const readback of readbacks) {
           const fieldId = readback?.fieldId;
           if (typeof fieldId === 'string' && fieldId) confirmationFieldIds.add(fieldId);
+          const readyFieldId = readback?.readyWhen?.fieldId;
+          if (typeof readyFieldId === 'string' && readyFieldId) confirmationFieldIds.add(readyFieldId);
         }
         const preconditionFieldId = route?.precondition?.fieldId;
         if (typeof preconditionFieldId === 'string' && preconditionFieldId) {
@@ -1829,7 +1642,7 @@ function exportProfile(id: unknown, opts: { flatten?: boolean } = {}): GenericRe
     exported = stripInternalFields(loaded);
     delete exported.extends;
   } else {
-    const raw = readProfileFile(resolved.filePath);
+    const raw = readProfileFile(resolved.filePath, resolved.profileKey);
     if (!raw) {
       return { ok: false, errors: ['Failed to read profile file'] };
     }

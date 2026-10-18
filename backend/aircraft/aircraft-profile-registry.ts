@@ -1,7 +1,9 @@
 'use strict';
 
 // Aircraft profile registry: loads, validates, indexes, and watches aircraft
-// profile JSON files so the rest of the app can resolve profiles by key/name.
+// bundled YAML profile documents so the rest of the app can resolve profiles by key/name.
+
+import { listBundledProfileSources } from './aircraft-profile-sources.js';
 
 const fs = require('fs') as typeof import('fs');
 const path = require('path') as typeof import('path');
@@ -20,10 +22,8 @@ const { MSG } = require('../core/message-types.js') as {
 };
 const {
   buildProfileKey,
-  normalizeSimulator,
 } = require('./aircraft-profile-identity.js') as {
   buildProfileKey: (input: { namespace: unknown; simulator: unknown; id: unknown }) => string;
-  normalizeSimulator: (value: unknown) => string;
 };
 const {
   normalizeProfileDocument,
@@ -34,7 +34,6 @@ const {
 type GenericRecord = Record<string, any>;
 
 const PROFILES_DIR = path.join(__dirname, 'profiles');
-const BUNDLED_PROFILES_DIR = path.join(PROFILES_DIR, 'bundled');
 const SCHEMA_PATH = path.join(PROFILES_DIR, 'aircraft-profile.schema.json');
 
 let schema: GenericRecord | null = null;
@@ -125,42 +124,13 @@ function validateProfile(profile: GenericRecord): GenericRecord {
   return { valid, errors, warnings, warningObjects };
 }
 
-function listProfileFiles(rootDir: string): string[] {
-  const files: string[] = [];
-  if (!fs.existsSync(rootDir)) return files;
-
-  function walk(dirPath: string): void {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-      const absolutePath = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        walk(absolutePath);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      if (!entry.name.endsWith('.json')) continue;
-      files.push(absolutePath);
-    }
-  }
-
-  walk(rootDir);
-  return files;
-}
-
-function inferDefaultSimulatorFromPath(filePath: string): string {
-  const relativePath = path.relative(BUNDLED_PROFILES_DIR, filePath);
-  const firstSegment = relativePath.split(path.sep)[0];
-  return normalizeSimulator(firstSegment) || 'msfs';
-}
-
 function loadAllProfiles(): Map<string, GenericRecord> {
   const results = new Map<string, GenericRecord>();
-  for (const filePath of listProfileFiles(BUNDLED_PROFILES_DIR)) {
+  for (const { filePath, rawProfile, simulator } of listBundledProfileSources()) {
     try {
-      const rawProfile = JSON.parse(fs.readFileSync(filePath, 'utf8'));
       const normalized = normalizeProfileDocument(rawProfile, {
         defaultNamespace: 'bundled',
-        defaultSimulator: inferDefaultSimulatorFromPath(filePath),
+        defaultSimulator: simulator,
       });
       if (!normalized.id) continue;
       if (normalized.abstract) continue;
@@ -283,11 +253,10 @@ function validateProfilesWithAjvStrict(): GenericRecord {
     const strictValidate = strictAjv.compile(strictSchema);
     const failures: GenericRecord[] = [];
 
-    for (const filePath of listProfileFiles(BUNDLED_PROFILES_DIR)) {
-      const rawProfile = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    for (const { rawProfile, simulator } of listBundledProfileSources()) {
       const normalized = normalizeProfileDocument(rawProfile, {
         defaultNamespace: 'bundled',
-        defaultSimulator: inferDefaultSimulatorFromPath(filePath),
+        defaultSimulator: simulator,
       });
       if (normalized.abstract) continue;
       const ok = strictValidate(normalized);

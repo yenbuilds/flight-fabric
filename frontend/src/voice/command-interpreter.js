@@ -12,6 +12,9 @@ const FALSE_WORDS = new Set(['off', 'disengage', 'disengaged', 'disarm', 'disarm
 const ENUM_ALIASES = Object.freeze({
   one: '1', two: '2', three: '3', five: '5', ten: '10', fifteen: '15', twenty: '20',
   retract: 'retracted',
+  'one third': 'one-third',
+  'two thirds': 'two-thirds',
+  'dial a flap': 'takeoff',
   med: 'medium',
   'twenty five': '25', thirty: '30', forty: '40',
   clb: 'climb',

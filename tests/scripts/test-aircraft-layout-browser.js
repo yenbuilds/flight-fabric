@@ -882,7 +882,7 @@ async function main() {
   const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
   const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
   const { buildAircraftControlCapabilities } = require(runtime('aircraft/aircraft-control-service.js'));
-  const registry = require(runtime('aircraft/aircraft-integrations/index.js')).defaultAircraftIntegrationRegistry;
+  const registry = require(runtime('aircraft/integration-engine/index.js')).defaultAircraftIntegrationRegistry;
   const { createPmdgCdu, decodePmdgScreen } = require(runtime('telemetry-provider/cdu/pmdg-737.js'));
   const { createPmdg777Cdu } = require(runtime('telemetry-provider/cdu/pmdg-777.js'));
   const { createFbwCdu, decodeFbwScreen } = require(runtime('telemetry-provider/cdu/fbw-a32nx.js'));

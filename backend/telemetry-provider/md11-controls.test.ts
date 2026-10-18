@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SimConnectTelemetryProvider } = require('./simconnect-telemetry-provider');
-const { TFDI_MD_11_INTEGRATION: integration, TFDI_MD_11_PROFILE_KEY: profileKey } = require('../aircraft/aircraft-integrations/tfdi-md-11');
+const { TFDI_MD_11_INTEGRATION: integration, TFDI_MD_11_PROFILE_KEY: profileKey } = require('../aircraft/integration-engine');
 const { decodeAircraftSpecificValue } = require('../aircraft/aircraft-specific-state');
 
 function fixture(options: any = {}) {
@@ -13,7 +13,9 @@ function fixture(options: any = {}) {
     'lights.nosePosition': 2, 'lights.landingLeftPosition': 2, 'lights.landingRightPosition': 2,
     'lights.turnoffLeft': false, 'lights.turnoffRight': false, 'baro.captain.value': 29.92,
     'approach.captain.minimums': 200, 'approach.firstOfficer.minimums': 200,
-    'approach.captain.minimumsMode': 'radio', 'approach.firstOfficer.minimumsMode': 'radio' };
+    'approach.captain.minimumsMode': 'radio', 'approach.firstOfficer.minimumsMode': 'radio',
+    'controls.autobrakePosition': 1, 'controls.flapsHandle': 2,
+    'controls.spoilersPosition': 0, 'controls.spoilersArmed': false };
   const calls: any[] = []; let sequence = 1, active = true;
   provider._getActiveAircraftIntegrationConfig = () => active ? { profileKey, integrationId: integration.id, profileRevision: 3 } : null;
   provider._captureAircraftIntegrationReadback = (_bridge, readback) => ({ observed: values[readback.fieldId],
@@ -49,6 +51,13 @@ function fixture(options: any = {}) {
         if (id === 90265) values['lights.turnoffRight'] = !values['lights.turnoffRight'];
         if (id === 86064) values['approach.captain.minimums'] += 10;
         if (id === 86134) values['approach.firstOfficer.minimums'] += 10;
+        if (id === 82212) values['controls.autobrakePosition']++;
+        if (id === 82211) values['controls.autobrakePosition']--;
+        if (id === 77831) values['controls.flapsHandle']++;
+        if (id === 77830) values['controls.flapsHandle']--;
+        if (id === 77828) values['controls.spoilersPosition']++;
+        if (id === 77853) values['controls.spoilersPosition']--;
+        if (id === 77829) values['controls.spoilersArmed'] = !values['controls.spoilersArmed'];
       }
       options.afterWrite?.(values, calls);
       return { ok: true };
@@ -66,6 +75,173 @@ test('MD-11 targets use external inputs and require independent consumed values'
     assert.equal(result.ok, !noReadback);
     assert.deepEqual(f.calls, [['L:MD11_EXTCTL_FCP_SPD', 251]]);
   }
+});
+
+test('MD-11 autobrake confirms each detent, preserves same-target no-op and stops on uncertain movement', async () => {
+  const f = fixture();
+  assert.equal((await f.execute('controls.autobrake.set', 4)).ok, true);
+  assert.equal(f.values['controls.autobrakePosition'], 4);
+  assert.equal(f.calls.length, 3);
+  const same = fixture();
+  assert.equal((await same.execute('controls.autobrake.set', 1)).ok, true);
+  assert.equal(same.calls.length, 0);
+  for (const options of [{ noReadback: true }, { frozenTimestamp: true }]) {
+    const uncertain = fixture(options);
+    assert.equal((await uncertain.execute('controls.autobrake.set', 4)).ok, false);
+    assert.equal(uncertain.calls.length, 1);
+  }
+  for (const state of [undefined, -1, 5, 1.5]) {
+    const invalid = fixture(); invalid.values['controls.autobrakePosition'] = state;
+    assert.equal((await invalid.execute('controls.autobrake.set', 4)).ok, false);
+    assert.equal(invalid.calls.length, 0);
+  }
+  const lostPower = fixture({ afterWrite: values => { values['systems.busVoltage'] = 0; } });
+  assert.equal((await lostPower.execute('controls.autobrake.set', 4)).ok, false);
+  assert.equal(lostPower.calls.length, 1);
+});
+
+test('MD-11 captured lever values decode independently from surface travel and standard armed bits', () => {
+  const decode = (id, raw) => decodeAircraftSpecificValue(raw, integration.fields[id].sources[0].decode);
+  for (const [raw, selected] of [[0, 0], [20, 1], [38, 2], [46.91, 2], [64.73, 2], [70, 3], [82, 4], [100, 5]]) {
+    assert.equal(decode('controls.flapsHandle', raw), selected);
+  }
+  for (const raw of [-1, 19, 37, 65.01, 71, 99, 101, undefined, '46.91']) {
+    assert.equal(decode('controls.flapsHandle', raw), undefined);
+  }
+  for (const [raw, selected] of [[0, 0], [17.5, 1], [25, 2], [32.5, 3]]) {
+    assert.equal(decode('controls.spoilersPosition', raw), selected);
+  }
+  assert.equal(decode('controls.spoilersPosition', 50), undefined, 'ground-spoiler overtravel is a separate position');
+  assert.equal(decode('controls.spoilersArmed', 0), false);
+  assert.equal(decode('controls.spoilersArmed', 1), true);
+  assert.equal(decode('controls.spoilersArmed', 2), undefined, 'raised ground-spoiler handle is not an armed indication');
+});
+
+test('MD-11 flap targets stop after one unconfirmed or wrong-direction detent and skip repeat targets', async () => {
+  const f = fixture();
+  assert.equal((await f.execute('controls.flaps.set', 5)).ok, true);
+  assert.equal(f.calls.length, 3);
+  const same = fixture();
+  assert.equal((await same.execute('controls.flaps.set', 2)).ok, true);
+  assert.equal(same.calls.length, 0);
+  for (const options of [{ noReadback: true }, { frozenTimestamp: true },
+    { afterWrite: values => { values['controls.flapsHandle'] = 1; } },
+    { afterWrite: values => { values['controls.flapsHandle'] = undefined; } }]) {
+    const uncertain = fixture(options);
+    assert.equal((await uncertain.execute('controls.flaps.set', 5)).ok, false);
+    assert.equal(uncertain.calls.length, 1);
+  }
+});
+
+test('MD-11 flap steps wait for a fresh settled latch instead of confirming an animated takeoff range', async () => {
+  const loader = require('../aircraft/aircraft-profile-loader'); loader.setActiveProfile(profileKey);
+  const config = loader.getAircraftSpecificConfig();
+  assert.ok(config.confirmationFields.some(field => field.id === 'controls.flapsSettled'));
+  const provider = new SimConnectTelemetryProvider(); provider._connected = true;
+  provider._getActiveAircraftIntegrationConfig = () => ({ ...config, profileRevision: 3 });
+  const snapshot: any = { status: 'running', profileId: profileKey, snapshotSequence: 1, values: {}, valueUpdatedAt: {},
+    mobiflight: { connected: true, available: true, state: 'connected' } };
+  let stamp = Date.now() - 20;
+  const publish = (raw, latch, updateLatch = true) => {
+    stamp = Math.max(stamp + 1, Date.now()); snapshot.snapshotSequence++;
+    for (const [id, value] of Object.entries({ 'controls.flapsHandle': raw, 'systems.busVoltage': 115,
+      ...(updateLatch ? { 'controls.flapsSettled': latch } : {}) })) {
+      const field = config.confirmationFields.find(field => field.id === id);
+      snapshot.values[field.source.key] = value; snapshot.valueUpdatedAt[field.source.key] = new Date(stamp).toISOString();
+    }
+  };
+  publish(20, 0);
+  let notifyWritten; const written = new Promise(resolve => { notifyWritten = resolve; });
+  const calls = [];
+  const bridge: any = { _started: true, getSnapshot: () => snapshot,
+    executeMobiFlightCode: async code => {
+      calls.push(code);
+      if (calls.length === 1) { publish(46.91, 5); notifyWritten(); }
+      else publish(70, 0);
+      return { ok: true };
+    }, findRecentSimConnectException: () => null };
+  const context = { profileKey, adapterId: integration.id, profileRevision: 3 };
+  const readback = integration.actions['controls.flaps.set'].routes[0].readback;
+  const pending = provider._executeAircraftIntegrationAction(bridge, { type: 'aircraft-integration', name: integration.id },
+    'test', { profileKey, profileRevision: 3, request: { actionId: 'controls.flaps.set', value: 3 } });
+  await written;
+  assert.equal(provider._captureAircraftIntegrationReadback(bridge, readback, context).fresh, false);
+  assert.equal(calls.length, 1);
+  publish(64.73, 0);
+  publish(64.73, 0, false);
+  assert.equal(provider._captureAircraftIntegrationReadback(bridge, readback, context).fresh, false,
+    'an older settled sample cannot qualify a newer lever position');
+  publish(64.73, 0);
+  const result = await pending;
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(calls.length, 2);
+});
+
+test('a fresh unavailable sample is not confirmation of a changed selector', () => {
+  const provider = new SimConnectTelemetryProvider();
+  const baseline = { observed: 1, fresh: true, sequence: 1, updatedAtMs: 100, sourceId: 'selector' };
+  const readback = { confirmation: 'changed', freshness: 'field' };
+  for (const observed of [null, undefined, 1]) {
+    assert.equal(provider._evaluateAircraftIntegrationReadback({ ...baseline, observed, sequence: 2, updatedAtMs: 200 }, readback, baseline).confirmed, false);
+  }
+  assert.equal(provider._evaluateAircraftIntegrationReadback({ ...baseline, observed: 0, sequence: 2, updatedAtMs: 200 }, readback, baseline).confirmed, true);
+});
+
+test('MD-11 spoiler arming needs RET and repeat arm/disarm requests send no toggle', async () => {
+  for (const armed of [false, true]) {
+    const f = fixture(); f.values['controls.spoilersArmed'] = armed;
+    assert.equal((await f.execute(`controls.spoilers.${armed ? 'arm' : 'disarm'}`, undefined)).ok, true);
+    assert.equal(f.calls.length, 0);
+  }
+  const extended = fixture(); extended.values['controls.spoilersPosition'] = 1;
+  assert.equal((await extended.execute('controls.spoilers.arm', undefined)).ok, false);
+  assert.equal(extended.calls.length, 0);
+  const unknown = fixture(); unknown.values['controls.spoilersArmed'] = undefined;
+  assert.equal((await unknown.execute('controls.spoilers.disarm', undefined)).ok, false);
+  assert.equal(unknown.calls.length, 0);
+});
+
+test('MD-11 canonical spoiler deployment waits for disarm confirmation before moving the handle', async () => {
+  const loader = require('../aircraft/aircraft-profile-loader');
+  const { executeAircraftCommand } = require('../aircraft/aircraft-control-service');
+  for (const noReadback of [false, true]) {
+    const f = fixture({ noReadback }); f.values['controls.spoilersArmed'] = true;
+    const result = await executeAircraftCommand({ executeAircraftControlAction: (_action, options) =>
+      f.execute(options.request.actionId, options.request.value) },
+    { commandId: 'surfaces.spoilers.set', input: { value: 'full' } }, {
+      profile: loader.loadProfile(profileKey), profileRevision: 3,
+      capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration'], integrationTransports: ['mobiflight-calculator'] },
+      simState: { simconnectConnected: true, inMenu: false },
+    });
+    assert.equal(result.ok, !noReadback, JSON.stringify(result));
+    assert.equal(f.calls.length, noReadback ? 1 : 4);
+    assert.equal(f.values['controls.spoilersPosition'], noReadback ? 0 : 3);
+  }
+});
+
+test('MD-11 mode buttons press and release once, acknowledge delivery and never infer engagement', async () => {
+  for (const [mode, press, release] of [['autoflight', 86094, 86095], ['fmsSpeed', 86088, 86089],
+    ['navigation', 86090, 86091], ['profile', 86096, 86097], ['approach', 86092, 86093]]) {
+    const f = fixture();
+    const result = await f.execute(`flightGuidance.${mode}.request`, undefined);
+    assert.equal(result.ok, true); assert.equal(result.transportAcknowledged, true);
+    assert.equal(result.confirmedValue, undefined);
+    assert.deepEqual(f.calls, [`${press} (>L:CEVENT, Number)`, `${release} (>L:CEVENT, Number)`]);
+    const stale = fixture({ stale: 'systems.busVoltage' });
+    assert.equal((await stale.execute(`flightGuidance.${mode}.request`, undefined)).ok, false);
+    assert.equal(stale.calls.length, 0);
+  }
+});
+
+test('MD-11 mode requests share the CEVENT pending guard and release after profile retirement', async () => {
+  const f = fixture();
+  const first = f.execute('flightGuidance.autoflight.request', undefined);
+  const duplicate = await f.execute('flightGuidance.navigation.request', undefined);
+  assert.equal(duplicate.ok, false);
+  f.deactivate();
+  const result = await first;
+  assert.equal(result.ok, false);
+  assert.deepEqual(f.calls, ['86094 (>L:CEVENT, Number)', '86095 (>L:CEVENT, Number)']);
 });
 test('MD-11 rejects wrong units, dashed targets, stale power and invalid inputs before writes', async () => {
   for (const [field, value, actionId, target] of [
@@ -120,7 +296,8 @@ test('MD-11 radio minimums confirm each wheel step and reject BARO or stale refe
   }
 });
 test('MD-11 overview uses the same fresh switch fields and rejects stale or unpowered readings', () => {
-  const { resolveTfdiMd11Lights } = require('../aircraft/aircraft-integrations/tfdi-md-11/lights');
+  const { resolveLightingOverlay } = require('../aircraft/lighting-overlay');
+  const resolveTfdiMd11Lights = (snapshot, now) => resolveLightingOverlay(snapshot, 'tfdi-md-11', now);
   const loader = require('../aircraft/aircraft-profile-loader');
   loader.setActiveProfile(profileKey);
   const config = loader.getAircraftSpecificConfig();

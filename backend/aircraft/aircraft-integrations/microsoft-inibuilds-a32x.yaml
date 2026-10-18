@@ -1,0 +1,2162 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: microsoft-inibuilds-a32x/actions.ts
+# Standard mode routes remain untested; native FD and FCU routes are below.
+
+# Mapping source notes: microsoft-inibuilds-a32x/fcu.ts
+# Native target trial and generic-event failure: AIRCRAFT-ONBOARDING-SESSION-2026-10-02.md.
+# A native write echo alone cannot confirm a target: require the independently
+# updated autopilot target as well. Acceptance remains variant-specific.
+
+# Mapping source notes: microsoft-inibuilds-a32x/fields.ts
+# Standard telemetry plus independently observed native FCU and captain FD
+# state. The standard FD flag can disagree with the physical aircraft button.
+
+schemaVersion: 1
+integration:
+  id: microsoft-inibuilds-a32x
+  aircraft:
+    vendor: Microsoft / iniBuilds
+    family: Airbus A320neo V2 / A321LR
+  trustedProfileKeys:
+    - bundled/msfs/inibuilds-a320neo-v2
+    - bundled/msfs/inibuilds-a321lr
+  presentation:
+    templateId: microsoft-inibuilds-a32x
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # fcu
+    fcu.speedManaged:
+      id: fcu.speedManaged
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_managed_speed
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    fcu.speedDashed:
+      id: fcu.speedDashed
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_SPD_DASHED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    fcu.headingManaged:
+      id: fcu.headingManaged
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_HDG_DOT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    fcu.headingDashed:
+      id: fcu.headingDashed
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_HDG_DASHED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    fcu.trackFpa:
+      id: fcu.trackFpa
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_TRACK_FPA_STATE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    fcu.verticalSpeedDashed:
+      id: fcu.verticalSpeedDashed
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_VS_DASHED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+
+    # systems
+    systems.mainBusVoltage:
+      id: systems.mainBusVoltage
+      sources:
+        - route:
+            type: lvar
+            name: A:ELECTRICAL MAIN BUS VOLTAGE
+            unit: Volts
+          decode:
+            type: number
+
+    # fcu
+    fcu.speedKtsNative:
+      id: fcu.speedKtsNative
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_Airspeed_Dial
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    fcu.headingDegNative:
+      id: fcu.headingDegNative
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_HEADING_DIAL
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    fcu.altitudeFtNative:
+      id: fcu.altitudeFtNative
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_Altitude_Dial
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    fcu.verticalSpeedFpmNative:
+      id: fcu.verticalSpeedFpmNative
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_vvi_dial
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    fcu.speedKts:
+      id: fcu.speedKts
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT AIRSPEED HOLD VAR
+            unit: Knots
+          decode:
+            type: number
+            precision: 0
+    fcu.headingDeg:
+      id: fcu.headingDeg
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT HEADING LOCK DIR
+            unit: Degrees
+          decode:
+            type: number
+            precision: 0
+    fcu.altitudeFt:
+      id: fcu.altitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT ALTITUDE LOCK VAR
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    fcu.verticalSpeedFpm:
+      id: fcu.verticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT VERTICAL HOLD VAR
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+
+    # flightGuidance
+    flightGuidance.apMaster:
+      id: flightGuidance.apMaster
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT MASTER
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.flightDirector:
+      id: flightGuidance.flightDirector
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FD1_ON
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.autothrottleActive:
+      id: flightGuidance.autothrottleActive
+      sources:
+        - route:
+            type: simvar
+            name: AUTOTHROTTLE ACTIVE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.autothrottleArmed:
+      id: flightGuidance.autothrottleArmed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT THROTTLE ARM
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.speedHold:
+      id: flightGuidance.speedHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT AIRSPEED HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.headingHold:
+      id: flightGuidance.headingHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT HEADING LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.navHold:
+      id: flightGuidance.navHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT NAV1 LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.altitudeHold:
+      id: flightGuidance.altitudeHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT ALTITUDE LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.verticalSpeedHold:
+      id: flightGuidance.verticalSpeedHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT VERTICAL HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.flightLevelChange:
+      id: flightGuidance.flightLevelChange
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT FLIGHT LEVEL CHANGE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.approachHold:
+      id: flightGuidance.approachHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT APPROACH HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # lights
+    lights.strobe:
+      id: lights.strobe
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT STROBE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT BEACON
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.nav:
+      id: lights.nav
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT NAV
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.logo:
+      id: lights.logo
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LOGO
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.wing:
+      id: lights.wing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT WING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.landing:
+      id: lights.landing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LANDING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.taxi:
+      id: lights.taxi
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.runwayTurnoff:
+      id: lights.runwayTurnoff
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # controls
+    controls.flapsPercent:
+      id: controls.flapsPercent
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE PERCENT
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.flapsIndex:
+      id: controls.flapsIndex
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE INDEX
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    controls.flapAngleDeg:
+      id: controls.flapAngleDeg
+      sources:
+        - route:
+            type: simvar
+            name: TRAILING EDGE FLAPS LEFT ANGLE
+            unit: Degrees
+          decode:
+            type: number
+            precision: 1
+    controls.speedbrakePercent:
+      id: controls.speedbrakePercent
+      sources:
+        - route:
+            type: simvar
+            name: SPOILERS HANDLE POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearHandleDown:
+      id: controls.gearHandleDown
+      sources:
+        - route:
+            type: simvar
+            name: GEAR HANDLE POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearNosePct:
+      id: controls.gearNosePct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR CENTER POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearLeftPct:
+      id: controls.gearLeftPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR LEFT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearRightPct:
+      id: controls.gearRightPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR RIGHT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.parkingBrake:
+      id: controls.parkingBrake
+      sources:
+        - route:
+            type: simvar
+            name: BRAKE PARKING POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # systems
+    systems.engine1N1:
+      id: systems.engine1N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:1
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine2N1:
+      id: systems.engine2N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:2
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine1Running:
+      id: systems.engine1Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine2Running:
+      id: systems.engine2Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.fuelTotalPct:
+      id: systems.fuelTotalPct
+      sources:
+        - route:
+            type: simvar
+            name: FUEL SELECTED QUANTITY PERCENT:99
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.fuelTotalWeightLbs:
+      id: systems.fuelTotalWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: FUEL TOTAL QUANTITY WEIGHT EX1
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.grossWeightLbs:
+      id: systems.grossWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: TOTAL WEIGHT
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.cabinAltitudeFt:
+      id: systems.cabinAltitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    systems.cabinVerticalSpeedFpm:
+      id: systems.cabinVerticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE RATE
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+    systems.cabinDeltaPressurePsi:
+      id: systems.cabinDeltaPressurePsi
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION PRESSURE DIFFERENTIAL
+            unit: PSI
+          decode:
+            type: number
+            precision: 2
+    systems.outsideAirTemperatureC:
+      id: systems.outsideAirTemperatureC
+      sources:
+        - route:
+            type: simvar
+            name: AMBIENT TEMPERATURE
+            unit: Celsius
+          decode:
+            type: number
+            precision: 1
+    systems.mach:
+      id: systems.mach
+      sources:
+        - route:
+            type: simvar
+            name: AIRSPEED MACH
+            unit: Mach
+          decode:
+            type: number
+            precision: 3
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+
+    # flightGuidance
+    flightGuidance.apMaster.off:
+      id: flightGuidance.apMaster.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.apMaster
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.apMaster.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AUTOPILOT_OFF
+              value: 0
+          readback:
+            fieldId: flightGuidance.apMaster
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.apMaster.on:
+      id: flightGuidance.apMaster.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.apMaster
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.apMaster.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AUTOPILOT_ON
+              value: 0
+          readback:
+            fieldId: flightGuidance.apMaster
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.autothrottleArmed.off:
+      id: flightGuidance.autothrottleArmed.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.autothrottleArmed
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.autothrottleArmed.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AUTO_THROTTLE_ARM
+              value: 0
+          readback:
+            fieldId: flightGuidance.autothrottleArmed
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.autothrottleArmed.on:
+      id: flightGuidance.autothrottleArmed.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.autothrottleArmed
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.autothrottleArmed.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AUTO_THROTTLE_ARM
+              value: 0
+          readback:
+            fieldId: flightGuidance.autothrottleArmed
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.speedHold.off:
+      id: flightGuidance.speedHold.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.speedHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.speedHold.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_AIRSPEED_OFF
+              value: 0
+          readback:
+            fieldId: flightGuidance.speedHold
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.speedHold.on:
+      id: flightGuidance.speedHold.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.speedHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.speedHold.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_AIRSPEED_ON
+              value: 0
+          readback:
+            fieldId: flightGuidance.speedHold
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.headingHold.off:
+      id: flightGuidance.headingHold.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.headingHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.headingHold.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_HDG_HOLD_OFF
+              value: 0
+          readback:
+            fieldId: flightGuidance.headingHold
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.headingHold.on:
+      id: flightGuidance.headingHold.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.headingHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.headingHold.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_HDG_HOLD_ON
+              value: 0
+          readback:
+            fieldId: flightGuidance.headingHold
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.altitudeHold.off:
+      id: flightGuidance.altitudeHold.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.altitudeHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.altitudeHold.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_ALT_HOLD_OFF
+              value: 0
+          readback:
+            fieldId: flightGuidance.altitudeHold
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.altitudeHold.on:
+      id: flightGuidance.altitudeHold.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.altitudeHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.altitudeHold.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_ALT_HOLD_ON
+              value: 0
+          readback:
+            fieldId: flightGuidance.altitudeHold
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.verticalSpeedHold.off:
+      id: flightGuidance.verticalSpeedHold.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.verticalSpeedHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.verticalSpeedHold.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_VS_OFF
+              value: 0
+          readback:
+            fieldId: flightGuidance.verticalSpeedHold
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.verticalSpeedHold.on:
+      id: flightGuidance.verticalSpeedHold.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.verticalSpeedHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.verticalSpeedHold.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_VS_ON
+              value: 0
+          readback:
+            fieldId: flightGuidance.verticalSpeedHold
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.navHold.off:
+      id: flightGuidance.navHold.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.navHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.navHold.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_NAV1_HOLD_OFF
+              value: 0
+          readback:
+            fieldId: flightGuidance.navHold
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.navHold.on:
+      id: flightGuidance.navHold.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.navHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.navHold.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_NAV1_HOLD_ON
+              value: 0
+          readback:
+            fieldId: flightGuidance.navHold
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.approachHold.off:
+      id: flightGuidance.approachHold.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.approachHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.approachHold.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_APR_HOLD_OFF
+              value: 0
+          readback:
+            fieldId: flightGuidance.approachHold
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.approachHold.on:
+      id: flightGuidance.approachHold.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.flightGuidance.approachHold
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.approachHold.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_APR_HOLD_ON
+              value: 0
+          readback:
+            fieldId: flightGuidance.approachHold
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.speed.set:
+      id: flightGuidance.speed.set
+      input:
+        type: number
+        min: 100
+        max: 399
+        step: 1
+      guard:
+        groupId: microsoftIniBuildsA32x.flightGuidance.speed
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: systems.mainBusVoltage
+            min: 20
+            max: 40
+            freshness: field
+          - fieldId: fcu.speedManaged
+            expectedValue: false
+            freshness: field
+          - fieldId: fcu.speedDashed
+            expectedValue: false
+            freshness: field
+          - fieldId: fcu.speedKtsNative
+            min: 100
+            max: 399
+            freshness: field
+      routes:
+        - id: microsoftIniBuildsA32x.speed.nativeTarget
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_Airspeed_Dial
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: fcu.speedKtsNative
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: fcu.speedKts
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+      verification: partial
+    flightGuidance.heading.set:
+      id: flightGuidance.heading.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        groupId: microsoftIniBuildsA32x.flightGuidance.heading
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: systems.mainBusVoltage
+            min: 20
+            max: 40
+            freshness: field
+          - fieldId: fcu.headingManaged
+            expectedValue: false
+            freshness: field
+          - fieldId: fcu.headingDashed
+            expectedValue: false
+            freshness: field
+          - fieldId: fcu.trackFpa
+            expectedValue: false
+            freshness: field
+      routes:
+        - id: microsoftIniBuildsA32x.heading.nativeTarget
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_HEADING_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: fcu.headingDegNative
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: fcu.headingDeg
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+      verification: partial
+    flightGuidance.altitude.set:
+      id: flightGuidance.altitude.set
+      input:
+        type: number
+        min: 100
+        max: 49000
+        step: 100
+      guard:
+        groupId: microsoftIniBuildsA32x.flightGuidance.altitude
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: systems.mainBusVoltage
+            min: 20
+            max: 40
+            freshness: field
+      routes:
+        - id: microsoftIniBuildsA32x.altitude.nativeTarget
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_Altitude_Dial
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: fcu.altitudeFtNative
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: fcu.altitudeFt
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+      verification: partial
+    flightGuidance.verticalSpeed.set:
+      id: flightGuidance.verticalSpeed.set
+      input:
+        type: number
+        min: -6000
+        max: 6000
+        step: 100
+      guard:
+        groupId: microsoftIniBuildsA32x.flightGuidance.verticalSpeed
+        cooldownMs: 300
+        retry: never
+        requires:
+          - fieldId: systems.mainBusVoltage
+            min: 20
+            max: 40
+            freshness: field
+          - fieldId: fcu.verticalSpeedDashed
+            expectedValue: false
+            freshness: field
+          - fieldId: fcu.trackFpa
+            expectedValue: false
+            freshness: field
+      routes:
+        - id: microsoftIniBuildsA32x.verticalSpeed.nativeTarget
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_vvi_dial
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: fcu.verticalSpeedFpmNative
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: fcu.verticalSpeedFpm
+              expectedInput: true
+              timeoutMs: 3000
+              freshness: field
+      verification: partial
+    flightGuidance.flightDirector.off:
+      id: flightGuidance.flightDirector.off
+      guard:
+        groupId: microsoftIniBuildsA32x.flightGuidance.flightDirector
+        cooldownMs: 750
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.flightDirector.off.native
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_FD1_ON
+              unit: Bool
+              value: 0
+          readback:
+            fieldId: flightGuidance.flightDirector
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: partial
+    flightGuidance.flightDirector.on:
+      id: flightGuidance.flightDirector.on
+      guard:
+        groupId: microsoftIniBuildsA32x.flightGuidance.flightDirector
+        cooldownMs: 750
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.flightGuidance.flightDirector.on.native
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_FD1_ON
+              unit: Bool
+              value: 1
+          readback:
+            fieldId: flightGuidance.flightDirector
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: partial
+
+    # lights
+    lights.strobe.off:
+      id: lights.strobe.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.strobe
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.strobe.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: STROBES_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.strobe
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.strobe.on:
+      id: lights.strobe.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.strobe
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.strobe.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: STROBES_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.strobe
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.beacon.off:
+      id: lights.beacon.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.beacon
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.beacon.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: BEACON_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.beacon.on:
+      id: lights.beacon.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.beacon
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.beacon.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: BEACON_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.off:
+      id: lights.nav.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.nav
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.nav.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: NAV_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.nav
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.on:
+      id: lights.nav.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.nav
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.nav.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: NAV_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.nav
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.off:
+      id: lights.logo.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.logo
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.logo.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LOGO_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.logo
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.on:
+      id: lights.logo.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.logo
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.logo.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LOGO_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.logo
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.wing.off:
+      id: lights.wing.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.wing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.wing.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: WING_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.wing.on:
+      id: lights.wing.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.wing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.wing.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: WING_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.landing.off:
+      id: lights.landing.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.landing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.landing.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.landing
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.landing.on:
+      id: lights.landing.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.landing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.landing.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.landing
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.taxi.off:
+      id: lights.taxi.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.taxi
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.taxi.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.taxi
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.taxi.on:
+      id: lights.taxi.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.lights.taxi
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.lights.taxi.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.taxi
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+
+    # controls
+    controls.gear.up:
+      id: controls.gear.up
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.controls.gear
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.controls.gear.up.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: GEAR_UP
+              value: 0
+          readback:
+            fieldId: controls.gearHandleDown
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    controls.gear.down:
+      id: controls.gear.down
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.controls.gear
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.controls.gear.down.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: GEAR_DOWN
+              value: 0
+          readback:
+            fieldId: controls.gearHandleDown
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    controls.flaps.decrease:
+      id: controls.flaps.decrease
+      guard:
+        cooldownMs: 300
+        groupId: microsoftIniBuildsA32x.controls.flaps
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.controls.flaps.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: FLAPS_DECR
+              value: 0
+          readback:
+            fieldId: controls.flapsIndex
+            confirmation: changed
+            timeoutMs: 3000
+      verification: untested
+    controls.flaps.increase:
+      id: controls.flaps.increase
+      guard:
+        cooldownMs: 300
+        groupId: microsoftIniBuildsA32x.controls.flaps
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: microsoftIniBuildsA32x.controls.flaps.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: FLAPS_INCR
+              value: 0
+          readback:
+            fieldId: controls.flapsIndex
+            confirmation: changed
+            timeoutMs: 3000
+      verification: untested
+    controls.parkingBrake.off:
+      id: controls.parkingBrake.off
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.controls.parkingBrake
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.controls.parkingBrake.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: PARKING_BRAKE_SET
+              value: 0
+          readback:
+            fieldId: controls.parkingBrake
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    controls.parkingBrake.on:
+      id: controls.parkingBrake.on
+      guard:
+        cooldownMs: 750
+        groupId: microsoftIniBuildsA32x.controls.parkingBrake
+        retry: never
+      routes:
+        - id: microsoftIniBuildsA32x.controls.parkingBrake.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: PARKING_BRAKE_SET
+              value: 1
+          readback:
+            fieldId: controls.parkingBrake
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+  catalogue:
+    order: 14
+    legacyExports:
+      INIBUILDS_A320NEO_V2_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/inibuilds-a320neo-v2
+        order: 39
+      INIBUILDS_A321LR_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/inibuilds-a321lr
+        order: 40
+      MICROSOFT_INIBUILDS_A32X_ADAPTER_ID:
+        kind: id
+        order: 41
+      MICROSOFT_INIBUILDS_A32X_INTEGRATION:
+        kind: integration
+        order: 42
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/inibuilds-a320neo-v2:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: inibuilds-a320neo-v2
+    name: Microsoft / iniBuilds Airbus A320neo V2
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-07-19T00:00:00Z
+    updatedAt: 2026-10-02T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/airbus-base
+    abstract: false
+    aircraft:
+      category: C
+      _commentFlaps: "No aircraft-specific flap detents are configured: airbus-base intentionally does not assert
+        shared Airbus flap notches. Add A320neo V2-specific detents only after vendor documentation or in-sim
+        verification."
+      engines:
+        count: 2
+        type: jet
+    integration:
+      aircraftSpecific:
+        adapter: microsoft-inibuilds-a32x
+      matching:
+        priority: 94
+        titleRegex: ^(?:(?:microsoft[\s_/+-]*inibuilds|microsoft|inibuilds)[\s_/-]*(?:airbus[\s_/-]*)?a320[\s_-]*neo[\s_-]*\(?v2\)?|(?:airbus[\s_/-]*)?a320[\s_-]*neo[\s_-]*\(?v2\)?[\s_/-]+(?:microsoft[\s_/+-]*inibuilds|microsoft|inibuilds))$
+        titleExcludes:
+          - fenix
+          - flybywire
+          - fbw
+          - latinvfr
+          - fslabs
+          - fsltl
+          - passiveaircraft
+        configPathRegex: (?:^|[/\\])(?:fs24-)?microsoft-aircraft-a320neo(?:[/\\]|$)|(?:^|[/\\])microsoft-a320neo(?:[/\\]|$)
+        configPathExcludes:
+          - fenix
+          - flybywire
+          - fbw
+          - latinvfr
+          - fslabs
+          - fsltl
+          - passiveaircraft
+          - asobo-aircraft-a320-neo
+        aircraftCfg:
+          _comment: The A20N designator is only accepted when both the title and creator identify the
+            Microsoft/iniBuilds A320neo V2, preventing legacy Asobo, FlyByWire, and Fenix A320 variants from
+            matching.
+          equals:
+            icao_type_designator: A20N
+          containsAll:
+            title:
+              - Airbus A320neo V2
+              - Airbus A320neo (V2)
+              - Microsoft Airbus A320neo V2
+              - Microsoft / iniBuilds Airbus A320neo V2
+            ui_createdby: iniBuilds
+      telemetry:
+        preferred: simconnect
+        lvars:
+          _comment: The exact-profile adapter owns 11 native FCU/FD subscriptions plus one gauge A-var voltage
+            subscription. Generic FCU targets remain secondary confirmation only; the aircraft page displays
+            native selector values.
+        lights:
+          source: simconnect
+      controls:
+        backend: simconnect
+        genericFallback: false
+        standardSurfaceFallback: true
+        _comment: 42 guarded actions over 55 fields, 34 confirmation/guard fields, 27 standard event IDs and five
+          native LVAR writes. Four FCU target actions require fresh native and independent standard target
+          agreement; captain FD uses native state. These six actions are partial after independent parked MSFS
+          2024 acceptance. Remaining standard controls are untested. No generic fallback, AP1/AP2,
+          managed/selected push-pull, FLC, spoiler, runway-turnoff or deep-system writes.
+      presentation:
+        visualSupport: basic
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - turnoff
+            - logo
+            - wing
+          labels:
+            beacon: BCN
+            nav: NAV
+            strobe: STRB
+            landing: LND
+            taxi: TAXI
+            turnoff: RWY
+            logo: LOGO
+            wing: WING
+    meta:
+      developer: Microsoft / iniBuilds
+      platforms:
+        - msfs2020
+        - msfs2024
+      updated: 2026-10-02
+      status: experimental
+      notes: "Microsoft / iniBuilds Airbus A320neo V2: 55 fields, 42 actions, 34 confirmation/guard fields and 12
+        gauge subscriptions. Four native FCU targets and captain FD were independently checked in this exact
+        aircraft on MSFS 2024 1.8.16.0, powered and parked. Other controls and flight behavior remain
+        unvalidated. See docs/AIRCRAFT-ONBOARDING-SESSION-2026-10-02.md."
+    provenance:
+      sources:
+        - type: official-docs
+          name: Microsoft Flight Simulator 2024 FAQ - aircraft matrix
+          url: https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ
+          retrievedAt: 2026-07-19
+          notes: Lists the Airbus A320neo and confirms it is included with Microsoft Flight Simulator 2024 Standard,
+            Deluxe, Premium Deluxe, and Aviator editions.
+        - type: official-docs
+          name: Microsoft Flight Simulator - May 23, 2024 Development Update
+          url: https://www.flightsimulator.com/may-23rd-2024-development-update/
+          retrievedAt: 2026-07-19
+          notes: Identifies the A320neo V2 as part of Sim Update 15 and the free Marketplace aircraft as Airbus A320neo
+            Enhanced by Microsoft/iniBuilds.
+        - type: official-docs
+          name: Microsoft Flight Simulator - Aircraft Manuals
+          url: https://www.flightsimulator.com/aircraft-manuals/
+          retrievedAt: 2026-07-19
+          notes: Lists the Airbus A320neo V2 manual as Version 1 from iniBuilds, supporting the canonical model and
+            developer identity. The page does not publish an external telemetry/control variable map.
+        - type: forum
+          name: iniBuilds Support - How to clear the WASM folder (A320neo)
+          url: https://forum.inibuilds.com/topic/24256-how-to-clear-the-wasm-folder/
+          retrievedAt: 2026-07-19
+          notes: Official iniBuilds support instructions identify the MSFS 2024 package as microsoft-aircraft-a320neo.
+        - type: official-sdk
+          name: MSFS 2024 Avionics Framework - SimVars
+          url: https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/
+          retrievedAt: 2026-08-13
+          notes: Documents standard SimVars. Native target and captain FD mappings additionally use recorded,
+            variant-specific simulator verification below; this page does not document those native names.
+        - type: official-sdk
+          name: MSFS 2024 Avionics Framework - Key Events
+          url: https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/
+          retrievedAt: 2026-08-13
+          notes: Documents the simulator key-event transport used by this exact-profile adapter. The active event IDs
+            and parameters are enumerated by the generation- and category-specific Microsoft SDK sources
+            below.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2020 SDK - Aircraft Autopilot and Flight Assist Events
+          url: https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Autopilot_Flight_Assist_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "MSFS 2020 source for the remaining standard flight-guidance events: AUTOPILOT_OFF, AUTOPILOT_ON,
+            AUTO_THROTTLE_ARM, AP_AIRSPEED_OFF, AP_AIRSPEED_ON, AP_HDG_HOLD_OFF, AP_HDG_HOLD_ON,
+            AP_ALT_HOLD_OFF, AP_ALT_HOLD_ON, AP_VS_OFF, AP_VS_ON, AP_NAV1_HOLD_OFF, AP_NAV1_HOLD_ON,
+            AP_APR_HOLD_OFF, AP_APR_HOLD_ON. Toggle events serve guarded OFF/ON logical intents only after
+            fresh readback. These are generic simulator semantics, not an A320neo V2 AP1/AP2 or Airbus
+            managed/selected contract."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2020 SDK - Aircraft Electrical Events
+          url: https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Electrical_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "MSFS 2020 source for every active exterior-light event: STROBES_SET, BEACON_LIGHTS_SET,
+            NAV_LIGHTS_SET, LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. Each
+            uses a fixed 0/1 target and confirms the corresponding standard light-output SimVar; no Airbus
+            selector or AUTO semantics are inferred."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2020 SDK - Aircraft Flight Control Events
+          url: https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Flight_Control_Events.htm
+          retrievedAt: 2026-08-13
+          notes: MSFS 2020 source for the active FLAPS_DECR and FLAPS_INCR mappings. These are relative handle steps
+            with newer changed standard flap-handle readback, not aircraft-specific detents.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2020 SDK - Aircraft Miscellaneous Events
+          url: https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Misc_Events.htm
+          retrievedAt: 2026-08-13
+          notes: MSFS 2020 source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. FlightFabric
+            exposes fixed semantic targets and confirms newer standard handle/state readback.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 SDK - Aircraft Autopilot and Flight Assist Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Autopilot_Flight_Assist_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "MSFS 2024 source for the remaining standard flight-guidance events: AUTOPILOT_OFF, AUTOPILOT_ON,
+            AUTO_THROTTLE_ARM, AP_AIRSPEED_OFF, AP_AIRSPEED_ON, AP_HDG_HOLD_OFF, AP_HDG_HOLD_ON,
+            AP_ALT_HOLD_OFF, AP_ALT_HOLD_ON, AP_VS_OFF, AP_VS_ON, AP_NAV1_HOLD_OFF, AP_NAV1_HOLD_ON,
+            AP_APR_HOLD_OFF, AP_APR_HOLD_ON. Toggle events serve guarded OFF/ON logical intents only after
+            fresh readback. These are generic simulator semantics, not an A320neo V2 AP1/AP2 or Airbus
+            managed/selected contract."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 SDK - Aircraft Electrical Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "MSFS 2024 source for every active exterior-light event: STROBES_SET, BEACON_LIGHTS_SET,
+            NAV_LIGHTS_SET, LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. Each
+            uses a fixed 0/1 target and confirms the corresponding standard light-output SimVar; no Airbus
+            selector or AUTO semantics are inferred."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 SDK - Aircraft Flight Control Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Flight_Control_Events.htm
+          retrievedAt: 2026-08-13
+          notes: MSFS 2024 source for the active FLAPS_DECR and FLAPS_INCR mappings. These are relative handle steps
+            with newer changed standard flap-handle readback, not aircraft-specific detents.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 SDK - Aircraft General Systems Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm
+          retrievedAt: 2026-08-13
+          notes: MSFS 2024 source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. FlightFabric
+            exposes fixed semantic targets and confirms newer standard handle/state readback.
+        - type: forum
+          authority: aircraft-vendor
+          access: public
+          name: iniBuilds staff - discovering loaded aircraft LVARs
+          url: https://forum.inibuilds.com/topic/23163-lvars/
+          retrievedAt: 2026-10-02
+          notes: Staff describe inspecting loaded Behaviors/Local Variables and correlating cockpit interaction. This
+            supports the discovery method, not the exact mappings. The linked spreadsheet returned HTTP 403
+            and was not used.
+        - type: manual-testing
+          authority: operator
+          access: vendor-install
+          supportsActiveMappings: true
+          name: FlightFabric independent A320neo V2 parked control acceptance
+          retrievedAt: 2026-10-02
+          recordedEvidence:
+            document: docs/AIRCRAFT-ONBOARDING-SESSION-2026-10-02.md
+            aircraftTitle: A320neo V2
+            configurationPath: SimObjects\Airplanes\microsoft-a320neo\presets\inibuilds\a20n\config\aircraft.CFG
+            simulatorVersion: 1.8.16.0
+            results:
+              - accept-a320-fcu-1790935092418.json
+              - accept-a320-fd-1790935154899.json
+          notes: Reproducible observation via the documented MSFS SimConnect/gauge interface, not vendor-published
+            mapping documentation. L:INI_Airspeed_Dial (knots), L:INI_HEADING_DIAL (degrees),
+            L:INI_Altitude_Dial (feet), L:INI_vvi_dial (feet/minute) each changed both the physical FCU
+            display and the independent standard target, then restored. L:INI_FD1_ON (Bool 0/1) changed only
+            the captain FD button and restored. Native mode readings INI_managed_speed, INI_FCU_SPD_DASHED,
+            INI_FCU_HDG_DOT, INI_FCU_HDG_DASHED, INI_TRACK_FPA_STATE and INI_FCU_VS_DASHED were zero in the
+            tested selected state; managed/TRK/FPA transitions are not accepted. A:ELECTRICAL MAIN BUS VOLTAGE
+            is read through the gauge bridge. Community HubHop presets supplied candidates; only the limited
+            independently observed behavior is claimed.
+      verification:
+        status: partial
+        lastVerified: 2026-10-02
+        knownIssues:
+          - "Exact live TITLE A320neo V2 and configuration
+            SimObjects\\Airplanes\\microsoft-a320neo\\presets\\inibuilds\\a20n\\config\\aircraft.CFG matched
+            this profile. Independent evidence: docs/AIRCRAFT-ONBOARDING-SESSION-2026-10-02.md."
+          - Only powered, parked selected FCU targets and captain FD have cockpit acceptance in MSFS 2024
+            1.8.16.0. Other variants, MSFS 2020 and airborne guidance remain unvalidated.
+          - FCU actions need fresh native and standard target agreement. Native write echo alone cannot
+            confirm a command. The page uses native selectors because changing altitude can change generic VS
+            to -700 while the displayed/native selector remains zero.
+          - Managed, dashed, Mach and TRK/FPA states are excluded by guards but their live transition coverage
+            is incomplete. No managed/selected push-pull controls or AP1/AP2 channel semantics are asserted.
+          - Captain FD uses INI_FD1_ON; first-officer FD is not controlled. Standard TOGGLE_FLIGHT_DIRECTOR
+            could change a generic flag without changing the cockpit on A320neo V2.
+          - Remaining standard flight-guidance, lighting, gear/flap and parking-brake actions retain untested
+            status. Lamp output alone does not prove native multi-position switch state; AUTO, runway-turnoff
+            and spoiler writes remain excluded.
+          - Main bus voltage can show transient initialization values before Ready to fly. Wait for stable
+            aircraft initialization and visible FCU power before live acceptance.
+          - No aircraft-specific flap detents or deep-system writes are asserted. Native mappings are
+            version-specific observed behavior, not a supported vendor SDK contract.
+  bundled/msfs/inibuilds-a321lr:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: inibuilds-a321lr
+    name: Microsoft / iniBuilds Airbus A321LR
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-06-09T00:00:00Z
+    updatedAt: 2026-10-02T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/airbus-base
+    abstract: false
+    aircraft:
+      category: C
+      _commentFlaps: "No aircraft-specific flap detents are configured: airbus-base intentionally does not assert
+        shared Airbus flap notches. Add A321LR-specific detents only after vendor documentation or in-sim
+        verification."
+      engines:
+        count: 2
+        type: jet
+    integration:
+      aircraftSpecific:
+        adapter: microsoft-inibuilds-a32x
+      matching:
+        priority: 93
+        titleContains:
+          - Airbus A321LR - Microsoft / iniBuilds
+          - Microsoft / iniBuilds Airbus A321LR
+          - Microsoft iniBuilds Airbus A321LR
+          - Microsoft Airbus A321LR
+          - iniBuilds Airbus A321LR
+          - iniBuilds A321LR
+          - iniBuilds A321 LR
+          - Microsoft_Airbus_A321LR
+        titleRegex: ^(?:(?:microsoft[\s_/+-]*inibuilds|microsoft|inibuilds)[\s_/-]*(?:airbus[\s_/-]*)?a321[\s_-]*lr|(?:airbus[\s_/-]*)?a321[\s_-]*lr[\s_/-]*microsoft[\s_/+-]*inibuilds)$
+        configPathContains:
+          - fs24-microsoft-aircraft-a321
+          - microsoft-aircraft-a321
+          - simobjects/airplanes/microsoft-a321
+          - simobjects\airplanes\microsoft-a321
+        configPathRegex: (?:^|[/\\])(?:fs24-)?microsoft-aircraft-a321(?:[/\\]|$)|(?:^|[/\\])microsoft-a321(?:[/\\]|$)
+        aircraftCfg:
+          _comment: The A21N designator is only accepted when both the title and creator identify the
+            Microsoft/iniBuilds A321LR, preventing Fenix, LatinVFR, ceo, and non-LR A321 variants from
+            matching.
+          equals:
+            icao_type_designator: A21N
+          containsAll:
+            title:
+              - Airbus A321LR
+              - Microsoft Airbus A321LR
+              - Microsoft / iniBuilds Airbus A321LR
+            ui_createdby: iniBuilds
+      telemetry:
+        preferred: simconnect
+        lvars:
+          _comment: The exact-profile adapter owns 11 native FCU/FD subscriptions plus one gauge A-var voltage
+            subscription. Generic FCU targets remain secondary confirmation only; the aircraft page displays
+            native selector values.
+        lights:
+          source: simconnect
+      controls:
+        backend: simconnect
+        genericFallback: false
+        standardSurfaceFallback: true
+        _comment: 42 guarded actions over 55 fields, 34 confirmation/guard fields, 27 standard event IDs and five
+          native LVAR writes. Four FCU target actions require fresh native and independent standard target
+          agreement; captain FD uses native state. These six actions are partial after independent parked MSFS
+          2024 acceptance. Remaining standard controls are untested. No generic fallback, AP1/AP2,
+          managed/selected push-pull, FLC, spoiler, runway-turnoff or deep-system writes.
+      presentation:
+        visualSupport: basic
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - turnoff
+            - logo
+            - wing
+          labels:
+            beacon: BCN
+            nav: NAV
+            strobe: STRB
+            landing: LND
+            taxi: TAXI
+            turnoff: RWY
+            logo: LOGO
+            wing: WING
+    meta:
+      developer: Microsoft / iniBuilds
+      platforms:
+        - msfs2024
+      updated: 2026-10-02
+      status: experimental
+      notes: "Microsoft / iniBuilds Airbus A321LR: 55 fields, 42 actions, 34 confirmation/guard fields and 12 gauge
+        subscriptions. Four native FCU targets and captain FD were independently checked in this exact
+        aircraft on MSFS 2024 1.8.16.0, powered and parked. Other controls and flight behavior remain
+        unvalidated. See docs/AIRCRAFT-ONBOARDING-SESSION-2026-10-02.md."
+    provenance:
+      sources:
+        - type: official-docs
+          name: Microsoft Flight Simulator 2024 FAQ - aircraft matrix
+          url: https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ
+          retrievedAt: 2026-07-19
+          notes: Lists the Airbus A321LR as an aircraft included with Microsoft Flight Simulator 2024 Standard, Deluxe,
+            Premium Deluxe, and Aviator editions.
+        - type: official-docs
+          name: Microsoft Flight Simulator - Aircraft Manuals
+          url: https://www.flightsimulator.com/aircraft-manuals/
+          retrievedAt: 2026-07-19
+          notes: Lists the Airbus A321LR manual as Version 1 from iniBuilds, supporting the canonical model and
+            developer identity. The page does not publish an external telemetry/control variable map.
+        - type: forum
+          name: iniBuilds Support - How to clear the WASM folder (A321LR)
+          url: https://forum.inibuilds.com/topic/24257-how-to-clear-the-wasm-folder/
+          retrievedAt: 2026-07-19
+          notes: Official iniBuilds support instructions identify the MSFS 2024 package as microsoft-aircraft-a321.
+        - type: official-sdk
+          name: MSFS 2024 Avionics Framework - SimVars
+          url: https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/
+          retrievedAt: 2026-08-13
+          notes: Documents standard SimVars. Native target and captain FD mappings additionally use recorded,
+            variant-specific simulator verification below; this page does not document those native names.
+        - type: official-sdk
+          name: MSFS 2024 Avionics Framework - Key Events
+          url: https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/
+          retrievedAt: 2026-08-13
+          notes: Documents the simulator key-event transport used by this exact-profile adapter. The active event IDs
+            and parameters are enumerated by the category-specific Microsoft SDK sources below.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 SDK - Aircraft Autopilot and Flight Assist Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Autopilot_Flight_Assist_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "Source for the remaining standard flight-guidance events: AUTOPILOT_OFF, AUTOPILOT_ON,
+            AUTO_THROTTLE_ARM, AP_AIRSPEED_OFF, AP_AIRSPEED_ON, AP_HDG_HOLD_OFF, AP_HDG_HOLD_ON,
+            AP_ALT_HOLD_OFF, AP_ALT_HOLD_ON, AP_VS_OFF, AP_VS_ON, AP_NAV1_HOLD_OFF, AP_NAV1_HOLD_ON,
+            AP_APR_HOLD_OFF, AP_APR_HOLD_ON. Toggle events serve guarded OFF/ON logical intents only after
+            fresh readback. These are generic simulator semantics, not an A321LR AP1/AP2 or Airbus
+            managed/selected contract."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 SDK - Aircraft Electrical Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "Source for every active exterior-light event: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET,
+            LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. Each uses a fixed 0/1
+            target and confirms the corresponding standard light-output SimVar; no Airbus selector or AUTO
+            semantics are inferred."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 SDK - Aircraft Flight Control Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Flight_Control_Events.htm
+          retrievedAt: 2026-08-13
+          notes: Source for the active FLAPS_DECR and FLAPS_INCR mappings. These are relative handle steps with newer
+            changed standard flap-handle readback, not aircraft-specific detents.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS 2024 SDK - Aircraft General Systems Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm
+          retrievedAt: 2026-08-13
+          notes: Source for the active GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET mappings. FlightFabric exposes fixed
+            semantic targets and confirms newer standard handle/state readback.
+        - type: forum
+          authority: aircraft-vendor
+          access: public
+          name: iniBuilds staff - discovering loaded aircraft LVARs
+          url: https://forum.inibuilds.com/topic/23163-lvars/
+          retrievedAt: 2026-10-02
+          notes: Staff describe inspecting loaded Behaviors/Local Variables and correlating cockpit interaction. This
+            supports the discovery method, not the exact mappings. The linked spreadsheet returned HTTP 403
+            and was not used.
+        - type: manual-testing
+          authority: operator
+          access: vendor-install
+          supportsActiveMappings: true
+          name: FlightFabric independent A321 parked control acceptance
+          retrievedAt: 2026-10-02
+          recordedEvidence:
+            document: docs/AIRCRAFT-ONBOARDING-SESSION-2026-10-02.md
+            aircraftTitle: A321
+            configurationPath: SimObjects\Airplanes\microsoft-a321\presets\inibuilds\a21n\config\aircraft.CFG
+            simulatorVersion: 1.8.16.0
+            results:
+              - accept-a321-fcu-1790936343367.json
+              - accept-a321-fd-1790936411950.json
+          notes: Reproducible observation via the documented MSFS SimConnect/gauge interface, not vendor-published
+            mapping documentation. L:INI_Airspeed_Dial (knots), L:INI_HEADING_DIAL (degrees),
+            L:INI_Altitude_Dial (feet), L:INI_vvi_dial (feet/minute) each changed both the physical FCU
+            display and the independent standard target, then restored. L:INI_FD1_ON (Bool 0/1) changed only
+            the captain FD button and restored. Native mode readings INI_managed_speed, INI_FCU_SPD_DASHED,
+            INI_FCU_HDG_DOT, INI_FCU_HDG_DASHED, INI_TRACK_FPA_STATE and INI_FCU_VS_DASHED were zero in the
+            tested selected state; managed/TRK/FPA transitions are not accepted. A:ELECTRICAL MAIN BUS VOLTAGE
+            is read through the gauge bridge. Community HubHop presets supplied candidates; only the limited
+            independently observed behavior is claimed.
+      verification:
+        status: partial
+        lastVerified: 2026-10-02
+        knownIssues:
+          - "Exact live TITLE A321 and configuration
+            SimObjects\\Airplanes\\microsoft-a321\\presets\\inibuilds\\a21n\\config\\aircraft.CFG matched this
+            profile. Independent evidence: docs/AIRCRAFT-ONBOARDING-SESSION-2026-10-02.md."
+          - Only powered, parked selected FCU targets and captain FD have cockpit acceptance in MSFS 2024
+            1.8.16.0. Other variants, MSFS 2020 and airborne guidance remain unvalidated.
+          - FCU actions need fresh native and standard target agreement. Native write echo alone cannot
+            confirm a command. The page uses native selectors because changing altitude can change generic VS
+            to -700 while the displayed/native selector remains zero.
+          - Managed, dashed, Mach and TRK/FPA states are excluded by guards but their live transition coverage
+            is incomplete. No managed/selected push-pull controls or AP1/AP2 channel semantics are asserted.
+          - Captain FD uses INI_FD1_ON; first-officer FD is not controlled. Standard TOGGLE_FLIGHT_DIRECTOR
+            could change a generic flag without changing the cockpit on A320neo V2.
+          - Remaining standard flight-guidance, lighting, gear/flap and parking-brake actions retain untested
+            status. Lamp output alone does not prove native multi-position switch state; AUTO, runway-turnoff
+            and spoiler writes remain excluded.
+          - Main bus voltage can show transient initialization values before Ready to fly. Wait for stable
+            aircraft initialization and visible FCU power before live acceptance.
+          - No aircraft-specific flap detents or deep-system writes are asserted. Native mappings are
+            version-specific observed behavior, not a supported vendor SDK contract.

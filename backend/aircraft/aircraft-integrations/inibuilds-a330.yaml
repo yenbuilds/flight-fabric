@@ -1,0 +1,808 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: inibuilds-a330/actions.ts
+# The included A330 exposes no vendor-documented external write contract.
+# Live testing showed that standard simulator events do not control its
+# custom cockpit selectors, so retain readback-only support until an exact
+# iniBuilds Input Event or LVAR mapping is documented and verified in-sim.
+
+# Mapping source notes: inibuilds-a330/fields.ts
+# There is no published exact A330 LVAR/InputEvent catalogue. This adapter is
+# intentionally limited to an explicit set of standard MSFS 2024 SimVars
+# normalized into FlightFabric's telemetry frame. Raw names stay backend-only
+# and can later be replaced by A330-specific sources without changing the UI.
+
+schemaVersion: 1
+integration:
+  id: inibuilds-a330
+  aircraft:
+    vendor: iniBuilds / Microsoft
+    family: A330
+  trustedProfileKeys:
+    - bundled/msfs/inibuilds-a330
+  presentation:
+    templateId: inibuilds-a330
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # flightGuidance
+    flightGuidance.speedValue:
+      id: flightGuidance.speedValue
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT AIRSPEED HOLD VAR
+            unit: Knots
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.headingDeg:
+      id: flightGuidance.headingDeg
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT HEADING LOCK DIR
+            unit: Degrees
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.altitudeFt:
+      id: flightGuidance.altitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT ALTITUDE LOCK VAR
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.verticalSpeedFpm:
+      id: flightGuidance.verticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT VERTICAL HOLD VAR
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.apMaster:
+      id: flightGuidance.apMaster
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT MASTER
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.flightDirector:
+      id: flightGuidance.flightDirector
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT FLIGHT DIRECTOR ACTIVE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.autothrottleActive:
+      id: flightGuidance.autothrottleActive
+      sources:
+        - route:
+            type: simvar
+            name: AUTOTHROTTLE ACTIVE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.autothrottleArmed:
+      id: flightGuidance.autothrottleArmed
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT THROTTLE ARM
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.altitudeHold:
+      id: flightGuidance.altitudeHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT ALTITUDE LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.headingHold:
+      id: flightGuidance.headingHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT HEADING LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.navHold:
+      id: flightGuidance.navHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT NAV1 LOCK
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.approachHold:
+      id: flightGuidance.approachHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT APPROACH HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.verticalSpeedHold:
+      id: flightGuidance.verticalSpeedHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT VERTICAL HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.flightLevelChange:
+      id: flightGuidance.flightLevelChange
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT FLIGHT LEVEL CHANGE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    flightGuidance.speedHold:
+      id: flightGuidance.speedHold
+      sources:
+        - route:
+            type: simvar
+            name: AUTOPILOT AIRSPEED HOLD
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # lights
+    lights.strobe:
+      id: lights.strobe
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT STROBE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT BEACON
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.nav:
+      id: lights.nav
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT NAV
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.logo:
+      id: lights.logo
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LOGO
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.wing:
+      id: lights.wing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT WING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.landing:
+      id: lights.landing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LANDING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.taxi:
+      id: lights.taxi
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.runwayTurnoff:
+      id: lights.runwayTurnoff
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # controls
+    controls.flapsPercent:
+      id: controls.flapsPercent
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE PERCENT
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.flapsIndex:
+      id: controls.flapsIndex
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE INDEX
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    controls.flapAngleDeg:
+      id: controls.flapAngleDeg
+      sources:
+        - route:
+            type: simvar
+            name: TRAILING EDGE FLAPS LEFT ANGLE
+            unit: Degrees
+          decode:
+            type: number
+            precision: 1
+    controls.speedbrakePercent:
+      id: controls.speedbrakePercent
+      sources:
+        - route:
+            type: simvar
+            name: SPOILERS HANDLE POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.spoilersArmed:
+      id: controls.spoilersArmed
+      sources:
+        - route:
+            type: simvar
+            name: SPOILERS ARMED
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearHandleDown:
+      id: controls.gearHandleDown
+      sources:
+        - route:
+            type: simvar
+            name: GEAR HANDLE POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearNosePct:
+      id: controls.gearNosePct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR CENTER POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearLeftPct:
+      id: controls.gearLeftPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR LEFT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearRightPct:
+      id: controls.gearRightPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR RIGHT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.parkingBrake:
+      id: controls.parkingBrake
+      sources:
+        - route:
+            type: simvar
+            name: BRAKE PARKING POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # systems
+    systems.engine1N1:
+      id: systems.engine1N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:1
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine2N1:
+      id: systems.engine2N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:2
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine1Running:
+      id: systems.engine1Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine2Running:
+      id: systems.engine2Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.fuelTotalPct:
+      id: systems.fuelTotalPct
+      sources:
+        - route:
+            type: simvar
+            name: FUEL SELECTED QUANTITY PERCENT:99
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.fuelTotalWeightLbs:
+      id: systems.fuelTotalWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: FUEL TOTAL QUANTITY WEIGHT EX1
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.grossWeightLbs:
+      id: systems.grossWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: TOTAL WEIGHT
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.cabinAltitudeFt:
+      id: systems.cabinAltitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    systems.cabinVerticalSpeedFpm:
+      id: systems.cabinVerticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE RATE
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+    systems.cabinDeltaPressurePsi:
+      id: systems.cabinDeltaPressurePsi
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION PRESSURE DIFFERENTIAL
+            unit: PSI
+          decode:
+            type: number
+            precision: 2
+    systems.outsideAirTemperatureC:
+      id: systems.outsideAirTemperatureC
+      sources:
+        - route:
+            type: simvar
+            name: AMBIENT TEMPERATURE
+            unit: Celsius
+          decode:
+            type: number
+            precision: 1
+    systems.mach:
+      id: systems.mach
+      sources:
+        - route:
+            type: simvar
+            name: AIRSPEED MACH
+            unit: Mach
+          decode:
+            type: number
+            precision: 3
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+    {}
+  catalogue:
+    order: 7
+    legacyExports:
+      INIBUILDS_A330_ADAPTER_ID:
+        kind: id
+        order: 23
+      INIBUILDS_A330_INTEGRATION:
+        kind: integration
+        order: 24
+      INIBUILDS_A330_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/inibuilds-a330
+        order: 25
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/inibuilds-a330:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: inibuilds-a330
+    name: iniBuilds Airbus A330 Family (MSFS 2024)
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-06-09T00:00:00Z
+    updatedAt: 2026-08-12T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/airbus-base
+    abstract: false
+    aircraft:
+      category: D
+      _commentFlaps: "Aircraft-specific flap detents are not defined: airbus-base intentionally does not assert
+        shared Airbus flap notches. Add A330-specific detents only with documented sources and in-simulator
+        verification."
+      engines:
+        count: 2
+        type: jet
+      landing:
+        grades:
+          perfectMinFpm: -120
+          goodMinFpm: -250
+          firmMinFpm: -450
+          hardMinFpm: -600
+          _comment: Provisional wide-body Airbus landing bands pending MSFS 2024 A330-family verification.
+    integration:
+      aircraftSpecific:
+        adapter: inibuilds-a330
+      matching:
+        priority: 88
+        titleContains:
+          - iniBuilds A330
+          - iniBuilds Airbus A330
+          - iniBuilds A330-200
+          - iniBuilds A330-300
+          - iniBuilds A330-300P2F
+          - Microsoft A330
+        titleRegex: (inibuilds|microsoft).*(a330|a332|a333|a33f)|(a330|a332|a333|a33f).*(inibuilds|microsoft)
+        configPathContains:
+          - inibuilds-a330
+          - inibuilds_a330
+          - inibuilds-aircraft-a330
+          - microsoft-aircraft-a330
+        configPathRegex: (inibuilds|microsoft).*(a330|a332|a333|a33f)|(a330|a332|a333|a33f).*(inibuilds|microsoft)
+      telemetry:
+        preferred: simconnect
+        lvars:
+          _comment: This profile uses documented standard SimVars only. It subscribes to zero iniBuilds-specific LVARs
+            or Input Events.
+        lights:
+          source: simconnect
+      controls:
+        backend: simconnect
+        genericFallback: false
+        standardSurfaceFallback: false
+        _comment: The exact-profile adapter is readback-only. Live testing showed that the unverified standard
+          key-event candidates do not control the iniBuilds A330 cockpit selectors, and iniBuilds has not
+          published a verified external Input Event or LVAR write contract. All writes remain unavailable
+          pending documented, variant-specific in-simulator verification.
+      presentation:
+        visualSupport: basic
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - turnoff
+            - logo
+            - wing
+          labels:
+            beacon: BCN
+            nav: NAV
+            strobe: STRB
+            landing: LND
+            taxi: TAXI
+            turnoff: RWY
+            logo: LOGO
+            wing: WING
+    meta:
+      developer: iniBuilds / Microsoft
+      platforms:
+        - msfs2024
+      updated: 2026-08-12
+      status: experimental
+      notes: Dedicated exact-profile aircraft page for the included MSFS 2024 Airbus A330-200, A330-300, and
+        A330-300P2F family. The trusted adapter exposes 45 standard-SimVar logical fields and no active write
+        actions. It has zero custom LVAR subscriptions and remains intentionally separate from the Headwind
+        A330-900neo. A330 write controls remain unavailable pending documented, variant-specific in-simulator
+        verification.
+    provenance:
+      sources:
+        - type: official-docs
+          name: Microsoft Flight Simulator 2024 FAQ - aircraft matrix
+          url: https://flightsimulator.zendesk.com/hc/en-us/articles/12702272798364-Microsoft-Flight-Simulator-2024-FAQ
+          retrievedAt: 2026-07-15
+          notes: Lists Airbus A330 (-200, -300, 300P2F) as included with Microsoft Flight Simulator 2024 Standard,
+            Deluxe, Premium Deluxe, and Aviator editions.
+        - type: official-docs
+          name: Microsoft Flight Simulator - Aircraft Manuals
+          url: https://www.flightsimulator.com/aircraft-manuals/
+          retrievedAt: 2026-07-15
+          notes: Provides an Airbus A330 Version 1 manual from iniBuilds, supporting product identity and a
+            source-backed partial profile. The page does not publish an external telemetry/control variable
+            map.
+        - type: official-sdk
+          name: MSFS 2024 Avionics Framework - SimVars
+          url: https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/simvars/
+          retrievedAt: 2026-07-15
+          notes: "Documents standard MSFS SimVars/A-vars as queryable simulator state. The trusted A330 adapter exposes
+            only an explicit allowlist already normalized by FlightFabric and activates no aircraft-specific
+            L: or B: variables."
+        - type: official-sdk
+          name: MSFS 2024 Avionics Framework - Key Events
+          url: https://microsoft.github.io/msfs-avionics-mirror/2024/docs/interacting-with-msfs/key-events/
+          retrievedAt: 2026-07-15
+          notes: Documents the simulator key-event transport used by this exact-profile adapter. The active event IDs
+            and their parameters are enumerated by the category-specific Microsoft SDK sources below.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft Autopilot and Flight Assist Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Autopilot_Flight_Assist_Events.htm
+          retrievedAt: 2026-08-12
+          notes: "Source for every active flight-guidance event: AUTOPILOT_OFF, AUTOPILOT_ON, TOGGLE_FLIGHT_DIRECTOR,
+            AUTO_THROTTLE_ARM, AP_AIRSPEED_OFF, AP_AIRSPEED_ON, AP_HDG_HOLD_OFF, AP_HDG_HOLD_ON,
+            AP_ALT_HOLD_OFF, AP_ALT_HOLD_ON, AP_VS_OFF, AP_VS_ON, AP_NAV1_HOLD_OFF, AP_NAV1_HOLD_ON,
+            AP_APR_HOLD_OFF, AP_APR_HOLD_ON, FLIGHT_LEVEL_CHANGE_OFF, FLIGHT_LEVEL_CHANGE_ON, AP_SPD_VAR_SET,
+            HEADING_BUG_SET, AP_ALT_VAR_SET_ENGLISH, and AP_VS_VAR_SET_ENGLISH. These are standard simulator
+            events, not an A330-specific AP1/AP2 or Airbus managed/selected FCU contract."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft Electrical Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm
+          retrievedAt: 2026-08-12
+          notes: "Source for every active exterior-light event: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET,
+            LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. Each uses a fixed 0/1
+            target and confirms the corresponding standard light-output SimVar; no A330 selector-position
+            semantics are inferred."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft Flight Control Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Flight_Control_Events.htm
+          retrievedAt: 2026-08-12
+          notes: "Source for every active flap and spoiler event: FLAPS_DECR, FLAPS_INCR, SPOILERS_ARM_OFF,
+            SPOILERS_ARM_ON, and SPOILERS_SET. The numeric spoiler target is bounded to the SDK's 0..16383
+            event range and confirmed through normalized standard spoiler-handle readback."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft General Systems Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm
+          retrievedAt: 2026-08-12
+          notes: "Source for every active gear and parking-brake event: GEAR_UP, GEAR_DOWN, and PARKING_BRAKE_SET.
+            FlightFabric exposes fixed semantic targets only and confirms the newer standard handle/state
+            readback."
+      verification:
+        status: partial
+        lastVerified: 2026-08-12
+        knownIssues:
+          - Exact MSFS 2024 aircraft title strings for each A330 variant remain unverified in-sim.
+          - The 45 standard-SimVar fields remain monitoring-only. Live testing showed that the unverified
+            standard-event candidates do not control the custom A330 cockpit selectors.
+          - AP1/AP2, Airbus managed/selected FCU push-pull, EXPED, exact A330 light-selector positions, and
+            all other write controls remain unavailable without a vendor-documented and in-simulator-verified
+            Input Event or LVAR contract.
+          - The cited public sources do not define a complete A330-specific LVAR, B-var, or InputEvent
+            integration map. The adapter subscribes to zero custom variables and does not activate candidate
+            INI_* names from package snapshots or community presets.
+          - Standard light readback is retained for monitoring but does not authorize write controls or
+            identify every multi-position cockpit selector state.
+          - Flap detents are intentionally absent; do not inherit or reintroduce broad Airbus base detents
+            without A330-specific evidence.
+          - This profile intentionally does not cover the Headwind A330-900neo, which has its own profile.

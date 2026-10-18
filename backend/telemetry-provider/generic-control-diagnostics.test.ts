@@ -4,7 +4,9 @@ const { captureGenericLightReadback, describeGenericLightReadback } = require('.
 const { SimConnectTelemetryProvider } = require('./simconnect-telemetry-provider');
 const { LvarSidecarBridge } = require('./lvar-sidecar-bridge');
 const { executeAircraftControl, executeAircraftCommand } = require('../aircraft/aircraft-control-service');
-const genericProfile = require('../aircraft/profiles/bundled/msfs/generic.json');
+const { readBundledProfile } = require('../aircraft/aircraft-profile-sources');
+const { loadProfile } = require('../aircraft/aircraft-profile-loader');
+const genericProfile = readBundledProfile('bundled/msfs/generic');
 
 const profileKey = 'bundled/msfs/generic';
 const profileRevision = 12;
@@ -59,6 +61,36 @@ test('generic flap adjustments report delivery without inventing aircraft-specif
     assert.equal(result.confirmedValue, undefined, 'standard index movement does not prove cockpit lever selection');
     assert.equal(h.messages.length, 1, 'never repeat a relative flap command');
     assert.equal(h.messages[0].message.name, value === 'increase' ? 'FLAPS_INCR' : 'FLAPS_DECR');
+  }
+});
+
+test('Fenix and MD-11 canonical gear commands use their existing standard route without claiming handle confirmation', async () => {
+  for (const id of ['fenix-a319', 'fenix-a320', 'fenix-a321', 'tfdi-md-11']) {
+    const aircraftKey = `bundled/msfs/${id}`;
+    const profile = loadProfile(aircraftKey);
+    for (const value of ['up', 'down']) for (const outcome of ['accepted', 'rejected', 'stale-profile']) {
+      const h = harness();
+      h.gauge.profileId = aircraftKey;
+      h.provider._getActiveAircraftControlProfileGeneration = () => ({ profileKey: aircraftKey, profileRevision });
+      const send = h.bridge._sendWithAck;
+      h.bridge._sendWithAck = async (...args) => {
+        const ack = await send(...args);
+        if (outcome === 'rejected') h.bridge._onStdout(`${JSON.stringify({
+          type: 'exception', exception: 5, sendId: 42, index: 0,
+        })}\n`);
+        return ack;
+      };
+      const result = await executeAircraftCommand(h.provider, {
+        commandId: 'surfaces.gear.set', input: { value }, profileKey: aircraftKey,
+        profileRevision: outcome === 'stale-profile' ? profileRevision - 1 : profileRevision,
+      }, { profile, profileRevision, requireProfileToken: true });
+      assert.equal(result.ok, outcome === 'accepted', `${id} ${value} ${outcome}`);
+      assert.equal(result.code, { accepted: 'sent_unconfirmed', rejected: 'simconnect_exception',
+        'stale-profile': 'stale_profile' }[outcome]);
+      assert.equal(result.confirmedValue, undefined, 'delivery without observed movement cannot confirm handle selection');
+      assert.equal(h.messages.length, outcome === 'stale-profile' ? 0 : 1, 'no stale dispatch, toggle or automatic retry');
+      if (h.messages.length) assert.equal(h.messages[0].message.name, value === 'up' ? 'GEAR_UP' : 'GEAR_DOWN');
+    }
   }
 });
 

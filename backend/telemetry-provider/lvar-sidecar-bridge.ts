@@ -1235,7 +1235,11 @@ class LvarSidecarBridge {
           this._subscriptions.length > 0
           && (state === 'connecting' || state === 'connected' || state === 'disconnected' || state === 'error')
         ) {
-          this._awaitingSubscriptionRefresh = true;
+          // Native all-null health also reports "connecting" within the same
+          // session. If values recover before its re-registration threshold,
+          // no new subscription ACK follows. Clear observations but preserve
+          // the existing gate; real session boundaries still require an ACK.
+          if (state !== 'connecting') this._awaitingSubscriptionRefresh = true;
           this._snapshot.values = {};
           this._snapshot.valueUpdatedAt = null;
           this._snapshot.updatedAt = null;

@@ -1,14 +1,43 @@
 import assert = require('node:assert/strict');
 import test = require('node:test');
-import { cockpitLightingGroups } from './aircraft-integrations/cockpit-lighting';
+import { cockpitLightingGroups } from './cockpit-lighting';
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
 
 const loader = require('./aircraft-profile-loader');
-const { defaultAircraftIntegrationRegistry: registry, createAircraftIntegrationRegistry } = require('./aircraft-integrations');
+const { defaultAircraftIntegrationRegistry: registry, createAircraftIntegrationRegistry } = require('./integration-engine');
 const { buildAircraftControlCapabilities, executeAircraftCommand, resolveAircraftCommand } = require('./aircraft-control-service');
 const capabilities = { simulator: 'msfs', actionTypes: ['aircraft-integration'],
   integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] };
 const request = (target: string, value: unknown = 70) => ({ commandId: `configuration.lighting.${target}`, input: { value } });
+
+test('YAML lighting groups preserve the independent pre-extraction catalogue and isolate callers', () => {
+  const expected = JSON.parse(require('node:fs').readFileSync(require('node:path').join(
+    process.cwd(), 'tests/fixtures/cockpit-lighting-groups-baseline.json'), 'utf8'));
+  for (const integration of registry.list()) {
+    assert.deepEqual(cockpitLightingGroups(integration.id), expected[integration.id] || [], integration.id);
+  }
+  assert.deepEqual(cockpitLightingGroups('unregistered-aircraft'), []);
+  const groups = cockpitLightingGroups('inibuilds-a350') as any[];
+  groups[0].label = 'Caller edit';
+  groups[0].fields.pop();
+  groups.pop();
+  assert.deepEqual(cockpitLightingGroups('inibuilds-a350'), expected['inibuilds-a350']);
+});
+
+test('lighting presentation rejects missing and ambiguous action or field references', () => {
+  for (const change of [
+    groups => { groups[0].actionId = 'lighting.unregistered.set'; },
+    groups => { groups[0].fields[0] = 'lighting.unregisteredPercent'; },
+    groups => { groups[0].fields.push(groups[0].fields[0]); },
+    groups => { groups.push(structuredClone(groups[0])); },
+    groups => { groups[0].displays = 'true'; },
+    groups => { groups[0].unreviewed = true; },
+  ]) {
+    const integration = structuredClone(registry.getById('inibuilds-a350'));
+    change(integration.presentation.cockpitLightingGroups);
+    assert.throws(() => createAircraftIntegrationRegistry([integration]), /lighting/i);
+  }
+});
 
 const coverage = [
   ...['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900'].map(id => [id, 16, 8]),

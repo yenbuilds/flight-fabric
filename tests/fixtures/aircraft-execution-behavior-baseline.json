@@ -1,0 +1,277 @@
+{
+  "inibuilds-tristar": {
+    "keyEventPolicy": {
+      "eventGroups": {
+        "AP_AIRSPEED_HOLD": "autothrottle",
+        "AP_VS_HOLD": "verticalSpeedHold",
+        "AP_ALT_HOLD": "altitudeHold",
+        "AP_MACH_HOLD": "machHold",
+        "AP_HDG_HOLD": "headingHold",
+        "TOGGLE_FLIGHT_DIRECTOR": "flightDirector",
+        "AP_MASTER": "apMaster",
+        "AUTOPILOT_OFF": "apMaster",
+        "AP_APR_HOLD": "app",
+        "AP_LOC_HOLD": "loc",
+        "AP_NAV1_HOLD": "nav1",
+        "TOGGLE_WATER_RUDDER": "ins",
+        "AP_BC_HOLD": "backcourse"
+      },
+      "cooldownMs": 600,
+      "inFlightError": "The TriStar AFCS control is already being sent.",
+      "cooldownError": "Wait briefly before sending the TriStar AFCS control again."
+    }
+  },
+  "pmdg-777": {
+    "readbackFailureHints": [
+      {
+        "actionPrefix": "controls.parkingBrake.",
+        "text": " PMDG Realistic parking-brake mode can require both toe brakes to be held before the lever accepts SET; releasing may be controlled by pedal input."
+      }
+    ],
+    "flightGuidanceProjection": {
+      "id": "pmdg-777.flight-guidance",
+      "version": 1,
+      "eventType": "flight_guidance_event",
+      "lane": "flight-guidance",
+      "source": "sdk",
+      "profileLeaves": [
+        "pmdg-777",
+        "pmdg-777-200er",
+        "pmdg-777-200lr",
+        "pmdg-777f"
+      ],
+      "modeSettleMs": 500,
+      "targetSettleMs": 1500,
+      "maxEvents": 2000,
+      "maxCoverageIntervals": 2048,
+      "dedupeWindowMs": 2500,
+      "lateralModes": [
+        "LNAV",
+        "HDG HOLD",
+        "TRK HOLD",
+        "LOC",
+        "APP"
+      ],
+      "verticalModes": [
+        "VNAV",
+        "FLCH",
+        "V/S",
+        "FPA",
+        "ALT HOLD",
+        "APP"
+      ],
+      "automationModeAliases": {
+        "HDG": "HDG HOLD",
+        "LVL_CHG": "FLCH",
+        "VS": "V/S",
+        "ALT": "ALT HOLD"
+      },
+      "fields": {
+        "apEngaged": "flightGuidance.apEngaged",
+        "athrArmed": "flightGuidance.autothrottleArmed",
+        "lnav": "flightGuidance.lnav",
+        "vnav": "flightGuidance.vnav",
+        "flch": "flightGuidance.flch",
+        "headingHold": "flightGuidance.headingHold",
+        "verticalSpeed": "flightGuidance.verticalSpeed",
+        "altitudeHold": "flightGuidance.altitudeHold",
+        "localizer": "flightGuidance.localizer",
+        "approach": "flightGuidance.approach",
+        "speedKts": "flightGuidance.speedKts",
+        "mach": "flightGuidance.mach",
+        "headingDeg": "flightGuidance.headingDeg",
+        "altitudeFt": "flightGuidance.altitudeFt",
+        "vsFpm": "flightGuidance.vsFpm",
+        "fpaDeg": "flightGuidance.fpaDeg",
+        "headingMode": "flightGuidance.headingMode",
+        "verticalMode": "flightGuidance.verticalMode"
+      },
+      "booleanModes": [
+        {
+          "fieldId": "flightGuidance.lnav",
+          "label": "LNAV"
+        },
+        {
+          "fieldId": "flightGuidance.vnav",
+          "label": "VNAV"
+        },
+        {
+          "fieldId": "flightGuidance.flch",
+          "label": "FLCH"
+        },
+        {
+          "fieldId": "flightGuidance.headingHold",
+          "label": "HDG/TRK HOLD"
+        },
+        {
+          "fieldId": "flightGuidance.verticalSpeed",
+          "label": "V/S/FPA"
+        },
+        {
+          "fieldId": "flightGuidance.altitudeHold",
+          "label": "ALT HOLD"
+        },
+        {
+          "fieldId": "flightGuidance.localizer",
+          "label": "LOC"
+        },
+        {
+          "fieldId": "flightGuidance.approach",
+          "label": "APP"
+        }
+      ],
+      "targetLabelPrefix": "MCP"
+    }
+  },
+  "tfdi-md-11": {
+    "lightingOverlay": {
+      "snapshotStatus": "running",
+      "freshnessMs": 2500,
+      "futureToleranceMs": 5000,
+      "inputs": {
+        "nav": {
+          "key": "aircraft_specific_lights_nav",
+          "allowed": [
+            0,
+            1
+          ]
+        },
+        "beacon": {
+          "key": "aircraft_specific_lights_beacon",
+          "allowed": [
+            0,
+            1
+          ]
+        },
+        "strobe": {
+          "key": "aircraft_specific_lights_strobe",
+          "allowed": [
+            0,
+            1
+          ]
+        },
+        "logo": {
+          "key": "aircraft_specific_lights_logo",
+          "allowed": [
+            0,
+            1
+          ]
+        },
+        "left": {
+          "key": "aircraft_specific_lights_landing_left_position",
+          "allowed": [
+            0,
+            1,
+            2
+          ]
+        },
+        "right": {
+          "key": "aircraft_specific_lights_landing_right_position",
+          "allowed": [
+            0,
+            1,
+            2
+          ]
+        },
+        "nose": {
+          "key": "aircraft_specific_lights_nose_position",
+          "allowed": [
+            0,
+            1,
+            2
+          ]
+        },
+        "turnLeft": {
+          "key": "aircraft_specific_lights_turnoff_left",
+          "allowed": [
+            0,
+            1
+          ]
+        },
+        "turnRight": {
+          "key": "aircraft_specific_lights_turnoff_right",
+          "allowed": [
+            0,
+            1
+          ]
+        },
+        "power": {
+          "key": "aircraft_specific_systems_bus_voltage",
+          "min": 90,
+          "max": 130,
+          "coerceNumber": true
+        }
+      },
+      "outputs": {
+        "nav": {
+          "any": [
+            {
+              "input": "nav",
+              "equals": 0
+            }
+          ]
+        },
+        "beacon": {
+          "any": [
+            {
+              "input": "beacon",
+              "equals": 0
+            }
+          ]
+        },
+        "strobe": {
+          "any": [
+            {
+              "input": "strobe",
+              "equals": 0
+            }
+          ]
+        },
+        "logo": {
+          "any": [
+            {
+              "input": "logo",
+              "equals": 1
+            }
+          ]
+        },
+        "landing": {
+          "any": [
+            {
+              "input": "left",
+              "equals": 2
+            },
+            {
+              "input": "right",
+              "equals": 2
+            }
+          ]
+        },
+        "taxi": {
+          "any": [
+            {
+              "input": "nose",
+              "equals": 1
+            },
+            {
+              "input": "nose",
+              "equals": 2
+            }
+          ]
+        },
+        "turnoff": {
+          "any": [
+            {
+              "input": "turnLeft",
+              "equals": 1
+            },
+            {
+              "input": "turnRight",
+              "equals": 1
+            }
+          ]
+        }
+      }
+    }
+  }
+}

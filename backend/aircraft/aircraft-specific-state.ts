@@ -1,6 +1,7 @@
 'use strict';
 
 import { decodeSquawkBco16 } from '../utils/transponder-code.js';
+import { hasValidEnumNumberRanges } from './enum-number-ranges.js';
 
 const { MSG } = require('../core/message-types') as {
   MSG: Readonly<Record<string, string>>;
@@ -77,9 +78,14 @@ function decodeAircraftSpecificValue(rawValue: unknown, decoder: AnyRecord | nul
   }
 
   if (decoder.type === 'enum') {
-    if (!decoder.values || typeof decoder.values !== 'object') return undefined;
+    if (!decoder.values || typeof decoder.values !== 'object' || !hasValidEnumNumberRanges(decoder)) return undefined;
     const enumKey = String(rawValue);
-    if (!Object.prototype.hasOwnProperty.call(decoder.values, enumKey)) return undefined;
+    if (!Object.prototype.hasOwnProperty.call(decoder.values, enumKey)) {
+      if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) return undefined;
+      return decoder.numberRanges?.find((range: { min: number; max: number; value: string | number | boolean }) => (
+        rawValue >= range.min && rawValue <= range.max
+      ))?.value;
+    }
     const decodedValue = decoder.values[enumKey];
     return decodedValue != null && ['string', 'number', 'boolean'].includes(typeof decodedValue)
       ? decodedValue

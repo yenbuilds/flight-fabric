@@ -790,8 +790,10 @@
         }
         return;
       case 'flightRecording':
+        // Progress arrives every second, but this view displays only status.
+        var recordingStatusChanged = !state.recording || state.recording.status !== message.status;
         state.recording = message;
-        renderFlight();
+        if (recordingStatusChanged) renderFlight();
         return;
       case 'flightStatus':
         state.flightStatus = message;

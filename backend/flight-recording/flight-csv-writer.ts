@@ -186,6 +186,7 @@ type WorkerResponse = {
   diskExhausted?: boolean;
   rowCount?: number;
   filePath?: string;
+  writtenBytes?: number;
   stats?: {
     rowCount?: number;
     fileSizeBytes?: number;
@@ -417,6 +418,7 @@ function generateFilename(
 // ═══════════════════════════════════════════════════════════════════════════
 
 class FlightCSVWriter {
+  startupFileBytes = 0;
   flightId: string | undefined;
   recordingSessionId: string | undefined;
   bundleStatusRequired: boolean;
@@ -536,6 +538,7 @@ class FlightCSVWriter {
       writeUtf8FullySync(claimedFd, startupText);
       fs.fdatasyncSync(claimedFd);
       this.acceptedFileBytes = startupBytes;
+      this.startupFileBytes = startupBytes;
       this.rowCount = 1;
       this.nextSampleIndex = 1;
       const stream = fs.createWriteStream(this.filePath, { fd: claimedFd, autoClose: true }) as FsWriteStream;
@@ -1014,6 +1017,11 @@ class FlightCSVWriter {
   /**
    * Get current stats.
    */
+  getProgress() {
+    if (this.closed || this.lastError || !this.stream) return null;
+    return { recordingSessionId: this.recordingSessionId, writtenBytes: this.startupFileBytes + this.stream.bytesWritten, rowCount: this.rowCount };
+  }
+
   getStats(): FlightRecordingStats {
     let fileSizeBytes = 0;
     try {
@@ -1047,6 +1055,7 @@ class FlightCSVWriter {
 }
 
 class WorkerFlightCSVWriter {
+  writtenBytes = 0;
   flightId: string | undefined;
   recordingSessionId: string | undefined;
   bundleStatusRequired: boolean;
@@ -1230,6 +1239,7 @@ class WorkerFlightCSVWriter {
         throw new Error(`CSV startup metadata exceeds the ${formatMiB(this.maxFileBytes)}MiB file cap`);
       }
       this.acceptedFileBytes = startupBytes;
+      this.writtenBytes = startupBytes;
 
       const worker = new Worker(workerPath, {
         workerData: {
@@ -1315,6 +1325,9 @@ class WorkerFlightCSVWriter {
     if (this.closed && !this.worker) return;
     if (message?.type === 'progress' && typeof message.rowCount === 'number') {
       this.rowCount = Math.max(this.rowCount, message.rowCount);
+      if (Number.isSafeInteger(message.writtenBytes) && message.writtenBytes >= 0) {
+        this.writtenBytes = Math.max(this.writtenBytes, message.writtenBytes);
+      }
       return;
     }
 
@@ -1810,6 +1823,11 @@ class WorkerFlightCSVWriter {
     return this.getStats();
   }
 
+  getProgress() {
+    if (this.closed || this.lastError || !this.worker) return null;
+    return { recordingSessionId: this.recordingSessionId, writtenBytes: this.writtenBytes, rowCount: this.rowCount };
+  }
+
   getStats(): FlightRecordingStats {
     let fileSizeBytes = 0;
     try {
@@ -1984,6 +2002,10 @@ function getFinalizingStats(): FlightRecordingStats | null {
   return finalizingWriter.getStats();
 }
 
+function getProgress() {
+  return activeWriter?.getProgress() || null;
+}
+
 /**
  * Get the V1 column schema.
  */
@@ -2003,6 +2025,7 @@ module.exports = {
   isFinalizing,
   getStats,
   getFinalizingStats,
+  getProgress,
   flush,
   
   // Schema

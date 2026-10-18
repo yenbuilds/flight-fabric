@@ -1,0 +1,152 @@
+{
+  "sourceHead": "82c9b99ea9b44a65c2358782626e0b4158ba142a",
+  "source": [
+    {
+      "path": "backend/aircraft/aircraft-integrations/fbw-a32nx/minimums-control.ts",
+      "sha256": "d4245b4b214a1f77eed6e1b1d74d5fc639d808b6c7cc1384459f11cea51fb92b"
+    },
+    {
+      "path": "backend/aircraft/aircraft-integrations/fbw-a32nx/minimums.ts",
+      "sha256": "ce8a7195b33be1c8225852d8ec9bc4499755811644dbc892a695bb28d80540ef"
+    }
+  ],
+  "note": "Independent transcription of original controller layout, inputs, timings, keys, guards and messages. Source hashes describe Git blob bytes. This fixture was not derived from current YAML and is not an update to the frozen catalogue baseline.",
+  "recipes": {
+    "fbwA32nx.approach.minimums.baro": {
+      "channel": "left",
+      "input": {
+        "min": 0,
+        "max": 39000,
+        "step": 1
+      },
+      "page": {
+        "titlePrefix": "APPR",
+        "rowCount": 12,
+        "labels": [
+          {
+            "row": 2,
+            "column": 1,
+            "equals": "BARO"
+          }
+        ],
+        "fields": {
+          "baro": {
+            "row": 3,
+            "column": 1
+          },
+          "radio": {
+            "row": 5,
+            "column": 1
+          },
+          "radioAvailable": {
+            "row": 4,
+            "column": 1,
+            "equals": "RADIO"
+          }
+        }
+      },
+      "valueField": "baro",
+      "clearFieldIds": [
+        "radio"
+      ],
+      "confirmKey": "R2",
+      "timing": {
+        "timeoutMs": 9000,
+        "stepTimeoutMs": 1600,
+        "freshnessMs": 2000,
+        "settleMs": 50,
+        "pollMs": 25,
+        "handshakeTimeoutMs": 1500,
+        "maxPayload": 65536
+      },
+      "messages": {
+        "invalidValue": "Minimums require whole feet within the published range.",
+        "stale": "Aircraft changed or simulator disconnected. Minimums were not confirmed.",
+        "timeout": "MCDU timed out. Check the entry before trying again.",
+        "unavailable": "FlyByWire SimBridge is unavailable. Start it on this PC using port 8380 and enable it in the EFB.",
+        "disconnected": "MCDU disconnected. Check minimums in the aircraft.",
+        "interference": "Another MCDU input interrupted minimums entry. Check the scratchpad and minimums.",
+        "invalidPage": "The MCDU returned an invalid page. Minimums were not confirmed.",
+        "connectTimeout": "FlyByWire SimBridge did not connect on port 8380.",
+        "pageRequired": "Open the active PERF APPR page on the powered captain MCDU, with an empty scratchpad.",
+        "scratchpadOccupied": "Clear the MCDU scratchpad before setting minimums.",
+        "fieldUnavailable": "RADIO minimums are unavailable for this approach. Use BARO or select an ILS approach.",
+        "entryChanged": "MCDU page or scratchpad changed. Check the entry before trying again.",
+        "digitUnconfirmed": "MCDU digit entry was not confirmed. Check the scratchpad before trying again.",
+        "commitChanged": "MCDU changed before minimums could be entered.",
+        "unconfirmed": "Minimums were not confirmed. Check PERF APPR for an out-of-range or invalid entry.",
+        "failed": "Minimums were not confirmed."
+      }
+    },
+    "fbwA32nx.approach.minimums.radio": {
+      "channel": "left",
+      "input": {
+        "min": 0,
+        "max": 5000,
+        "step": 1
+      },
+      "page": {
+        "titlePrefix": "APPR",
+        "rowCount": 12,
+        "labels": [
+          {
+            "row": 2,
+            "column": 1,
+            "equals": "BARO"
+          }
+        ],
+        "fields": {
+          "baro": {
+            "row": 3,
+            "column": 1
+          },
+          "radio": {
+            "row": 5,
+            "column": 1
+          },
+          "radioAvailable": {
+            "row": 4,
+            "column": 1,
+            "equals": "RADIO"
+          }
+        }
+      },
+      "valueField": "radio",
+      "clearFieldIds": [
+        "baro"
+      ],
+      "availableWhen": {
+        "fieldId": "radioAvailable",
+        "expectedValue": true
+      },
+      "confirmKey": "R3",
+      "timing": {
+        "timeoutMs": 9000,
+        "stepTimeoutMs": 1600,
+        "freshnessMs": 2000,
+        "settleMs": 50,
+        "pollMs": 25,
+        "handshakeTimeoutMs": 1500,
+        "maxPayload": 65536
+      },
+      "messages": {
+        "invalidValue": "Minimums require whole feet within the published range.",
+        "stale": "Aircraft changed or simulator disconnected. Minimums were not confirmed.",
+        "timeout": "MCDU timed out. Check the entry before trying again.",
+        "unavailable": "FlyByWire SimBridge is unavailable. Start it on this PC using port 8380 and enable it in the EFB.",
+        "disconnected": "MCDU disconnected. Check minimums in the aircraft.",
+        "interference": "Another MCDU input interrupted minimums entry. Check the scratchpad and minimums.",
+        "invalidPage": "The MCDU returned an invalid page. Minimums were not confirmed.",
+        "connectTimeout": "FlyByWire SimBridge did not connect on port 8380.",
+        "pageRequired": "Open the active PERF APPR page on the powered captain MCDU, with an empty scratchpad.",
+        "scratchpadOccupied": "Clear the MCDU scratchpad before setting minimums.",
+        "fieldUnavailable": "RADIO minimums are unavailable for this approach. Use BARO or select an ILS approach.",
+        "entryChanged": "MCDU page or scratchpad changed. Check the entry before trying again.",
+        "digitUnconfirmed": "MCDU digit entry was not confirmed. Check the scratchpad before trying again.",
+        "commitChanged": "MCDU changed before minimums could be entered.",
+        "unconfirmed": "Minimums were not confirmed. Check PERF APPR for an out-of-range or invalid entry.",
+        "failed": "Minimums were not confirmed."
+      }
+    }
+  }
+}

@@ -1,0 +1,751 @@
+{
+  "inibuilds-a380": {
+    "fields": {
+      "controls.gearHandleDown": {
+        "id": "controls.gearHandleDown",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "A:GEAR HANDLE POSITION",
+              "unit": "Bool"
+            },
+            "decode": {
+              "type": "boolean",
+              "trueValues": [
+                1
+              ],
+              "falseValues": [
+                0
+              ]
+            }
+          }
+        ]
+      },
+      "controls.onGround": {
+        "id": "controls.onGround",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "A:SIM ON GROUND",
+              "unit": "Bool"
+            },
+            "decode": {
+              "type": "boolean",
+              "trueValues": [
+                1
+              ],
+              "falseValues": [
+                0
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "actions": {
+      "controls.gear.up": {
+        "id": "controls.gear.up",
+        "guard": {
+          "groupId": "iniA380.controls.gear",
+          "cooldownMs": 750,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "controls.onGround",
+              "freshness": "field",
+              "expectedValue": false
+            }
+          ]
+        },
+        "verification": "partial",
+        "routes": [
+          {
+            "id": "iniA380.controls.gear.up.native",
+            "transport": "input-event",
+            "inputEvent": "AIRLINER_MIP_LG_HANDLE",
+            "value": 0,
+            "readback": {
+              "fieldId": "controls.gearHandleDown",
+              "expectedValue": false,
+              "timeoutMs": 3000,
+              "freshness": "field"
+            }
+          }
+        ]
+      },
+      "controls.gear.down": {
+        "id": "controls.gear.down",
+        "guard": {
+          "groupId": "iniA380.controls.gear",
+          "cooldownMs": 750,
+          "retry": "never"
+        },
+        "verification": "partial",
+        "routes": [
+          {
+            "id": "iniA380.controls.gear.down.native",
+            "transport": "input-event",
+            "inputEvent": "AIRLINER_MIP_LG_HANDLE",
+            "value": 1,
+            "readback": {
+              "fieldId": "controls.gearHandleDown",
+              "expectedValue": true,
+              "timeoutMs": 3000,
+              "freshness": "field"
+            }
+          }
+        ]
+      }
+    },
+    "provenance": {
+      "type": "official-sdk",
+      "authority": "aircraft-vendor",
+      "access": "vendor-install",
+      "supportsActiveMappings": true,
+      "name": "iniBuilds A380 1.0.0 normal gear handle behavior",
+      "url": "https://docs.flightsimulator.com/msfs2024/html/2_DevMode/Menus/Tools/Behaviours_Debug/Behaviors_Debug.htm",
+      "retrievedAt": "2026-10-17",
+      "notes": "Loaded vendor behavior export SHA256 5dd0b57e906e9c537c64411264fc39f41100a08d57e36fd0c9ef2b7647276700, AIRLINER_MIP_LG_HANDLE owner 1540. Set 0 invokes INI.GEAR_UP only airborne; Set 1 invokes INI.GEAR_DOWN. The native input event retains this aircraft-owned ground interlock. FlightFabric also requires fresh SIM ON GROUND=false before UP and confirms GEAR HANDLE POSITION, not completed gear travel. Generic surface fallback remains disabled. On 2026-10-17, A380-800 RR Basic in MSFS 2024 passed production recognized-text DOWN no-op and UP ground inhibition with no writes. Airborne UP, repeat UP no-op, DOWN and repeat DOWN no-op passed with two native writes; the three standard gear-position readings reached 0 then 100 percent. Handle selection confirmed in about one second, independently of the approximately 21-second retraction and 35-second extension. Final handle and standard gear positions were DOWN. Current package/simulator build numbers and other variants were not established. See docs/INIBUILDS-A380-ONBOARDING.md."
+    }
+  },
+  "tfdi-md-11": {
+    "fields": {
+      "controls.autobrakePosition": {
+        "id": "controls.autobrakePosition",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "L:MD11_CTR_AUTOBRAKE_SW",
+              "unit": "Number"
+            },
+            "decode": {
+              "type": "enum",
+              "values": {
+                "0": 0,
+                "1": 1,
+                "2": 2,
+                "3": 3,
+                "4": 4
+              }
+            }
+          }
+        ]
+      },
+      "controls.flapsHandle": {
+        "id": "controls.flapsHandle",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "L:MD11_FLAP_RNG",
+              "unit": "Number"
+            },
+            "decode": {
+              "type": "enum",
+              "values": {
+                "0": 0,
+                "20": 1,
+                "70": 3,
+                "82": 4,
+                "100": 5
+              },
+              "numberRanges": [
+                {
+                  "min": 38,
+                  "max": 65,
+                  "value": 2
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "controls.spoilersPosition": {
+        "id": "controls.spoilersPosition",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "L:MD11_SPDBRK_RNG",
+              "unit": "Number"
+            },
+            "decode": {
+              "type": "enum",
+              "values": {
+                "0": 0,
+                "25": 2,
+                "17.5": 1,
+                "32.5": 3
+              }
+            }
+          }
+        ]
+      },
+      "controls.spoilersArmed": {
+        "id": "controls.spoilersArmed",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "L:MD11_SPDBRK_HANDLE",
+              "unit": "Number"
+            },
+            "decode": {
+              "type": "boolean",
+              "trueValues": [
+                1
+              ],
+              "falseValues": [
+                0
+              ]
+            }
+          }
+        ]
+      },
+      "controls.flapsSettled": {
+        "id": "controls.flapsSettled",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "L:MD11_FLAP_LATCH",
+              "unit": "Number"
+            },
+            "decode": {
+              "type": "boolean",
+              "trueValues": [
+                0
+              ],
+              "falseValues": [
+                5
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "actions": {
+      "flightGuidance.autoflight.request": {
+        "id": "flightGuidance.autoflight.request",
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            }
+          ]
+        },
+        "verification": "untested",
+        "routes": [
+          {
+            "id": "md11.flightGuidance.autoflight.request.event",
+            "transport": "mobiflight-calculator",
+            "mode": "pulse",
+            "pressCode": "86094 (>L:CEVENT, Number)",
+            "releaseCode": "86095 (>L:CEVENT, Number)",
+            "delayMs": 150,
+            "confirmation": "transport-acknowledged"
+          }
+        ]
+      },
+      "flightGuidance.fmsSpeed.request": {
+        "id": "flightGuidance.fmsSpeed.request",
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            }
+          ]
+        },
+        "verification": "untested",
+        "routes": [
+          {
+            "id": "md11.flightGuidance.fmsSpeed.request.event",
+            "transport": "mobiflight-calculator",
+            "mode": "pulse",
+            "pressCode": "86088 (>L:CEVENT, Number)",
+            "releaseCode": "86089 (>L:CEVENT, Number)",
+            "delayMs": 150,
+            "confirmation": "transport-acknowledged"
+          }
+        ]
+      },
+      "flightGuidance.navigation.request": {
+        "id": "flightGuidance.navigation.request",
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            }
+          ]
+        },
+        "verification": "untested",
+        "routes": [
+          {
+            "id": "md11.flightGuidance.navigation.request.event",
+            "transport": "mobiflight-calculator",
+            "mode": "pulse",
+            "pressCode": "86090 (>L:CEVENT, Number)",
+            "releaseCode": "86091 (>L:CEVENT, Number)",
+            "delayMs": 150,
+            "confirmation": "transport-acknowledged"
+          }
+        ]
+      },
+      "flightGuidance.profile.request": {
+        "id": "flightGuidance.profile.request",
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            }
+          ]
+        },
+        "verification": "untested",
+        "routes": [
+          {
+            "id": "md11.flightGuidance.profile.request.event",
+            "transport": "mobiflight-calculator",
+            "mode": "pulse",
+            "pressCode": "86096 (>L:CEVENT, Number)",
+            "releaseCode": "86097 (>L:CEVENT, Number)",
+            "delayMs": 150,
+            "confirmation": "transport-acknowledged"
+          }
+        ]
+      },
+      "flightGuidance.approach.request": {
+        "id": "flightGuidance.approach.request",
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            }
+          ]
+        },
+        "verification": "untested",
+        "routes": [
+          {
+            "id": "md11.flightGuidance.approach.request.event",
+            "transport": "mobiflight-calculator",
+            "mode": "pulse",
+            "pressCode": "86092 (>L:CEVENT, Number)",
+            "releaseCode": "86093 (>L:CEVENT, Number)",
+            "delayMs": 150,
+            "confirmation": "transport-acknowledged"
+          }
+        ]
+      },
+      "controls.autobrake.set": {
+        "id": "controls.autobrake.set",
+        "input": {
+          "type": "number",
+          "min": 0,
+          "max": 4,
+          "step": 1
+        },
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            }
+          ]
+        },
+        "routes": [
+          {
+            "id": "md11.controls.autobrake.set.event",
+            "transport": "mobiflight-calculator",
+            "mode": "step-to-target",
+            "increaseCode": "82212 (>L:CEVENT, Number)",
+            "decreaseCode": "82211 (>L:CEVENT, Number)",
+            "maxSteps": 4,
+            "readback": {
+              "fieldId": "controls.autobrakePosition",
+              "expectedInput": true,
+              "freshness": "field",
+              "timeoutMs": 3000
+            }
+          }
+        ],
+        "verification": "partial"
+      },
+      "controls.flaps.set": {
+        "id": "controls.flaps.set",
+        "input": {
+          "type": "number",
+          "min": 0,
+          "max": 5,
+          "step": 1
+        },
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            }
+          ]
+        },
+        "routes": [
+          {
+            "id": "md11.controls.flaps.set.event",
+            "transport": "mobiflight-calculator",
+            "mode": "step-to-target",
+            "increaseCode": "77831 (>L:CEVENT, Number)",
+            "decreaseCode": "77830 (>L:CEVENT, Number)",
+            "maxSteps": 5,
+            "readback": {
+              "fieldId": "controls.flapsHandle",
+              "expectedInput": true,
+              "freshness": "field",
+              "timeoutMs": 3000,
+              "readyWhen": {
+                "fieldId": "controls.flapsSettled",
+                "expectedValue": true,
+                "freshness": "field"
+              }
+            }
+          }
+        ],
+        "verification": "partial"
+      },
+      "controls.spoilers.set": {
+        "id": "controls.spoilers.set",
+        "input": {
+          "type": "number",
+          "min": 0,
+          "max": 3,
+          "step": 1
+        },
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            },
+            {
+              "fieldId": "controls.spoilersArmed",
+              "expectedValue": false,
+              "freshness": "field"
+            }
+          ]
+        },
+        "routes": [
+          {
+            "id": "md11.controls.spoilers.set.event",
+            "transport": "mobiflight-calculator",
+            "mode": "step-to-target",
+            "increaseCode": "77828 (>L:CEVENT, Number)",
+            "decreaseCode": "77853 (>L:CEVENT, Number)",
+            "maxSteps": 3,
+            "readback": {
+              "fieldId": "controls.spoilersPosition",
+              "expectedInput": true,
+              "freshness": "field",
+              "timeoutMs": 3000
+            }
+          }
+        ],
+        "verification": "partial"
+      },
+      "controls.spoilers.arm": {
+        "id": "controls.spoilers.arm",
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            },
+            {
+              "fieldId": "controls.spoilersPosition",
+              "expectedValue": 0,
+              "freshness": "field"
+            }
+          ]
+        },
+        "routes": [
+          {
+            "id": "md11.controls.spoilers.arm.event",
+            "transport": "mobiflight-calculator",
+            "code": "77829 (>L:CEVENT, Number)",
+            "readback": {
+              "fieldId": "controls.spoilersArmed",
+              "expectedValue": true,
+              "freshness": "field",
+              "timeoutMs": 3000
+            }
+          }
+        ],
+        "verification": "partial"
+      },
+      "controls.spoilers.disarm": {
+        "id": "controls.spoilers.disarm",
+        "guard": {
+          "groupId": "md11.cevent",
+          "cooldownMs": 400,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 90,
+              "max": 130
+            }
+          ]
+        },
+        "routes": [
+          {
+            "id": "md11.controls.spoilers.disarm.event",
+            "transport": "mobiflight-calculator",
+            "code": "77829 (>L:CEVENT, Number)",
+            "readback": {
+              "fieldId": "controls.spoilersArmed",
+              "expectedValue": false,
+              "freshness": "field",
+              "timeoutMs": 3000
+            }
+          }
+        ],
+        "verification": "partial"
+      }
+    },
+    "provenance": {
+      "type": "official-sdk",
+      "authority": "aircraft-vendor",
+      "access": "public",
+      "supportsActiveMappings": true,
+      "name": "TFDi MD-11 requested surface and FCP event contract",
+      "url": "https://docs.tfdidesign.com/md11/integration-guide/events",
+      "retrievedAt": "2026-10-17",
+      "notes": "Vendor CEVENT contract and variables, cross-checked on 2026-10-17 with TFDi Design MD-11 PW4462 (Low Poly Cabin) in MSFS 2024. Autobrake 82212 increases and 82211 decreases MD11_CTR_AUTOBRAKE_SW: T.O.=0, OFF=1, MIN=2, MED=3, MAX=4. All selections and restoration passed through the production command service; repeat MED sent no writes. Flap 77831 increases and 77830 decreases MD11_FLAP_RNG: UP=0, 0/EXT=20, 28=70, 35=82, 50=100. Dial-a-Flap 10, 15 and displayed 25 yielded 38, 46.91 and 64.73 with dial animation 0, 33 and 99. The variable detent is decoded in a bounded 38-65 interval; 65 is the endpoint inferred from the observed linear span, not a separately observed selector value. A moving lever can traverse the takeoff interval; confirmation requires a fresh MD11_FLAP_LATCH=0 sample at least as recent as the handle sample. The final production run selected 0/EXT, TAKEOFF, 28, 35, 50 and restored TAKEOFF, with independently settled surface angles. UP was observed as the initial no-op baseline; its transition after the settled-readback correction remains untested. Spoiler 77828 increases, 77853 decreases MD11_SPDBRK_RNG: RET=0, 1/3=17.5, 2/3=25, FULL=32.5; ground overtravel is excluded. MD11_SPDBRK_HANDLE 0 is disarmed and 1 armed; standard SPOILERS ARMED did not follow disarming. Left button 77829 arm/disarm and same-state no-op passed. Production FULL from armed first confirmed disarm, then stepped to FULL; all intermediate choices and RET restoration passed. FCP pairs FMS SPD 86088/86089, NAV 86090/86091, APPR LAND 86092/86093, AUTOFLIGHT 86094/86095, PROF 86096/86097 press/release once and acknowledge delivery without claiming engagement; live FMA acceptance remains pending. The vendor forward-panel guide defines AUTOFLIGHT as ATS on ground and AP/ATS airborne; no independent AP/ATS toggle or ATS-state enum is inferred. All actions share the CEVENT lock and fresh power guard. These are selector checks, not airborne or automatic-braking qualification. See docs/MD11-CONTROL-VALIDATION.md for exact evidence and pending acceptance."
+    }
+  },
+  "inibuilds-a350": {
+    "fields": {
+      "controls.flapsHandle": {
+        "id": "controls.flapsHandle",
+        "sources": [
+          {
+            "route": {
+              "type": "simvar",
+              "name": "FLAPS HANDLE PERCENT",
+              "unit": "Percent"
+            },
+            "decode": {
+              "type": "enum",
+              "values": {
+                "0": 0,
+                "25": 25,
+                "50": 50,
+                "75": 75,
+                "100": 100
+              }
+            }
+          }
+        ]
+      },
+      "controls.autobrakeArmed": {
+        "id": "controls.autobrakeArmed",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "L:INI_AUTOBRAKE_ARMED",
+              "unit": "Number"
+            },
+            "decode": {
+              "type": "boolean",
+              "trueValues": [
+                1
+              ],
+              "falseValues": [
+                0
+              ]
+            }
+          }
+        ]
+      },
+      "systems.busVoltage": {
+        "id": "systems.busVoltage",
+        "sources": [
+          {
+            "route": {
+              "type": "lvar",
+              "name": "A:ELECTRICAL MAIN BUS VOLTAGE:1",
+              "unit": "Volts"
+            },
+            "decode": {
+              "type": "number",
+              "precision": 1
+            }
+          }
+        ]
+      }
+    },
+    "actions": {
+      "controls.autobrake.arm": {
+        "id": "controls.autobrake.arm",
+        "guard": {
+          "groupId": "iniA350.controls.autobrake",
+          "cooldownMs": 750,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 22,
+              "max": 32
+            }
+          ]
+        },
+        "verification": "partial",
+        "routes": [
+          {
+            "id": "iniA350.controls.autobrake.arm.native",
+            "transport": "input-event",
+            "inputEvent": "AIRLINER_LDG_AUTO_BRK",
+            "value": 1,
+            "readback": {
+              "fieldId": "controls.autobrakeArmed",
+              "expectedValue": true,
+              "timeoutMs": 3000,
+              "freshness": "field"
+            }
+          }
+        ]
+      },
+      "controls.autobrake.disarm": {
+        "id": "controls.autobrake.disarm",
+        "guard": {
+          "groupId": "iniA350.controls.autobrake",
+          "cooldownMs": 750,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 22,
+              "max": 32
+            }
+          ]
+        },
+        "verification": "partial",
+        "routes": [
+          {
+            "id": "iniA350.controls.autobrake.disarm.native",
+            "transport": "input-event",
+            "inputEvent": "AIRLINER_LDG_AUTO_BRK",
+            "value": 0,
+            "readback": {
+              "fieldId": "controls.autobrakeArmed",
+              "expectedValue": false,
+              "timeoutMs": 3000,
+              "freshness": "field"
+            }
+          }
+        ]
+      },
+      "controls.flaps.set": {
+        "id": "controls.flaps.set",
+        "input": {
+          "type": "number",
+          "min": 0,
+          "max": 100,
+          "step": 25
+        },
+        "guard": {
+          "groupId": "iniA350.controls.flaps",
+          "cooldownMs": 750,
+          "retry": "never",
+          "requires": [
+            {
+              "fieldId": "systems.busVoltage",
+              "freshness": "field",
+              "min": 22,
+              "max": 32
+            }
+          ]
+        },
+        "verification": "partial",
+        "routes": [
+          {
+            "id": "iniA350.controls.flaps.set.wheel",
+            "transport": "mobiflight-calculator",
+            "mode": "step-to-target",
+            "increaseCode": "16384 (A:FLAPS NUM HANDLE POSITIONS, Number) / (>B:AIRLINER_Flaps_Inc)",
+            "decreaseCode": "16384 (A:FLAPS NUM HANDLE POSITIONS, Number) / (>B:AIRLINER_Flaps_Dec)",
+            "maxSteps": 4,
+            "readback": {
+              "fieldId": "controls.flapsHandle",
+              "expectedInput": true,
+              "timeoutMs": 3000,
+              "freshness": "field"
+            }
+          }
+        ]
+      }
+    },
+    "provenance": {
+      "type": "official-sdk",
+      "authority": "aircraft-vendor",
+      "access": "vendor-install",
+      "supportsActiveMappings": true,
+      "name": "iniBuilds A350 1.2.6 flap lever and landing autobrake behavior",
+      "url": "https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/",
+      "retrievedAt": "2026-10-17",
+      "notes": "Installed Function_Interior_A350/model/A350_Interior.behavior.xml SHA256 886c885ce5ee2480740fafed75c5d38fcca6d4cc8bd77b9b391556b58744b2fb. The cockpit wheel calls AIRLINER_Flaps_Inc / AIRLINER_Flaps_Dec with 16384 divided by FLAPS NUM HANDLE POSITIONS; these invoke AIRLINER_FLAPS and INI.FLAPS_SET. FlightFabric follows that wheel sequence, independently confirming each 25-percent FLAPS HANDLE PERCENT detent, at most four steps. Direct target jumps left the A350-1000 at FULL after selecting 1; the stepped FULL-to-1 route restored cockpit 1+F on 2026-10-17. AIRLINER_LDG_AUTO_BRK triggers INI_AUTOBRAKE_ARMED_CMD; independent INI_AUTOBRAKE_ARMED confirms arm/disarm with fresh same-target no-op protection. Manual 1.5 pages 65-67 requires runway/exit setup for BTV. -1000 lever, autobrake and restoration checks passed; -900, airborne transitions and actual landing braking remain pending. See docs/A350-PROFILE-VALIDATION.md."
+    }
+  }
+}

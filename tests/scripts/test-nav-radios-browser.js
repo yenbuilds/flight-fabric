@@ -175,8 +175,9 @@ async function main() {
   const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
   const { buildAircraftControlCapabilities } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-control-service.js'));
   const { normalizeProfileDocument, finalizeLoadedProfile } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-model.js'));
+  const { readBundledProfile } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-sources.js'));
   const profileCapabilities = new Map(['generic', 'widebody-base'].map((id) => {
-    const document = JSON.parse(fs.readFileSync(path.join(ROOT, 'backend/aircraft/profiles/bundled/msfs', `${id}.json`), 'utf8'));
+    const document = readBundledProfile(`bundled/msfs/${id}`, path.join(ROOT, 'backend/aircraft/aircraft-integrations'));
     const profile = finalizeLoadedProfile(normalizeProfileDocument(document));
     profile._profileKey = `bundled/msfs/${id}`;
     return [id, buildAircraftControlCapabilities(profile, { profileRevision: 1 })];

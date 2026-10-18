@@ -1,4 +1,9 @@
 import { defineStore } from 'pinia';
+import { isRemoteView } from '../../app/remote-view.js';
+import { useAppSettingsStore } from './app-settings.js';
+import { useProfilesStore } from './profiles.js';
+import { useSettingsFormStore } from './settings-form.js';
+import { useVoiceControlStore } from './voice-control.js';
 
 let legalErrorTimer = null;
 let storageCopyTimer = null;
@@ -54,6 +59,10 @@ function normalizeMsfsInstallEntry(entry) {
 
 export const useSettingsUiStore = defineStore('settingsUi', {
   state: () => ({
+    introOpen: false,
+    // Session-only readiness comes from the mandatory dialog's ready event,
+    // after its save acknowledgement, never an early settings broadcast.
+    initialSetupReady: false,
     aboutVersion: '--',
     legalError: '',
     msfsDetectError: '',
@@ -81,6 +90,21 @@ export const useSettingsUiStore = defineStore('settingsUi', {
   }),
 
   getters: {
+    // Replay starts a separate editor. Finish the current Settings edit first
+    // so the intro always opens from confirmed preferences.
+    introBlockedReason: () => {
+      const settings = useAppSettingsStore();
+      const form = useSettingsFormStore();
+      if (isRemoteView() || useProfilesStore().authorizationScope !== 'full-control'
+        || !settings.saveActionBound || settings.settings?.onboarding?.completed !== true) {
+        return 'The introduction is available after initial setup on this PC.';
+      }
+      if (form.saveBusy || form.reloadBusy || useVoiceControlStore().recognitionChanging) {
+        return 'Wait for your settings update to finish before reopening the introduction.';
+      }
+      if (form.pendingVisible) return 'Save or discard your Settings changes before reopening the introduction.';
+      return '';
+    },
     isElectron: (state) => (
       state.openLegalFileActionBound
       || state.revealLegalFolderActionBound

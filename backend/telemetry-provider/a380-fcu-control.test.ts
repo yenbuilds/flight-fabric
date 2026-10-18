@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SimConnectTelemetryProvider } = require('./simconnect-telemetry-provider');
-const { createAircraftIntegrationRegistry } = require('../aircraft/aircraft-integrations');
-const { INIBUILDS_A380_INTEGRATION: integration, INIBUILDS_A380_PROFILE_KEY: profileKey } = require('../aircraft/aircraft-integrations/inibuilds-a380');
+const { createAircraftIntegrationRegistry } = require('../aircraft/integration-engine');
+const { INIBUILDS_A380_INTEGRATION: integration, INIBUILDS_A380_PROFILE_KEY: profileKey } = require('../aircraft/integration-engine');
 
 function fixture(options: any = {}) {
   const provider = new SimConnectTelemetryProvider();

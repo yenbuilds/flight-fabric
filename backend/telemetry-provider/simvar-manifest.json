@@ -1,9 +1,9 @@
 {
   "$schema": "./simvar-manifest.schema.json",
-  "_comment": "SimConnect SimVar unit manifest - verified against MSFS SDK documentation",
-  "_lastVerified": "2026-07-18",
+  "_comment": "SimConnect SimVar unit manifest - verified against MSFS 2024 SDK documentation",
+  "_lastVerified": "2026-10-17",
   "_sdkVersion": "MSFS 2024 SDK",
-  "_docUrl": "https://docs.flightsimulator.com/html/Programming_Tools/SimVars/Simulation_Variables.htm",
+  "_docUrl": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Simulation_Variables.htm",
   "simvars": [
     {
       "name": "PUSHBACK STATE",
@@ -509,9 +509,11 @@
     },
     {
       "name": "CAMERA STATE",
-      "sdkNativeUnit": "number",
+      "sdkNativeUnit": "enum",
       "ourRequestedUnit": "number",
-      "conversion": "none"
+      "conversion": "none",
+      "notes": "The current MSFS 2024 SDK describes an enum. The existing number request and numeric state handling are unchanged; no scaling is applied.",
+      "sdkDoc": "https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Camera_Variables.htm#CAMERA%20STATE"
     },
     {
       "name": "CRASH FLAG",

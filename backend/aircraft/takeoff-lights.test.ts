@@ -2,7 +2,7 @@ import assert = require('node:assert/strict');
 import test = require('node:test');
 
 const { loadProfile } = require('./aircraft-profile-loader');
-const { defaultAircraftIntegrationRegistry: registry } = require('./aircraft-integrations');
+const { defaultAircraftIntegrationRegistry: registry } = require('./integration-engine');
 const { buildAircraftControlCapabilities, executeAircraftCommand, resolveAircraftCommand,
   resolveAircraftControl } = require('./aircraft-control-service');
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');

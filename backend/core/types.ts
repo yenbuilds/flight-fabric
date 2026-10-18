@@ -734,7 +734,13 @@
  */
 
 /**
+ * @typedef {Object} AppSettingsOnboarding
+ * @property {boolean} completed - Whether the initial preference setup was saved
+ */
+
+/**
  * @typedef {Object} AppSettings
+ * @property {AppSettingsOnboarding} onboarding - Initial preference setup state
  * @property {AppSettingsAircraft} aircraft - Aircraft settings
  * @property {AppSettingsSimulator} simulator - Simulator settings
  * @property {AppSettingsNetwork} network - Network settings
@@ -859,6 +865,7 @@
  * @property {string} [fileName] - Current or finalized flight-log file name
  * @property {string} [flightId] - Active or completed flight id
  * @property {string} [recordingSessionId] - Immutable recording-bundle session id
+ * @property {number|null} [sizeBytes] - Bytes written across CSV and both companions; null when unknown, not a finalization guarantee
  * @property {number} [rowsWritten] - Number of rows written so far
  * @property {number} [rowCount] - Finalized row count
  * @property {string} [endReason] - Flight-end reason when stopped

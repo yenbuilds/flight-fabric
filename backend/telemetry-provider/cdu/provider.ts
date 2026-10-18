@@ -2,7 +2,7 @@ import { createCduSession } from './session.js';
 import { createFbwCdu } from './fbw-a32nx.js';
 import { createPmdgCdu } from './pmdg-737.js';
 import { createPmdg777Cdu } from './pmdg-777.js';
-const { defaultAircraftIntegrationRegistry } = require('../../aircraft/aircraft-integrations/index.js');
+const { defaultAircraftIntegrationRegistry } = require('../../aircraft/integration-engine/index.js');
 
 /** The only boundary that sees provider internals and trusted aircraft profiles. */
 export function createProviderCdu(provider: Record<string, any>, profiles: Record<string, any>) {

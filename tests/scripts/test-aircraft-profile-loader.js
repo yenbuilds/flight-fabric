@@ -187,7 +187,7 @@ const loader = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-l
 const controlService = require(resolveBackendRuntimeFile('aircraft', 'aircraft-control-service.js'));
 const profileModel = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-model.js'));
 const profileRegistry = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-registry.js'));
-const { defaultAircraftIntegrationRegistry } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-integrations', 'index.js'));
+const { defaultAircraftIntegrationRegistry } = require(resolveBackendRuntimeFile('aircraft', 'integration-engine', 'index.js'));
 const storagePaths = require(resolveBackendRuntimeFile('utils', 'storage-paths.js'));
 const retiredProfilesRootDir = path.join(storagePaths.getAppDataRoot(), 'Profiles');
 const retiredAircraftProfilesDir = path.join(retiredProfilesRootDir, 'Aircraft');
@@ -215,6 +215,23 @@ test('LOCAL_DIR is not exposed by the release-owned profile loader', typeof load
 test('GENERIC_ID is "generic"', loader.GENERIC_ID === 'generic');
 test('Profile JSON size budget is exported', Number.isFinite(loader.MAX_PROFILE_JSON_BYTES) && loader.MAX_PROFILE_JSON_BYTES > 0);
 test('Loading profile modules does not create a retired AppData Profiles folder', !fs.existsSync(retiredProfilesRootDir));
+
+section('Complete YAML Profile Migration Parity');
+const yamlProfileBaseline = require('../fixtures/aircraft-yaml-catalogue-baseline.json').profiles;
+const { readBundledProfile } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-sources.js'));
+const { orderedDefinitionFingerprint } = require('../helpers/ordered-definition-fingerprint');
+const { projectPreSurfaceCorrectionProfile } = require('../helpers/pre-execution-catalogue-projection');
+const { createHash } = require('node:crypto');
+test('All 51 YAML profile keys preserve the existing discovery order',
+  JSON.stringify(loader.listProfiles().map(profile => profile.qualifiedId)) === JSON.stringify(Object.keys(yamlProfileBaseline)));
+for (const [profileKey, expected] of Object.entries(yamlProfileBaseline)) {
+  const raw = readBundledProfile(profileKey);
+  test(`${profileKey}: raw profile data and ordering match the pre-migration source`,
+    createHash('sha256').update(JSON.stringify(projectPreSurfaceCorrectionProfile(raw))).digest('hex') === expected.rawSha256);
+  const resolved = loader.exportProfile(profileKey, { flatten: true });
+  test(`${profileKey}: inherited JSON export preserves every value and own property`,
+    resolved.ok === true && orderedDefinitionFingerprint(projectPreSurfaceCorrectionProfile(resolved.profile)) === expected.resolvedSha256);
+}
 
 section('Aircraft-Specific Provider Contracts');
 const futureProviderProfile = {
@@ -422,7 +439,7 @@ for (const id of ['workingtitle-747-8', 'inibuilds-tristar', 'miltech-c17', 'tfd
   );
 }
 
-const builtinGenericPath = path.join(loader.BUILTIN_BUNDLED_DIR, 'msfs', 'generic.json');
+const builtinGenericPath = loader.resolveProfilePath('bundled/msfs/generic').filePath;
 const legacyBundledGenericDir = path.join(retiredBundledProfilesDir, 'msfs');
 const legacyBundledGenericPath = path.join(legacyBundledGenericDir, 'generic.json');
 fs.mkdirSync(legacyBundledGenericDir, { recursive: true });
@@ -2420,7 +2437,7 @@ test(
   iniA350Config?.aircraftSpecific?.templateId === 'inibuilds-a350'
     && iniA350Config?.aircraftSpecific?.integrationId === 'inibuilds-a350'
     && iniA350Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a350-900'
-    && iniA350Config?.aircraftSpecific?.fields?.length === 69
+    && iniA350Config?.aircraftSpecific?.fields?.length === 72
     && iniA350Config.aircraftSpecific.fields.some(field => (
       field.id === 'flightGuidance.altitudeFt'
         && field.source?.type === 'lvar'
@@ -2430,12 +2447,12 @@ test(
       field.id === 'controls.parkingBrake'
         && field.source?.type === 'simvar'
     ))
-    && iniA350Config.subscriptions.length === 61
+    && iniA350Config.subscriptions.length === 63
 );
 test(
   'iniBuilds A350 exposes guarded numeric FCU, published selector and standard surface actions',
-  Object.keys(iniA350Integration?.actions || {}).length === 90
-    && iniA350Config.aircraftSpecific.confirmationFields.length === 49
+  Object.keys(iniA350Integration?.actions || {}).length === 93
+    && iniA350Config.aircraftSpecific.confirmationFields.length === 52
     && iniA350Integration?.actions?.['flightGuidance.heading.set']?.input?.max === 359
     && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.input?.step === 100
     && iniA350Integration?.actions?.['flightGuidance.altitude.set']?.routes?.[0]?.operations?.[0]?.name === 'L:INI_ALTITUDE_DIAL'
@@ -2460,7 +2477,7 @@ test(
   iniA3501000Config?.aircraftSpecific?.templateId === 'inibuilds-a350'
     && iniA3501000Config?.aircraftSpecific?.integrationId === 'inibuilds-a350'
     && iniA3501000Config?.aircraftSpecific?.profileKey === 'bundled/msfs/inibuilds-a350-1000'
-    && iniA3501000Config?.aircraftSpecific?.fields?.length === 69
+    && iniA3501000Config?.aircraftSpecific?.fields?.length === 72
 );
 
 loader.setActiveProfile('microsoft-737-max-8');
@@ -3148,7 +3165,7 @@ test(
   md11Lvars?.aircraftSpecific?.templateId === 'tfdi-md-11' &&
     md11Lvars?.aircraftSpecific?.integrationId === 'tfdi-md-11' &&
     md11Lvars?.aircraftSpecific?.profileKey === 'bundled/msfs/tfdi-md-11' &&
-    md11Lvars?.aircraftSpecific?.fields?.length === 58 &&
+    md11Lvars?.aircraftSpecific?.fields?.length === 63 &&
     md11Lvars.aircraftSpecific.fields.some(field => (
       field.id === 'afs.apState' &&
       field.source?.type === 'lvar' &&

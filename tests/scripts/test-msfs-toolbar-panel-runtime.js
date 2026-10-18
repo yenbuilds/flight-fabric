@@ -566,6 +566,29 @@ test('toolbar scripts parse as ES2017 and the loader is deferred until the docum
   assert.match(read('frontend/toolbar/index.html'), /src="\/shared\/app-settings-shared\.js"[\s\S]*src="\/toolbar\/toolbar\.js"/, 'toolbar loads the shared gate before its consumer');
 });
 
+test('recording byte updates retain the flight view while status transitions remain immediate', () => {
+  const runtime = page();
+  const flight = runtime.document.getElementById('tab-flight');
+  runtime.api.receive({ type: 'flightRecording', status: 'recording', sizeBytes: 1024 });
+  const summary = flight.querySelector('.flight-summary');
+  assert.ok(summary);
+  assert.match(summary.text(), /Recording/);
+  const firstCard = summary.firstChild;
+  const renderedNodes = runtime.nodes.length;
+  for (const sizeBytes of [2048, 3072, 4096]) {
+    runtime.api.receive({ type: 'flightRecording', status: 'recording', sizeBytes });
+  }
+  assert.equal(summary.firstChild, firstCard, 'one-second byte progress preserves existing controls');
+  assert.equal(runtime.nodes.length, renderedNodes, 'byte progress creates no replacement DOM');
+  assert.equal(runtime.api.state.recording.sizeBytes, 4096, 'latest progress is still retained');
+  for (const [status, label] of [['finalizing', 'Finalizing'], ['failed', 'Failed'], ['stopped', 'Not recording'], ['recording', 'Recording']]) {
+    const previous = summary.firstChild;
+    runtime.api.receive({ type: 'flightRecording', status });
+    assert.notEqual(summary.firstChild, previous, `${status} renders immediately`);
+    assert.match(summary.text(), new RegExp(label));
+  }
+});
+
 test('toolbar voice examples and alternatives use punctuation available in the simulator font', () => {
   const runtime = page();
   const profile = aircraftProfile();

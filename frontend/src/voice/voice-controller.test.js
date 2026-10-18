@@ -9,6 +9,7 @@ import { createAutopilotPanel } from '../aircraft/autopilot-panel.js';
 import { initialVoiceTestState } from './voice-setup-test.js';
 import { flapResultText } from '../aircraft/flap-controls.js';
 import { gearResultText } from '../aircraft/gear-controls.js';
+import { spoilerObservationFailureText } from '../aircraft/spoiler-controls.js';
 import { createPcmCapture } from './pcm-capture.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 
@@ -166,6 +167,7 @@ function createHarness(options = {}) {
   });
   const controller = createVoiceControlController({
     api, aircraftControl, aircraftControlsStore, voiceStore, createCapture,
+    isInputAllowed: options.isInputAllowed,
     aircraftSpecificStore: options.aircraftSpecificStore,
     simbriefStore: options.simbriefStore,
     globalRef: options.globalRef || {}, readback, pushToTalkTone,
@@ -189,6 +191,61 @@ const headingIntent = { decision: 'command', commandId: 'flightGuidance.heading.
 function cloudFinal(intent = headingIntent) {
   return { type: 'final', mode: 'cloud', selection: { providerId: 'openai', modelId: 'gpt-realtime-2.1-mini', revision: 0 }, sessionId: 'session_12345678', text: '', intent: structuredClone(intent) };
 }
+
+test('initial setup blocks saved voice input until its acknowledged completion, then permits a fresh hold', async t => {
+  let setupReady = false;
+  let deliverRuntime;
+  let recognitionStarts = 0;
+  let preferenceWrites = 0;
+  const runtime = { available: true, enabled: true, pushToTalk: { accelerator: 'Control+Alt+Space', registered: true } };
+  const h = createHarness({
+    isInputAllowed: () => setupReady,
+    startRecognition: async () => { recognitionStarts++; return { sessionId: 'session_12345678' }; },
+    controllerApi: {
+      getRuntimeInfo: () => new Promise(resolve => { deliverRuntime = resolve; }),
+      setRecognitionEnabled: async () => { preferenceWrites++; return runtime; },
+    },
+  });
+  t.after(() => h.controller.dispose());
+  const initializing = h.controller.initialize();
+  h.emitPtt({ type: 'down', pttAttemptId: GLOBAL_ATTEMPT });
+  assert.equal(recognitionStarts, 0, 'a shortcut cannot start recognition before startup resolves');
+  deliverRuntime(runtime);
+  await initializing;
+  assert.equal(await h.controller.begin('global', GLOBAL_ATTEMPT), false, 'saved voice cannot open a microphone during required setup');
+  assert.equal(h.voiceStore.status, 'blocked');
+  assert.match(h.voiceStore.statusText, /initial setup/);
+  assert.equal(h.voiceStore.runtime.enabled, true, 'the saved voice preference is retained');
+  assert.equal(preferenceWrites, 0, 'the setup gate never rewrites voice preferences');
+
+  h.emitPtt({ type: 'down', pttAttemptId: GLOBAL_ATTEMPT });
+  assert.equal(await h.controller.begin(), false, 'the same owner also gates on-screen input');
+  assert.equal(recognitionStarts, 0);
+  assert.equal(h.captures.length, 0);
+  assert.equal(h.sentCommands.length, 0);
+  assert(h.retirements.includes(GLOBAL_ATTEMPT), 'a blocked global hold is retired rather than deferred');
+
+  // Voice can save before the modal's separate app-settings save fails or is
+  // still awaiting its acknowledgement. Runtime notifications do not unlock it.
+  assert.equal(await h.controller.setRecognitionEnabled(true, { requestMicrophoneAccess: false }), true);
+  h.emitRuntime(runtime);
+  assert.equal(await h.controller.begin('global', GLOBAL_ATTEMPT), false);
+  assert.equal(recognitionStarts, 0);
+  assert.equal(h.voiceStore.status, 'blocked');
+
+  setupReady = true;
+  h.controller.refreshReadyState();
+  assert.equal(h.voiceStore.status, 'ready');
+  h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
+  assert.equal(recognitionStarts, 0, 'finishing setup never replays a blocked hold');
+  assert.equal(await h.controller.begin('global', NEXT_GLOBAL_ATTEMPT), true);
+  assert.equal(recognitionStarts, 1);
+  assert.equal(h.captures.length, 1);
+  await h.controller.finish();
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading 270' });
+  assert.equal(h.sentCommands.length, 1, 'a fresh hold works after acknowledged completion');
+  assert.deepEqual(h.sentCommands[0].input, { value: 270 });
+});
 
 test('cloud PTT passes the resolved context and executes once through the existing command/readback path', async t => {
   let supplied;
@@ -1357,6 +1414,156 @@ test('microphone discovery errors survive readiness refresh and clear after a su
   await harness.controller.dispose();
 });
 
+test('onboarding can save voice enablement without microphone permission or device discovery', async () => {
+  let deviceCalls = 0;
+  const h = createHarness({
+    runtimeInfo: { available: false, enabled: false },
+    globalRef: { navigator: { mediaDevices: {
+      async getUserMedia() { deviceCalls++; throw new Error('No microphone attached'); },
+      async enumerateDevices() { deviceCalls++; return []; },
+    } } },
+  });
+  await h.controller.initialize();
+  assert.equal(await h.voiceStore.actions.setRecognitionEnabled(true, { requestMicrophoneAccess: false }), true);
+  assert.equal(h.voiceStore.runtime.enabled, true);
+  assert.equal(deviceCalls, 0);
+  assert.equal(h.captures.length, 0);
+  await h.controller.dispose();
+});
+
+for (const terminal of ['success', 'failure']) {
+  test(`shared voice preference owner preserves a newer Off request after obsolete enable ${terminal}`, async t => {
+    setActivePinia(createPinia());
+    const voiceStore = useVoiceControlStore();
+    const requests = [];
+    let deviceCalls = 0;
+    const h = createHarness({ voiceStore, runtimeInfo: { enabled: false, available: false },
+      controllerApi: { setRecognitionEnabled: value => new Promise((resolve, reject) => { requests.push({ value, resolve, reject }); }) },
+      globalRef: { navigator: { mediaDevices: {
+        async getUserMedia() { deviceCalls++; throw new Error('Obsolete preference must not request a microphone'); },
+        async enumerateDevices() { deviceCalls++; return []; },
+      } } },
+    });
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    const enabling = voiceStore.setRecognitionEnabled(true);
+    const firstChangeId = voiceStore.recognitionChangeId;
+    assert.equal(voiceStore.recognitionChanging, true, 'all consumers see pending ownership before the native reply');
+    assert.equal(voiceStore.runtime.enabled, false, 'pending native persistence is not presented as a confirmed saved value');
+
+    const disabling = voiceStore.setRecognitionEnabled(false, { requestMicrophoneAccess: false });
+    assert(voiceStore.recognitionChangeId > firstChangeId);
+    assert.equal(await enabling, false, 'the old Settings caller settles without waiting for model startup');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(requests.map(request => request.value), [true, false], 'Off reaches native persistence while On is still pending');
+    if (terminal === 'success') requests[0].resolve({ enabled: true, available: true });
+    else requests[0].reject(new Error('Obsolete enable failure'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(voiceStore.recognitionChanging, true, 'old completion cannot release the newer owner');
+    assert.equal(voiceStore.runtime.enabled, false);
+    assert.doesNotMatch(voiceStore.statusText, /Obsolete/);
+    assert.equal(deviceCalls, 0, 'an obsolete enable reply cannot start microphone discovery');
+
+    requests[1].resolve({ enabled: false, available: false });
+    assert.equal(await disabling, true);
+    assert.equal(voiceStore.recognitionChanging, false);
+    assert.equal(voiceStore.runtime.enabled, false);
+    const retry = voiceStore.setRecognitionEnabled(true, { requestMicrophoneAccess: false });
+    requests[2].resolve({ enabled: true, available: true });
+    assert.equal(await retry, true);
+    assert.equal(voiceStore.recognitionChanging, false);
+    assert.equal(voiceStore.runtime.enabled, true, 'a later explicit choice still succeeds');
+  });
+}
+
+test('superseded disable preparation cannot issue a late native preference write', async t => {
+  const requests = [];
+  let finishCleanup;
+  const cleanup = new Promise(resolve => { finishCleanup = resolve; });
+  const h = createHarness({ controllerApi: { setRecognitionEnabled: async enabled => {
+    requests.push(enabled); return { enabled, available: enabled };
+  } } });
+  t.after(async () => { finishCleanup(); await h.controller.dispose(); });
+  await h.controller.initialize();
+  assert.equal(await h.voiceStore.actions.startVoiceTest(), true);
+  h.captures[0].cancel = () => cleanup;
+  const disabling = h.controller.setRecognitionEnabled(false);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(requests, [], 'the older Off is still retiring the Settings microphone test');
+  assert.equal(await h.controller.setRecognitionEnabled(true, { requestMicrophoneAccess: false }), true);
+  assert.equal(await disabling, false);
+  finishCleanup();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(requests, [true], 'retired preparation cannot overwrite the newer saved choice');
+  assert.equal(h.voiceStore.runtime.enabled, true);
+  assert.equal(h.voiceStore.recognitionChanging, false);
+});
+
+test('disposing a pending voice preference settles its caller and ignores late native replies', async () => {
+  let finishNative;
+  const h = createHarness({ runtimeInfo: { enabled: false, available: false },
+    controllerApi: { setRecognitionEnabled: () => new Promise(resolve => { finishNative = resolve; }) },
+  });
+  await h.controller.initialize();
+  const enabling = h.controller.setRecognitionEnabled(true);
+  assert.equal(h.voiceStore.recognitionChanging, true);
+  await h.controller.dispose();
+  assert.equal(await enabling, false);
+  assert.equal(h.voiceStore.recognitionChanging, false);
+  finishNative({ enabled: true, available: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.runtime.enabled, false);
+  assert.equal(h.captures.length, 0);
+});
+
+test('a current voice preference failure releases shared pending state and allows retry', async t => {
+  let fail = true;
+  const h = createHarness({ runtimeInfo: { enabled: false, available: false },
+    controllerApi: { setRecognitionEnabled: async enabled => {
+      if (fail) throw new Error('Voice preferences could not be written.');
+      return { enabled, available: enabled };
+    } },
+  });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  assert.equal(await h.controller.setRecognitionEnabled(true, { requestMicrophoneAccess: false }), false);
+  assert.equal(h.voiceStore.recognitionChanging, false);
+  assert.equal(h.voiceStore.runtime.enabled, false);
+  assert.match(h.voiceStore.statusText, /could not be written/);
+  fail = false;
+  assert.equal(await h.controller.setRecognitionEnabled(true, { requestMicrophoneAccess: false }), true);
+  assert.equal(h.voiceStore.recognitionChanging, false);
+  assert.equal(h.voiceStore.runtime.enabled, true);
+});
+
+test('a failed disable retains persistence uncertainty until a later preference save succeeds', async t => {
+  setActivePinia(createPinia());
+  const voiceStore = useVoiceControlStore();
+  let fail = true;
+  let savedEnabled = true;
+  let h;
+  h = createHarness({ voiceStore, controllerApi: { setRecognitionEnabled: async enabled => {
+    // The native owner turns Off immediately even if its settings file cannot
+    // be written. A runtime-state broadcast alone does not prove durability.
+    if (!enabled) h.emitRuntime({ enabled: false, available: false });
+    if (fail) throw new Error('Voice is off for this session, but the preference could not be saved.');
+    savedEnabled = enabled;
+    return { enabled, available: enabled };
+  } } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  assert.equal(await voiceStore.setRecognitionEnabled(false), false);
+  assert.equal(voiceStore.runtime.enabled, false);
+  assert.equal(savedEnabled, true);
+  assert.equal(voiceStore.recognitionSaveFailed, true, 'reopening intro must know current Off is not durably confirmed');
+  h.emitRuntime({ enabled: false, available: false });
+  assert.equal(voiceStore.recognitionSaveFailed, true, 'ordinary runtime hydration cannot clear persistence uncertainty');
+  fail = false;
+  assert.equal(await voiceStore.setRecognitionEnabled(false, { requestMicrophoneAccess: false }), true);
+  assert.equal(savedEnabled, false);
+  assert.equal(voiceStore.recognitionSaveFailed, false);
+});
+
 test('microphone discovery failure preserves a held aircraft result', async () => {
   const harness = createHarness({ globalRef: { navigator: { mediaDevices: {
     async getUserMedia() { throw new Error('Microphone access denied.'); },
@@ -2294,17 +2501,18 @@ test('flap button feedback preserves confirmation, uncertainty, rejection and re
   controller.setActiveProfileToken({ _profileKey: profileKey, profileRevision: 1 });
   controller.applyControlCapabilities({ aircraftCommands: { profileKey, profileRevision: 1,
     commands: [{ id: commandId, label: 'Flaps', input: { kind: 'enum', values: ['1'] } }] } });
-  for (const [result, text, tone] of [
-    [{ ok: true, code: 'executed', confirmedValue: '1' }, 'Flaps 1 selected.', 'success'],
-    [{ ok: true, code: 'sent_unconfirmed' }, 'Flap command sent. Check the cockpit.', 'warning'],
-    [{ ok: false, code: 'aircraft_integration_readback_timeout', executionStarted: true }, 'Flap selection not confirmed. Check the cockpit.', 'warning'],
-    [{ ok: false, code: 'aircraft_integration_simconnect_exception', executionStarted: true }, 'Flap command failed. Check the cockpit.', 'error'],
+  for (const [result, text, tone, status] of [
+    [{ ok: true, code: 'executed', confirmedValue: '1' }, 'Flaps 1 selected.', 'success', 'sent'],
+    [{ ok: true, code: 'sent_unconfirmed' }, 'Flap command sent. Check the cockpit.', 'warning', 'sent'],
+    [{ ok: false, code: 'aircraft_integration_readback_timeout', executionStarted: true }, 'Flap selection not confirmed. Check the cockpit.', 'warning', 'unconfirmed'],
+    [{ ok: false, code: 'aircraft_integration_simconnect_exception', executionStarted: true }, 'Flap command failed. Check the cockpit.', 'error', 'failed'],
   ]) {
     const input = { value: '1' };
     assert.equal(controller.sendCommand(commandId, input, { onResult: result => replies.push(result) }), true);
     const message = { ...result, commandId, request: { commandId, input }, requestId: sent.at(-1).requestId };
     controller.handleResult(message);
     assert.equal(controls.feedback.actionText, text);
+    assert.equal(controls.feedback.status, status, 'the page summary must agree with the confirmation message');
     assert.equal(toasts.at(-1)[0], tone);
     assert.equal(controls.isCommandPending(`aircraft-command:${commandId}`), false);
     const count = toasts.length;
@@ -2424,6 +2632,130 @@ test('gear buttons and voice agree on confirmation, delivery, observation failur
       }
     } finally { await h.controller.dispose(); aircraftControl.clearPendingRequests(); }
   }
+});
+
+test('spoiler observation feedback covers direct controls without masking other command results', () => {
+  const result = { ok: false, executionStarted: true, code: 'aircraft_integration_readback_timeout' };
+  for (const request of [
+    { control: 'spoilers', operation: 'arm' },
+    { control: 'aircraft-specific', operation: 'execute', actionId: 'controls.speedbrake.armed' },
+    { control: 'aircraft-specific', operation: 'execute', actionId: 'flightControls.speedbrake.half' },
+  ]) {
+    assert.match(spoilerObservationFailureText(result, request), /selection not confirmed/);
+    assert.equal(spoilerObservationFailureText({ ...result, ok: true, code: 'executed', confirmedValue: 25 }, request), null);
+    assert.equal(spoilerObservationFailureText({ ...result, ok: true, code: 'sent_unconfirmed' }, request), null);
+    assert.equal(spoilerObservationFailureText({ ...result, code: 'aircraft_integration_simconnect_exception' }, request), null);
+  }
+  assert.equal(spoilerObservationFailureText({ ...result, commandId: 'configuration.takeoff.set',
+    request: { control: 'aircraft-specific', operation: 'execute', actionId: 'controls.speedbrake.armed' } }), null,
+  'one preset step cannot replace feedback for the complete preset');
+  assert.equal(spoilerObservationFailureText(result, { commandId: 'surfaces.flaps.set' }), null);
+});
+
+test('spoiler feedback distinguishes lost observation from rejection in buttons and voice', async () => {
+  for (const [commandId, input, transcript] of [
+    ['surfaces.spoilers.set', { kind: 'enum', values: ['half'] }, 'half'],
+    ['surfaces.spoilersArmed.set', { kind: 'boolean' }, true],
+  ]) {
+    setActivePinia(createPinia());
+    const controls = useAircraftControlsStore(), sent = [], toasts = [];
+    const profileKey = 'bundled/msfs/pmdg-777';
+    const aircraftControl = createAircraftControlController({
+      WebSocketRef: { OPEN: 1 }, getWs: () => ({ readyState: 1 }), getWsSend: () => message => sent.push(message),
+      getAuthorizationScope: () => 'full-control', getSimconnectConnected: () => true,
+      aircraftControlsStore: controls, showToast: (...toast) => toasts.push(toast),
+    });
+    aircraftControl.setActiveProfileToken({ _profileKey: profileKey, profileRevision: 1 });
+    aircraftControl.applyControlCapabilities({ aircraftCommands: { profileKey, profileRevision: 1,
+      configurationId: 'pmdg-777', commands: [{ id: commandId, label: 'Spoilers', input,
+        speech: { patterns: ['spoilers {value}'] } }] } });
+    aircraftControl.updateAvailability();
+    const h = createHarness({ aircraftControlsStore: controls, aircraftControl });
+    try {
+      await h.controller.initialize();
+      for (const [code, executionStarted, uncertain] of [
+        ['aircraft_integration_readback_timeout', true, true],
+        ['aircraft_integration_selector_readback_timeout', true, true],
+        ['observation_interrupted', true, true],
+        ['sdk_transport_unavailable', true, true],
+        ['stale_profile', true, true],
+        ['aircraft_integration_readback_timeout', false, false],
+        ['aircraft_integration_simconnect_exception', true, false],
+        ['stale_profile', false, false],
+      ]) {
+        const before = sent.length, spokenBefore = h.spokenReadbacks.length;
+        assert.equal(await h.controller.begin(), true);
+        const sessionId = h.voiceStore.activeSessionId;
+        await h.controller.finish();
+        await h.emitRecognition({ type: 'final', sessionId, text: `spoilers ${transcript === true ? 'on' : transcript}` });
+        assert.equal(sent.length, before + 1);
+        assert.equal(h.spokenReadbacks.length, spokenBefore);
+        assert.equal(aircraftControl.sendCommand(commandId, { value: transcript }), false, 'button cannot overlap voice');
+        const message = { ok: false, code, executionStarted, commandId,
+          request: { commandId, input: { value: transcript } }, requestId: sent.at(-1).requestId,
+          profileKey, stepCount: 1, completedStepCount: 0, error: 'Aircraft diagnostic retained.' };
+        aircraftControl.handleResult(message);
+        assert.equal(controls.feedback.status, uncertain ? 'unconfirmed' : 'failed');
+        assert.equal(toasts.at(-1)[0], uncertain ? 'warning' : 'error');
+        assert.equal(h.voiceStore.status, uncertain ? 'error' : 'failed');
+        if (uncertain) {
+          assert.equal(h.spokenReadbacks.at(-1), 'Spoiler selection not confirmed. Check the cockpit.');
+          assert.equal(controls.feedback.actionText, h.spokenReadbacks.at(-1));
+          assert.doesNotMatch(controls.feedback.routeText, /before failure/);
+        } else assert.match(h.spokenReadbacks.at(-1), /Command failed/);
+        assert.match(controls.feedback.routeText, /Aircraft diagnostic retained/);
+        assert.match(h.voiceStore.statusText, /Aircraft diagnostic retained/);
+        assert.equal(controls.isCommandPending(`aircraft-command:${commandId}`), false);
+        const toastCount = toasts.length;
+        aircraftControl.handleResult(message);
+        assert.equal(toasts.length, toastCount);
+        assert.equal(h.spokenReadbacks.length, spokenBefore + 1);
+        assert.equal(sent.length, before + 1, 'uncertain results never resend the command');
+      }
+    } finally { await h.controller.dispose(); aircraftControl.clearPendingRequests(); }
+  }
+});
+
+test('direct spoiler controls retain warning feedback and retire pending callers', () => {
+  setActivePinia(createPinia());
+  const controls = useAircraftControlsStore(), sent = [], toasts = [], replies = [];
+  const controller = createAircraftControlController({
+    WebSocketRef: { OPEN: 1 }, getWs: () => ({ readyState: 1 }), getWsSend: () => message => sent.push(message),
+    getAuthorizationScope: () => 'full-control', getSimconnectConnected: () => true,
+    aircraftControlsStore: controls, showToast: (...toast) => toasts.push(toast),
+  });
+  for (const [profile, actionId, value] of [
+    ['fbw-a32nx', 'controls.spoilersArmed.on'],
+    ['fbw-a32nx', 'controls.spoilers.quarter'],
+    ['fbw-a380x', 'controls.spoilers.set', 0.5],
+    ['inibuilds-a350-900', 'controls.speedbrake.set', 50],
+    ['inibuilds-a350-1000', 'controls.spoilersArmed.off'],
+    ['inibuilds-a380-800-rr', 'controls.spoilersArmed.on'],
+  ]) {
+    controller.setActiveProfileToken({ _profileKey: `bundled/msfs/${profile}`, profileRevision: 1 });
+    const request = { control: 'aircraft-specific', operation: 'execute', actionId,
+      ...(value === undefined ? {} : { value }) };
+    assert.equal(controller.send(request, { onResult: result => replies.push(result) }), true);
+    const message = { request, requestId: sent.at(-1).requestId, ok: false,
+      executionStarted: true, code: 'aircraft_integration_readback_timeout', error: 'Lever readback timed out.' };
+    controller.handleResult(message);
+    assert.equal(controls.feedback.actionText, 'Spoiler selection not confirmed. Check the cockpit.');
+    assert.equal(controls.feedback.status, 'unconfirmed');
+    assert.equal(toasts.at(-1)[0], 'warning');
+    assert.deepEqual(controls.pendingCommands, {});
+    const count = replies.length;
+    controller.handleResult(message);
+    assert.equal(replies.length, count, 'duplicate result cannot settle the caller again');
+  }
+  assert.equal(sent.length, 6); assert.equal(replies.length, 6);
+  const request = { control: 'aircraft-specific', operation: 'execute', actionId: 'controls.spoilersArmed.on' };
+  controller.send(request, { onResult: result => replies.push(result) });
+  const requestId = sent.at(-1).requestId;
+  controller.resetProfileState('Aircraft changed.');
+  const feedback = { ...controls.feedback }, count = replies.length;
+  controller.handleResult({ request, requestId, ok: false, executionStarted: true, code: 'aircraft_integration_readback_timeout' });
+  assert.deepEqual(controls.feedback, feedback);
+  assert.equal(replies.length, count, 'retired reply must leave the new aircraft alone');
 });
 
 test('direct gear buttons retain shared feedback and ignore replies from a retired profile', () => {

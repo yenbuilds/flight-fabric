@@ -13,18 +13,22 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { aircraftQueryFamily, stateQueryExamples } from '../frontend/src/voice/state-queries.js';
 import { flightPlanQueryExamples } from '../frontend/src/voice/flight-plan-queries.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BUNDLED_MSFS_PROFILES = path.join(ROOT, 'backend', 'aircraft', 'profiles', 'bundled', 'msfs');
+const require = createRequire(import.meta.url);
+const { loadTypeScriptCommonJs } = require('./typescript-source-loader.js');
+const DEFINITIONS_DIR = path.join(ROOT, 'backend', 'aircraft', 'aircraft-integrations');
 const OUTPUT = path.join(ROOT, 'frontend', 'toolbar', 'voice-reference.json');
 
 function bundledProfileKeys() {
-  return fs.readdirSync(BUNDLED_MSFS_PROFILES)
-    .filter((name) => name.endsWith('.json'))
-    .map((name) => `bundled/msfs/${name.slice(0, -'.json'.length)}`)
+  const { listBundledProfileSources } = loadTypeScriptCommonJs(path.join(ROOT, 'backend', 'aircraft', 'aircraft-profile-sources.ts'));
+  return listBundledProfileSources(DEFINITIONS_DIR)
+    .filter(({ simulator }) => simulator === 'msfs')
+    .map(({ profileKey }) => profileKey)
     .sort();
 }
 

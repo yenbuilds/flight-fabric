@@ -42,6 +42,25 @@ test('complete spoken letter names work in command names, modes and units withou
   }
 });
 
+test('surface aliases require the active catalogue to offer that exact selection', () => {
+  const command = (id, values, pattern) => ({ id, input: { kind: 'enum', values }, speech: { patterns: [pattern] } });
+  const commands = [command('flaps', ['up', '0', 'takeoff', '28', '35', '50'], 'flaps {value}'),
+    command('spoilers', ['retracted', 'one-third', 'two-thirds', 'full'], 'spoilers {value}')];
+  for (const [phrase, expected] of [['flaps dial a flap', 'takeoff'], ['flaps zero', '0'],
+    ['flaps twenty eight', '28'], ['spoilers one third', 'one-third'], ['spoilers two thirds', 'two-thirds']]) {
+    assert.deepEqual(interpretAircraftVoiceCommand(phrase, { commands }).input, { value: expected });
+  }
+  for (const phrase of ['flaps dial a flap', 'spoilers one third', 'spoilers two thirds']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, { commands: [
+      command('flaps', ['up', '1', '2', '3', 'full'], 'flaps {value}'),
+      command('spoilers', ['retracted', 'full'], 'spoilers {value}'),
+    ] }).ok, false, phrase);
+  }
+  for (const phrase of ['do not set flaps dial a flap', 'spoilers one third then full']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, { commands }).ok, false, phrase);
+  }
+});
+
 test('acronym repair preserves exact command precedence and rejects ambiguous repairs', () => {
   const command = (id, pattern) => ({ id, input: { kind: 'none' }, speech: { patterns: [pattern] } });
   const apuCommand = command('test.apu', 'start apu');

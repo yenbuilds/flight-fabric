@@ -2862,8 +2862,8 @@ async function main() {
     assert.match(html, /To KBOS/, 'destination progress should render live map store state');
     assert.doesNotMatch(html, /id="sampling-indicator"|VRE ULTRA/, 'sampling diagnostics belong in Debug, not the header');
     assert.doesNotMatch(html, /id="recording-indicator"[^>]*class="hidden"/, 'recording indicator visibility should render from status state');
-    assert.match(html, />REC</, 'recording badge should render from status state');
-    assert.match(html, /Saving to:/, 'recording detail label should render from status state');
+    assert.match(html, />Flight REC</, 'recording badge should identify flight capture');
+    assert.match(html, /Recording location/, 'recording detail label should render from status state');
     assert.match(html, /C:\/Flights\/active-flight\.csv/, 'recording path should render from status state');
     assert.doesNotMatch(html, /id="start-recording-btn"/, 'manual start-recording action should stay hidden while the recording pill is visible');
     assert.match(html, /id="end-flight-btn"/, 'manual end-flight action should keep its stable target');
@@ -8007,7 +8007,7 @@ async function main() {
             'flightGuidance.altitudeManaged': true,
             'lights.strobeMode': 'auto',
             'lights.strobeAuto': true,
-            'lights.strobeActive': false,
+            'lights.strobeActive': true,
             'lights.beacon': true,
             'lights.nav': true,
             'lights.logo': false,
@@ -8100,7 +8100,8 @@ async function main() {
     assert.doesNotMatch(html, /data-aircraft-action="surveillance\.tcasMode\.taRa"[^>]*disabled/, 'documented TCAS selector should be enabled');
     assert.match(html, /data-aircraft-action="controls\.engineMode\.normal"[^>]*aria-pressed="true"/, 'engine mode readback should select NORM');
     assert.match(html, /data-aircraft-action="displays\.ecamPage\.electrical"[^>]*aria-pressed="true"/, 'ECAM ELEC page readback should select its action');
-    assert.match(html, /AUTO armed; actual strobe output is OFF/, 'AUTO mode should distinguish selector state from actual output');
+    assert.match(html, /AUTO armed\. Strobe enabled: ON\./, 'AUTO mode should report the independently observed enabled state');
+    assert.match(html, /Strobe enabled state does not confirm visible flashes/, 'enabled readback must not imply visible flashes');
     assert.match(html, /Landing lights take about 9 seconds to extend/, 'landing-light extension timing should be clear');
     assert.doesNotMatch(html, /lights are read-only/, 'usable exterior lights must not be described as read-only');
     assert.match(html, /A32NX updates can affect compatibility/, 'the compatibility warning should remain concise and user-facing');
@@ -8156,7 +8157,7 @@ async function main() {
     );
   });
 
-  await test('FlyByWire A32NX renders unavailable numeric telemetry as unknown', async () => {
+  await test('FlyByWire A32NX renders unavailable telemetry as unknown', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'FbwA32nxAircraftPanel.vue'),
       () => {},
@@ -8166,6 +8167,22 @@ async function main() {
     assert.match(html, /SPD \/ MACH<\/div>\s*<div[^>]*>--<\/div>/, 'missing FCU speed must not render as zero');
     assert.match(html, /BAT 1 <span[^>]*>--<\/span>/, 'missing battery voltage must not render as zero volts');
     assert.match(html, /ADIRS ALIGNMENT <span[^>]*>--<\/span>/, 'missing ADIRS telemetry must not be reported as aligned');
+
+    for (const strobeProps of [
+      { values: { 'lights.strobeMode': 'auto', 'lights.strobeAuto': true } },
+      { values: { 'lights.strobeMode': 'on', 'lights.strobeActive': true }, unavailable: ['lights.strobeActive'] },
+    ]) {
+      const { html: strobeHtml } = await renderComponent(
+        path.join('src', 'vue', 'components', 'aircraft-specific', 'templates', 'FbwA32nxAircraftPanel.vue'),
+        ({ useAircraftControlsStore }) => {
+          useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
+        },
+        { props: { sourceStatus: 'connected', actionCapabilities: { 'lights.strobe.on': true }, ...strobeProps } },
+      );
+      const status = strobeHtml.match(/id="fbw-control-status-lights-strobe"[^>]*>([^<]*)<\/p>/)?.[1] || '';
+      assert.match(status, /Strobe enabled state unavailable\./, 'missing or unavailable enabled readback must remain unknown');
+      assert.doesNotMatch(status, /Strobe enabled: (?:ON|OFF)/, 'a live selector must not manufacture the enabled state');
+    }
   });
 
   await test('Fenix A32x template renders actionable guarded FCU controls before its broad persistent surface', async () => {

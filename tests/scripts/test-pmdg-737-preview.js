@@ -7,14 +7,72 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { WebSocket } = require('ws');
+const { parse: parseYaml, stringify: stringifyYaml } = require('yaml');
 const {
   PROFILE_KEY,
   PROFILE_REVISION,
   createPreviewRuntime,
+  loadPmdgContracts,
   resolveNpmCliPath,
 } = require('../../scripts/dev/pmdg-737-preview');
 
 const ROOT = path.resolve(__dirname, '..', '..');
+
+function testContractSourceLoading() {
+  const scratchRoot = path.join(ROOT, '.tmp');
+  fs.mkdirSync(scratchRoot, { recursive: true });
+  const fixtureRoot = fs.mkdtempSync(path.join(scratchRoot, 'pmdg-preview-contract-'));
+  const relativeRoot = path.join('backend', 'aircraft', 'integration-engine');
+  const integrationRoot = path.join(fixtureRoot, relativeRoot);
+  try {
+    for (const file of [
+      'definition-yaml.ts', 'integration-yaml.ts', 'field-definition-schema.ts', 'action-definition-schema.ts',
+      'registry.ts', 'catalogue-schema.ts', 'cockpit-lighting-schema.ts', '../com-radio-contract.ts',
+      '../integration-behavior.ts', '../guarded-display-entry-contract.ts', '../staged-control-contract.ts', '../enum-number-ranges.ts',
+      '../../utils/mobiflight-protocol.ts', '../aircraft-integrations/pmdg-737.yaml',
+    ]) {
+      const destination = path.join(integrationRoot, file);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.copyFileSync(path.join(ROOT, relativeRoot, file), destination);
+    }
+    // A stale compiled tree must never satisfy the source-only fixture loader.
+    const compiledRoot = path.join(fixtureRoot, 'dist', relativeRoot);
+    fs.mkdirSync(compiledRoot, { recursive: true });
+    for (const filename of ['integration-yaml.js', 'registry.js']) {
+      fs.writeFileSync(path.join(compiledRoot, filename), "throw new Error('Stale dist must not be loaded');\n");
+    }
+    const first = loadPmdgContracts(fixtureRoot);
+    assert.strictEqual(first.fields['mcp.speed'].sources[0].decode.precision, 2);
+    assert.strictEqual(first.actions['mcp.ias.set'].input.max, 399);
+    const definitionPath = path.join(integrationRoot, '..', 'aircraft-integrations', 'pmdg-737.yaml');
+    const definitionYaml = fs.readFileSync(definitionPath, 'utf8');
+    // Deliberately altered fixture definitions prove the next preview reads
+    // current source assets instead of cached modules or the real checkout.
+    const changedDefinition = parseYaml(definitionYaml);
+    changedDefinition.integration.fields['mcp.speed'].sources[0].decode.precision = 1;
+    changedDefinition.integration.actions['mcp.ias.set'].input.max = 398;
+    fs.writeFileSync(definitionPath, stringifyYaml(changedDefinition));
+    const changed = loadPmdgContracts(fixtureRoot);
+    assert.strictEqual(changed.fields['mcp.speed'].sources[0].decode.precision, 1);
+    assert.strictEqual(changed.actions['mcp.ias.set'].input.max, 398);
+    assert.strictEqual(first.fields['mcp.speed'].sources[0].decode.precision, 2, 'existing fixture remains isolated');
+    assert.strictEqual(first.actions['mcp.ias.set'].input.max, 399);
+    fs.rmSync(definitionPath);
+    assert.throws(() => loadPmdgContracts(fixtureRoot), error => (
+      error.message.includes(definitionPath) && /ENOENT/.test(error.message)
+    ), 'missing source YAML must not fall back to dist or cached contracts');
+    fs.writeFileSync(definitionPath, 'schemaVersion: 1\ninvalid: [\n');
+    assert.throws(() => loadPmdgContracts(fixtureRoot), error => (
+      error.message.includes(definitionPath) && /Invalid aircraft/.test(error.message)
+    ), 'invalid source YAML must reject the preview before it starts');
+    fs.writeFileSync(definitionPath, definitionYaml);
+    const recovered = loadPmdgContracts(fixtureRoot);
+    assert.strictEqual(recovered.fields['mcp.speed'].sources[0].decode.precision, 2);
+    assert.strictEqual(recovered.actions['mcp.ias.set'].input.max, 399);
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
 
 function waitForMessage(messages, predicate, label, timeoutMs = 4000) {
   return new Promise((resolve, reject) => {
@@ -50,6 +108,7 @@ function waitForOpen(socket, timeoutMs = 4000) {
 }
 
 async function main() {
+  testContractSourceLoading();
   const npmCliPath = resolveNpmCliPath();
   const npmProbe = spawnSync(process.execPath, [npmCliPath, '--version'], {
     cwd: ROOT,
@@ -144,6 +203,29 @@ async function main() {
       'battery action result',
     );
     assert.strictEqual(batteryResult.ok, true);
+
+    socket.send(JSON.stringify({
+      type: 'executeAircraftControl',
+      requestId: 'heading-target',
+      profileKey: PROFILE_KEY,
+      profileRevision: PROFILE_REVISION,
+      control: 'aircraft-specific',
+      operation: 'execute',
+      actionId: 'mcp.heading.set',
+      value: 273,
+    }));
+    const headingState = await waitForMessage(
+      messages,
+      message => message.type === 'aircraftSpecificState' && message.values['mcp.headingDeg'] === 273,
+      'YAML-backed heading fixture readback',
+    );
+    assert.strictEqual(headingState.values['mcp.headingDeg'], 273);
+    const headingResult = await waitForMessage(
+      messages,
+      message => message.type === 'aircraftControlResult' && message.requestId === 'heading-target',
+      'YAML-backed heading fixture result',
+    );
+    assert.strictEqual(headingResult.ok, true);
 
     socket.send(JSON.stringify({
       type: 'executeAircraftControl',

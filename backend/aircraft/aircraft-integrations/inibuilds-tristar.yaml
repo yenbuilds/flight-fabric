@@ -1,0 +1,1288 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: inibuilds-tristar/actions.ts
+# Standard output cannot prove every cockpit switch is set. Reapply
+# these fixed ON/OFF events; the logo toggle keeps its no-op guard.
+# iniBuilds publishes only a toggle event for the logo lights. The provider's
+# fresh preflight readback makes these explicit intents safe and idempotent: a
+# same-state request is acknowledged without firing the toggle.
+
+# Mapping source notes: inibuilds-tristar/fields.ts
+# The bounded gauge-subscription bridge can sample standard A-vars that
+# are not part of FlightFabric's shared SimConnect frame. These are
+# simulator variables, not iniBuilds-private LVARs.
+# No vendor-published TriStar telemetry catalogue is available. Keep this
+# monitoring surface on an explicit set of standard SimVars normalized into the
+# FlightFabric frame. AFCS engagement/mode booleans and selector values are
+# deliberately absent because the standard autopilot fields do not represent
+# the TriStar's custom AFCS windows reliably. The speedbrake field is also
+# absent because the generic spoiler value can include DLC or roll-spoiler
+# movement during normal flight.
+
+schemaVersion: 1
+integration:
+  id: inibuilds-tristar
+  aircraft:
+    vendor: iniBuilds
+    family: L-1011-500 TriStar
+  trustedProfileKeys:
+    - bundled/msfs/inibuilds-tristar
+  presentation:
+    templateId: inibuilds-tristar
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # lights
+    lights.strobe:
+      id: lights.strobe
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT STROBE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT BEACON
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.nav:
+      id: lights.nav
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT NAV
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.logo:
+      id: lights.logo
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LOGO
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.landing:
+      id: lights.landing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LANDING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.taxi:
+      id: lights.taxi
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.wing:
+      id: lights.wing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT WING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # controls
+    controls.flapsPercent:
+      id: controls.flapsPercent
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE PERCENT
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.flapsIndex:
+      id: controls.flapsIndex
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE INDEX
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    controls.flapAngleDeg:
+      id: controls.flapAngleDeg
+      sources:
+        - route:
+            type: simvar
+            name: TRAILING EDGE FLAPS LEFT ANGLE
+            unit: Degrees
+          decode:
+            type: number
+            precision: 1
+    controls.gearHandleDown:
+      id: controls.gearHandleDown
+      sources:
+        - route:
+            type: simvar
+            name: GEAR HANDLE POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearNosePct:
+      id: controls.gearNosePct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR CENTER POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearLeftPct:
+      id: controls.gearLeftPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR LEFT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearRightPct:
+      id: controls.gearRightPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR RIGHT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.parkingBrake:
+      id: controls.parkingBrake
+      sources:
+        - route:
+            type: simvar
+            name: BRAKE PARKING POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # systems
+    systems.engine1N1:
+      id: systems.engine1N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:1
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine2N1:
+      id: systems.engine2N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:2
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine3N1:
+      id: systems.engine3N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:3
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine1Epr:
+      id: systems.engine1Epr
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG PRESSURE RATIO:1
+            unit: Ratio
+          decode:
+            type: number
+            precision: 2
+    systems.engine2Epr:
+      id: systems.engine2Epr
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG PRESSURE RATIO:2
+            unit: Ratio
+          decode:
+            type: number
+            precision: 2
+    systems.engine3Epr:
+      id: systems.engine3Epr
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG PRESSURE RATIO:3
+            unit: Ratio
+          decode:
+            type: number
+            precision: 2
+    systems.engine1N2:
+      id: systems.engine1N2
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG N2:1
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine2N2:
+      id: systems.engine2N2
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG N2:2
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine3N2:
+      id: systems.engine3N2
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG N2:3
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine1FuelFlowPph:
+      id: systems.engine1FuelFlowPph
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG FUEL FLOW PPH:1
+            unit: Pounds per hour
+          decode:
+            type: number
+            precision: 0
+    systems.engine2FuelFlowPph:
+      id: systems.engine2FuelFlowPph
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG FUEL FLOW PPH:2
+            unit: Pounds per hour
+          decode:
+            type: number
+            precision: 0
+    systems.engine3FuelFlowPph:
+      id: systems.engine3FuelFlowPph
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG FUEL FLOW PPH:3
+            unit: Pounds per hour
+          decode:
+            type: number
+            precision: 0
+    systems.engine1ReversePct:
+      id: systems.engine1ReversePct
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG REVERSE NOZZLE PERCENT:1
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine2ReversePct:
+      id: systems.engine2ReversePct
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG REVERSE NOZZLE PERCENT:2
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine3ReversePct:
+      id: systems.engine3ReversePct
+      sources:
+        - route:
+            type: lvar
+            name: A:TURB ENG REVERSE NOZZLE PERCENT:3
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine1Running:
+      id: systems.engine1Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine2Running:
+      id: systems.engine2Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine3Running:
+      id: systems.engine3Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:3
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.fuelTotalPct:
+      id: systems.fuelTotalPct
+      sources:
+        - route:
+            type: simvar
+            name: FUEL SELECTED QUANTITY PERCENT:99
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.fuelTotalWeightLbs:
+      id: systems.fuelTotalWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: FUEL TOTAL QUANTITY WEIGHT EX1
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.grossWeightLbs:
+      id: systems.grossWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: TOTAL WEIGHT
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.cabinAltitudeFt:
+      id: systems.cabinAltitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    systems.cabinVerticalSpeedFpm:
+      id: systems.cabinVerticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE RATE
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+    systems.cabinDeltaPressurePsi:
+      id: systems.cabinDeltaPressurePsi
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION PRESSURE DIFFERENTIAL
+            unit: PSI
+          decode:
+            type: number
+            precision: 2
+    systems.outsideAirTemperatureC:
+      id: systems.outsideAirTemperatureC
+      sources:
+        - route:
+            type: simvar
+            name: AMBIENT TEMPERATURE
+            unit: Celsius
+          decode:
+            type: number
+            precision: 1
+    systems.mach:
+      id: systems.mach
+      sources:
+        - route:
+            type: simvar
+            name: AIRSPEED MACH
+            unit: Mach
+          decode:
+            type: number
+            precision: 3
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+
+    # lights
+    lights.landing.setOff:
+      id: lights.landing.setOff
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.landing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.landing.setOff.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_OFF
+              value: 0
+          readback:
+            fieldId: lights.landing
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.landing.setOn:
+      id: lights.landing.setOn
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.landing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.landing.setOn.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_ON
+              value: 0
+          readback:
+            fieldId: lights.landing
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.taxi.setOff:
+      id: lights.taxi.setOff
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.taxi
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.taxi.setOff.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_OFF
+              value: 0
+          readback:
+            fieldId: lights.taxi
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.taxi.setOn:
+      id: lights.taxi.setOn
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.taxi
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.taxi.setOn.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_ON
+              value: 0
+          readback:
+            fieldId: lights.taxi
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.strobe.setOff:
+      id: lights.strobe.setOff
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.strobe
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.strobe.setOff.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: STROBES_OFF
+              value: 0
+          readback:
+            fieldId: lights.strobe
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.strobe.setOn:
+      id: lights.strobe.setOn
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.strobe
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.strobe.setOn.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: STROBES_ON
+              value: 0
+          readback:
+            fieldId: lights.strobe
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.beacon.setOff:
+      id: lights.beacon.setOff
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.beacon
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.beacon.setOff.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: BEACON_LIGHTS_OFF
+              value: 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.beacon.setOn:
+      id: lights.beacon.setOn
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.beacon
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.beacon.setOn.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: BEACON_LIGHTS_ON
+              value: 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.setOff:
+      id: lights.nav.setOff
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.nav
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.nav.setOff.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: NAV_LIGHTS_OFF
+              value: 0
+          readback:
+            fieldId: lights.nav
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.setOn:
+      id: lights.nav.setOn
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.nav
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.nav.setOn.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: NAV_LIGHTS_ON
+              value: 0
+          readback:
+            fieldId: lights.nav
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.wing.setOff:
+      id: lights.wing.setOff
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.wing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.wing.setOff.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: WING_LIGHTS_OFF
+              value: 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.wing.setOn:
+      id: lights.wing.setOn
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.wing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.lights.wing.setOn.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: WING_LIGHTS_ON
+              value: 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.setOff:
+      id: lights.logo.setOff
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.logo
+        retry: never
+      routes:
+        - id: inibuildsTristar.lights.logo.setOff.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TOGGLE_LOGO_LIGHTS
+              value: 0
+          readback:
+            fieldId: lights.logo
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.setOn:
+      id: lights.logo.setOn
+      guard:
+        cooldownMs: 750
+        groupId: inibuildsTristar.lights.logo
+        retry: never
+      routes:
+        - id: inibuildsTristar.lights.logo.setOn.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TOGGLE_LOGO_LIGHTS
+              value: 0
+          readback:
+            fieldId: lights.logo
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+
+    # afcs
+    afcs.speed.decrease:
+      id: afcs.speed.decrease
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.afcs.speed
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.afcs.speed.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_SPD_VAR_DEC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    afcs.speed.increase:
+      id: afcs.speed.increase
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.afcs.speed
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.afcs.speed.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_SPD_VAR_INC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    afcs.heading.decrease:
+      id: afcs.heading.decrease
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.afcs.heading
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.afcs.heading.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: HEADING_BUG_DEC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    afcs.heading.increase:
+      id: afcs.heading.increase
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.afcs.heading
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.afcs.heading.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: HEADING_BUG_INC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    afcs.altitude.decrease:
+      id: afcs.altitude.decrease
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.afcs.altitude
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.afcs.altitude.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_ALT_VAR_DEC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    afcs.altitude.increase:
+      id: afcs.altitude.increase
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.afcs.altitude
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.afcs.altitude.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_ALT_VAR_INC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    afcs.verticalSpeed.decrease:
+      id: afcs.verticalSpeed.decrease
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.afcs.verticalSpeed
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.afcs.verticalSpeed.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_VS_VAR_DEC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    afcs.verticalSpeed.increase:
+      id: afcs.verticalSpeed.increase
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.afcs.verticalSpeed
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.afcs.verticalSpeed.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_VS_VAR_INC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+
+    # navigation
+    navigation.course1.decrease:
+      id: navigation.course1.decrease
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.navigation.course1
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.navigation.course1.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: VOR1_OBI_DEC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    navigation.course1.increase:
+      id: navigation.course1.increase
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.navigation.course1
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.navigation.course1.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: VOR1_OBI_INC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    navigation.course2.decrease:
+      id: navigation.course2.decrease
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.navigation.course2
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.navigation.course2.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: VOR2_OBI_DEC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+    navigation.course2.increase:
+      id: navigation.course2.increase
+      guard:
+        cooldownMs: 300
+        groupId: inibuildsTristar.navigation.course2
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: inibuildsTristar.navigation.course2.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: VOR2_OBI_INC
+              value: 0
+          confirmation: transport-acknowledged
+      verification: untested
+  behavior:
+    keyEventPolicy:
+      eventGroups:
+        AP_AIRSPEED_HOLD: autothrottle
+        AP_VS_HOLD: verticalSpeedHold
+        AP_ALT_HOLD: altitudeHold
+        AP_MACH_HOLD: machHold
+        AP_HDG_HOLD: headingHold
+        TOGGLE_FLIGHT_DIRECTOR: flightDirector
+        AP_MASTER: apMaster
+        AUTOPILOT_OFF: apMaster
+        AP_APR_HOLD: app
+        AP_LOC_HOLD: loc
+        AP_NAV1_HOLD: nav1
+        TOGGLE_WATER_RUDDER: ins
+        AP_BC_HOLD: backcourse
+      cooldownMs: 600
+      inFlightError: The TriStar AFCS control is already being sent.
+      cooldownError: Wait briefly before sending the TriStar AFCS control again.
+  catalogue:
+    order: 9
+    legacyExports:
+      INIBUILDS_TRISTAR_ADAPTER_ID:
+        kind: id
+        order: 30
+      INIBUILDS_TRISTAR_INTEGRATION:
+        kind: integration
+        order: 31
+      INIBUILDS_TRISTAR_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/inibuilds-tristar
+        order: 32
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/inibuilds-tristar:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: inibuilds-tristar
+    name: iniBuilds TriStar Airliner (L-1011-500)
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-05-11T00:00:00Z
+    updatedAt: 2026-08-12T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/widebody-base
+    abstract: false
+    aircraft:
+      category: D
+      flaps:
+        _comment: "L-1011-family flap labels use 0, 4, 10, 22, 33, and 42. Flap and gear speed values are provisional
+          compatibility values pending redistributable public-source or vendor verification. Normal takeoff: 4
+          or 10. Normal landing: 33 or 42 (42 = FULL for short/wet runways; 33 = normal). The iniBuilds FAQ
+          confirms AoA mode auto-engages at Flaps 33."
+        notches:
+          - value: 0
+            label: UP
+          - value: 4
+            label: "4"
+          - value: 10
+            label: "10"
+          - value: 22
+            label: "22"
+          - value: 33
+            label: "33"
+          - value: 42
+            label: "42"
+        landingNotches:
+          - 33
+          - 42
+      stability:
+        stabilizedGates:
+          imcRaFt: 1000
+          vmcRaFt: 500
+      engines:
+        _comment: 3 Rolls-Royce RB211 engines. 2 wing-pylon mounted, 1 centre-mounted via S-duct through fin.
+          EPR-rated (not N1). The iniBuilds simulation uses a detailed EPR logic model.
+        count: 3
+        type: jet
+    integration:
+      aircraftSpecific:
+        adapter: inibuilds-tristar
+      matching:
+        priority: 90
+        titleExcludes:
+          - FSLTL
+          - PassiveAircraft
+        configPathExcludes:
+          - fsltl-traffic-base/SimObjects/Airplanes
+          - FSLTL_L1011
+          - PassiveAircraft/SimObjects/Airplanes
+        titleContains:
+          - iniBuilds TriStar
+          - iniBuilds L-1011
+          - iniBuilds L1011
+        titleRegex: inibuilds.*(tristar|l-?1011)|(tristar|l-?1011).*inibuilds
+        configPathContains:
+          - inibuilds-tristar
+          - inibuilds_tristar
+          - inibuilds-l1011
+          - inibuilds-aircraft-tristar
+        configPathRegex: inibuilds.*(tristar|l1011|l[-_ ]?1011)|(tristar|l1011|l[-_ ]?1011).*inibuilds
+      telemetry:
+        preferred: simconnect
+        lvars:
+          _comment: This profile uses standard Microsoft A-vars only. A bounded gauge-subscription path supplies
+            supplemental engine values that are not present in FlightFabric's shared frame; no
+            iniBuilds-private LVAR telemetry is enabled.
+        autopilot:
+          _comment: The documented AFCS key events use SimConnect, but this profile does not use generic AUTOPILOT
+            MASTER or mode SimVars as AFCS-state readbacks. Keep those fields unavailable until a
+            vendor-documented and independently verified source is available.
+          simVarReliable: false
+        spoilers:
+          _comment: TriStar Direct Lift Control (DLC) uses spoiler panels during normal approach, so the generic
+            SimConnect spoiler value can include DLC or roll-spoiler movement rather than only
+            speedbrake-handle state. Keep spoiler UI/scoring state unavailable until a dedicated handle or
+            autospoiler source is verified.
+          scale: percent
+          simVarReliable: false
+        lights:
+          source: simconnect
+      controls:
+        backend: simconnect
+        genericFallback: false
+        standardSurfaceFallback: true
+        _comment: Official iniBuilds TriStar keybind FAQs publish standard SimConnect Event IDs for AFCS selector
+          steps, AFCS mode buttons, and exterior lights. The trusted aircraft-specific adapter exposes only
+          the documented selector decrement/increment events and fixed light actions. Selector and AFCS mode
+          events are delivery-acknowledged pulses because iniBuilds does not publish reliable remote selector
+          or mode-state readbacks; INI_* action LVAR references remain inactive.
+        autopilot:
+          _comment: These AFCS events are vendor-documented but not yet verified in-sim. They are exposed as momentary
+            pulses, never inferred on/off state. AP_AIRSPEED_HOLD is the TriStar AT button, and
+            TOGGLE_WATER_RUDDER is repurposed by iniBuilds as INS course capture/tracking.
+          actions:
+            masterToggle:
+              type: key-event
+              name: AP_MASTER
+              verification: untested
+            masterOff:
+              type: key-event
+              name: AUTOPILOT_OFF
+              verification: untested
+            flightDirectorToggle:
+              type: key-event
+              name: TOGGLE_FLIGHT_DIRECTOR
+              verification: untested
+            autothrottleToggle:
+              type: key-event
+              name: AP_AIRSPEED_HOLD
+              verification: untested
+            verticalSpeedHoldToggle:
+              type: key-event
+              name: AP_VS_HOLD
+              verification: untested
+            altitudeHoldToggle:
+              type: key-event
+              name: AP_ALT_HOLD
+              verification: untested
+            machHoldToggle:
+              type: key-event
+              name: AP_MACH_HOLD
+              verification: untested
+            headingHoldToggle:
+              type: key-event
+              name: AP_HDG_HOLD
+              verification: untested
+            appToggle:
+              type: key-event
+              name: AP_APR_HOLD
+              verification: untested
+            locToggle:
+              type: key-event
+              name: AP_LOC_HOLD
+              verification: untested
+            nav1Toggle:
+              type: key-event
+              name: AP_NAV1_HOLD
+              verification: untested
+            backcourseToggle:
+              type: key-event
+              name: AP_BC_HOLD
+              verification: untested
+            insToggle:
+              type: key-event
+              name: TOGGLE_WATER_RUDDER
+              verification: untested
+      presentation:
+        visualSupport: basic
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - logo
+            - wing
+          labels:
+            beacon: BCN
+            nav: NAV
+            strobe: STRB
+            landing: LND
+            taxi: TAXI
+            logo: LOGO
+            wing: WING
+    meta:
+      developer: iniBuilds
+      icaoType: L101
+      platforms:
+        - msfs2024
+      updated: 2026-08-12
+      status: experimental
+      notes: iniBuilds L-1011-500 TriStar Airliner for MSFS 2024. The dedicated page exposes 41 bounded
+        standard-SimVar reads covering exterior lights, configuration, three-engine
+        EPR/N1/N2/fuel-flow/reverser data, fuel, weight, and pressurization. Twenty-six source-backed light
+        and selector actions include 14 readback-confirmed fixed light intents and 12 vendor-documented
+        selector step pulses. Unsupported direct selector inputs and unreliable generic selector readbacks are
+        excluded. AFCS mode pulses remain available separately without claiming mode state. Generic AP/mode
+        booleans and spoiler state stay excluded because they do not represent the required AFCS and
+        speedbrake-handle semantics.
+    provenance:
+      sources:
+        - type: official-docs
+          name: iniBuilds TriStar Airliner product/support material
+          url: https://inibuilds.com/products/inibuilds-tristar-airliner-msfs-2024
+          retrievedAt: 2026-06-04
+          notes: Product context for the iniBuilds MSFS 2024 L-1011-500 TriStar Airliner and the AoA mode note tied to
+            Flaps 33.
+        - type: official-docs
+          name: iniBuilds TriStar Airliner manual forum post
+          url: https://forum.inibuilds.com/topic/35986-aircraft-manual-tristar-airliner/
+          retrievedAt: 2026-06-04
+          notes: Official forum entry for the TriStar Airliner manual. The manual identifies the simulated variant as
+            the L-1011-500; the vendor material does not define a complete custom telemetry interface.
+        - type: official-docs
+          name: iniBuilds TriStar Airliner development update
+          url: https://forum.inibuilds.com/topic/35590-inibuilds-tristar-airliner-development-update/
+          retrievedAt: 2026-06-05
+          notes: Official iniBuilds development note describing the TriStar DLC implementation and spoiler-to-pitch
+            coupling. This supports suppressing generic SimConnect spoiler UI state until a
+            speedbrake-handle-specific readback is verified.
+        - type: official-docs
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: "iniBuilds TriStar FAQ - How to: Autopilot Keybinds"
+          url: https://forum.inibuilds.com/topic/36848-how-to-autopilot-keybinds/
+          retrievedAt: 2026-06-04
+          notes: "Source for active AFCS pulse and selector mappings: AP_AIRSPEED_HOLD, AP_SPD_VAR_INC, AP_SPD_VAR_DEC,
+            AP_VS_HOLD, AP_VS_VAR_INC, AP_VS_VAR_DEC, AP_ALT_HOLD, AP_ALT_VAR_INC, AP_ALT_VAR_DEC,
+            AP_MACH_HOLD, AP_HDG_HOLD, HEADING_BUG_INC, HEADING_BUG_DEC, TOGGLE_FLIGHT_DIRECTOR, AP_MASTER,
+            AUTOPILOT_OFF, AP_APR_HOLD, AP_LOC_HOLD, AP_NAV1_HOLD, VOR1_OBI_INC, VOR1_OBI_DEC, VOR2_OBI_INC,
+            VOR2_OBI_DEC, TOGGLE_WATER_RUDDER, and AP_BC_HOLD. The FAQ identifies AP_AIRSPEED_HOLD as the AT
+            button and TOGGLE_WATER_RUDDER as INS course capture/tracking. FlightFabric uses the standard
+            events recommended by iniBuilds and does not invoke the alternative INI_* action LVARs."
+        - type: official-docs
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: "iniBuilds TriStar FAQ - How to: Light Keybinds"
+          url: https://forum.inibuilds.com/topic/36849-how-to-light-keybinds/
+          retrievedAt: 2026-06-04
+          notes: Source for active LANDING_LIGHTS_OFF, LANDING_LIGHTS_ON, TAXI_LIGHTS_OFF, TAXI_LIGHTS_ON, STROBES_OFF,
+            STROBES_ON, BEACON_LIGHTS_OFF, BEACON_LIGHTS_ON, NAV_LIGHTS_OFF, NAV_LIGHTS_ON, WING_LIGHTS_OFF,
+            WING_LIGHTS_ON, and TOGGLE_LOGO_LIGHTS mappings. Deterministic OFF/ON events are used where
+            published. Logo uses the published toggle behind a fresh logical readback preflight so explicit
+            OFF/ON requests remain idempotent.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft Engine Variables
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/SimVars/Aircraft_SimVars/Aircraft_Engine_Variables.htm
+          retrievedAt: 2026-08-12
+          notes: Documents the indexed standard TURB ENG N1, N2, PRESSURE RATIO, FUEL FLOW PPH, and REVERSE NOZZLE
+            PERCENT variables exposed by the bounded three-engine monitoring surface. These are standard
+            A-vars and require live aircraft validation; no iniBuilds-private telemetry is inferred.
+      verification:
+        status: partial
+        knownIssues:
+          - Flap and gear speed values are provisional and need redistributable public-source or vendor
+            verification before promotion.
+          - TriStar spoiler telemetry is suppressed because DLC uses spoiler panels during normal approach and
+            generic SimConnect spoiler state can report DLC/roll spoiler deflection rather than actual
+            speedbrake handle deployment.
+          - The 41 bounded standard-SimVar reads require live L-1011-500 validation. Twelve supplemental
+            engine fields use the gauge-subscription bridge because those standard A-vars are not part of
+            FlightFabric's shared frame.
+          - The 26 aircraft-specific light and selector actions use official iniBuilds event IDs and remain
+            untested pending in-sim verification. Light intents require fresh readback; selector steps report
+            delivery acknowledgement only.
+          - Logo OFF/ON uses the vendor-published toggle event only after a fresh preflight readback; stale or
+            unavailable logo state blocks the write instead of guessing.
+          - AFCS and course selector controls expose only the decrement/increment events documented by
+            iniBuilds. The cockpit windows remain the source of truth because the vendor does not publish
+            reliable remote selector readbacks or direct target events.
+          - Active AFCS mode controls are documented by the official iniBuilds keybind FAQ but remain untested
+            and do not claim engaged/disengaged state.
+          - Generic SimConnect AP master/mode readback is suppressed because it can remain off while the
+            custom TriStar AFCS is actually engaged.
+          - The dedicated page intentionally excludes generic spoiler/speedbrake state because DLC can move
+            spoiler panels independently of speedbrake-handle intent.
+          - The cited vendor material does not define a complete TriStar custom telemetry interface, so the
+            profile does not subscribe custom LVAR readbacks.
+          - Deep flight-engineer systems and reverser writes remain unavailable because iniBuilds does not
+            publish equivalent stable mappings with independent readback.
+    _comment: iniBuilds L-1011-500 TriStar Airliner for MSFS 2024. The adapter exposes 41 bounded standard-SimVar
+      reads, 14 readback-confirmed light intents, and 12 delivery-acknowledged selector steps without generic
+      AFCS selector/mode readbacks, ambiguous spoiler state, vendor-private telemetry, or speculative
+      deep-system writes. All active selector and AFCS pulse events are sourced from official iniBuilds
+      documentation.

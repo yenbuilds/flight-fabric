@@ -6,7 +6,8 @@ const path = require('path');
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const BUNDLED_PROFILES_DIR = path.join(ROOT, 'backend', 'aircraft', 'profiles', 'bundled');
+const { listBundledProfileSources } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-sources.js'));
+const DEFINITIONS_DIR = path.join(ROOT, 'backend', 'aircraft', 'aircraft-integrations');
 const SDK_CONNECTOR_DIRS = [
   path.join(ROOT, 'backend', 'telemetry-provider', 'sdk-connectors'),
   path.join(ROOT, 'backend', 'telemetry-provider', 'rust-simconnect-sidecar', 'src', 'sdk', 'connectors'),
@@ -450,7 +451,7 @@ function validateTrustedAdapterEvidence(failures) {
   try {
     loader = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-loader.js'));
     ({ defaultAircraftIntegrationRegistry: integrationRegistry } = require(
-      resolveBackendRuntimeFile('aircraft', 'aircraft-integrations', 'index.js'),
+      resolveBackendRuntimeFile('aircraft', 'integration-engine', 'index.js'),
     ));
   } catch (error) {
     failures.push(`trusted adapter evidence could not be checked; build backend runtime first: ${error.message}`);
@@ -559,12 +560,11 @@ function main() {
   todayEndUtc.setUTCHours(23, 59, 59, 999);
 
   const failures = [];
-  const profileFiles = listFiles(BUNDLED_PROFILES_DIR, (filePath) => filePath.endsWith('.json'));
+  const profileFiles = listBundledProfileSources(DEFINITIONS_DIR);
 
-  for (const filePath of profileFiles) {
+  for (const { filePath, rawProfile: profile } of profileFiles) {
     const relativePath = formatRelative(filePath);
-    const rawText = fs.readFileSync(filePath, 'utf8');
-    const profile = JSON.parse(rawText);
+    const rawText = JSON.stringify(profile);
     const profileLabel = `${profile.id || path.basename(filePath)} (${relativePath})`;
     const sources = Array.isArray(profile.provenance?.sources) ? profile.provenance.sources : [];
     const activeMappingSourceText = getActiveMappingSourceText(profile);

@@ -6,6 +6,7 @@ const { before, test } = require('node:test');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
+const { readBundledProfile } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-sources.js'));
 const { buildAircraftControlCapabilities, resolveAircraftCommand } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-control-service.js'));
 const { normalizeProfileDocument, finalizeLoadedProfile } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-model.js'));
 let interpretAircraftVoiceCommand;
@@ -15,7 +16,7 @@ before(async () => {
 });
 
 function loadFixture(id) {
-  const document = require(resolveBackendRuntimeFile('aircraft', 'profiles', 'bundled', 'msfs', `${id}.json`));
+  const document = readBundledProfile(`bundled/msfs/${id}`);
   const profile = finalizeLoadedProfile(normalizeProfileDocument(document));
   profile._profileKey = `bundled/msfs/${id}`;
   const { aircraftCommands: catalogue } = buildAircraftControlCapabilities(profile, {

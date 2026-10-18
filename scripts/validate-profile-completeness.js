@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 
 const { normalizeProfileDocument } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-model.js'));
 
-const PROFILES_DIR = path.resolve(__dirname, '../backend/aircraft/profiles/bundled');
+const { listBundledProfileSources } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-sources.js'));
+const DEFINITIONS_DIR = path.resolve(__dirname, '../backend/aircraft/aircraft-integrations');
 
 const AIRLINER_PROFILE_PATTERNS = [
   /pmdg/i,
@@ -59,35 +59,14 @@ const OPTIONAL_AIRLINER_CONFIG = {
   },
 };
 
-function listProfileFiles(rootDir) {
-  const files = [];
-  function walk(dirPath) {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-      const absolutePath = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        walk(absolutePath);
-      } else if (entry.isFile() && entry.name.endsWith('.json')) {
-        files.push(absolutePath);
-      }
-    }
-  }
-  if (fs.existsSync(rootDir)) walk(rootDir);
-  return files;
-}
-
 function loadProfiles() {
-  return listProfileFiles(PROFILES_DIR)
-    .map((filePath) => {
-      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-      const simulator = path.relative(PROFILES_DIR, filePath).split(path.sep)[0];
-      const profile = normalizeProfileDocument(raw, {
-        defaultNamespace: 'bundled',
-        defaultSimulator: simulator,
-      });
-      profile._filePath = filePath;
-      return profile;
+  return listBundledProfileSources(DEFINITIONS_DIR).map(({ filePath, rawProfile, simulator }) => {
+    const profile = normalizeProfileDocument(rawProfile, {
+      defaultNamespace: 'bundled', defaultSimulator: simulator,
     });
+    profile._filePath = filePath;
+    return profile;
+  });
 }
 
 function isAirlinerProfile(profile) {

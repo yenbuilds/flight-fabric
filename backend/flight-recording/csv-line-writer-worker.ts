@@ -54,6 +54,7 @@ type WorkerCommand = {
 
 let stream: FsWriteStream | null = null;
 let filePath = '';
+let startupFileBytes = 0;
 const startData = workerData as WorkerStartData | null | undefined;
 const outputDir = startData?.outputDir || (startData?.filePath ? path.dirname(startData.filePath) : '');
 let rowCount = Number.isFinite(startData?.initialRowCount)
@@ -297,6 +298,7 @@ function openStream(initialPath: string, headerLine: string, manifestLine: strin
     stream = nextStream;
     filePath = resolvedPath;
     acceptedFileBytes = startupBytes;
+    startupFileBytes = startupBytes;
     startPeriodicSyncTimer();
     if (!headerCommitted) throw new Error('CSV worker startup identity was not committed');
     return true;
@@ -320,7 +322,14 @@ async function appendLines(lines: string[]): Promise<number> {
         throw new Error(`CSV reached the ${Math.round(maxFileBytes / 1024 / 1024)}MiB file cap`);
       }
       const previousRowCount = rowCount;
-      const canContinue = activeStream.write(`${line}\n`);
+      const lastInBatch = appended === lines.length - 1;
+      const canContinue = activeStream.write(`${line}\n`, (error?: Error | null) => {
+        // Report completed writes, excluding data still queued in either
+        // process. This is size feedback, not a durable-finalization promise.
+        if (!error && lastInBatch) {
+          post({ type: 'progress', rowCount, writtenBytes: startupFileBytes + activeStream.bytesWritten });
+        }
+      });
       acceptedFileBytes += lineBytes;
       syncDirty = true;
       rowCount++;

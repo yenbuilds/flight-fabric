@@ -897,6 +897,31 @@
           "additionalProperties": {
             "$ref": "#/definitions/aircraftSpecificPrimitive"
           }
+        },
+        "numberRanges": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": [
+              "min",
+              "max",
+              "value"
+            ],
+            "properties": {
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              },
+              "value": {
+                "$ref": "#/definitions/aircraftSpecificPrimitive"
+              }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "patternProperties": {

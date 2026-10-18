@@ -33,14 +33,6 @@
       "aircraft-source-placement:fa6354b3bef489055d6fcb8b2ec43a2402b1e9b6136e9e83ce1a28e01a97d165"
     ]
   },
-  "backend/telemetry-provider/source-overlays.ts": {
-    "reason": "Existing frame normalization delegates MD-11 light decoding; no new concrete aircraft dependencies in this general overlay module.",
-    "accepted": [
-      "aircraft-source-placement:5aa384328203809955251e55b8146b47a92d0124df0f3f7448f9a2859779c7bd",
-      "aircraft-concrete-dependency:5aa384328203809955251e55b8146b47a92d0124df0f3f7448f9a2859779c7bd",
-      "aircraft-source-placement:d108ba07994f5be694b25724b0babba6f802974b767e0937767409fd5f2cd6eb"
-    ]
-  },
   "electron/main.js": {
     "reason": "Existing PMDG setup IPC wiring only; aircraft command mappings belong in backend integrations.",
     "accepted": [

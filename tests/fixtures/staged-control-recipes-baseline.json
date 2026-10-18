@@ -1,0 +1,2776 @@
+{
+  "source": [
+    "fbw-a32nx/baro-control.ts",
+    "fenix-a32x/baro-control.ts",
+    "fbw-a32nx/baro.ts",
+    "fenix-a32x/baro.ts"
+  ],
+  "note": "Controller constants and behavior transcribed; operation lists and readbacks preserved byte-for-byte. Independent provider parity is the behavioral oracle.",
+  "recipes": {
+    "fbwA32nx.baro.captain.qnhHpa": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.captain.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.captain.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.captain.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "setValue": 2
+          }
+        }
+      ],
+      "input": {
+        "min": 948,
+        "max": 1084,
+        "step": 1,
+        "validation": "offset-step",
+        "scale": 1
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "unitInHg",
+          "conditions": [
+            {
+              "property": "unitInHg",
+              "equals": false
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "written",
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "unitInHg",
+                "equals": false
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "transition",
+          "phase": "QNH mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            }
+          ],
+          "write": "selectMode",
+          "maxTransitions": 2,
+          "completion": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 1
+            }
+          ],
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "mode",
+                "equals": 1
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "pressure",
+          "property": "value",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 1
+            },
+            {
+              "property": "unitInHg",
+              "equals": false
+            },
+            {
+              "property": "value",
+              "input": true
+            }
+          ],
+          "write": "setValue",
+          "confirmation": "written",
+          "invalidate": "value"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 1
+        },
+        {
+          "property": "valueMode",
+          "equals": 1
+        },
+        {
+          "property": "unitInHg",
+          "equals": false
+        },
+        {
+          "property": "value",
+          "input": true
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fbwA32nx.baro.captain.qnhInHg": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.captain.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.captain.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.captain.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "setValue": 2
+          }
+        }
+      ],
+      "input": {
+        "min": 27.99,
+        "max": 32.01,
+        "step": 0.01,
+        "validation": "offset-step",
+        "scale": 100
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "unitInHg",
+          "conditions": [
+            {
+              "property": "unitInHg",
+              "equals": true
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "written",
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "unitInHg",
+                "equals": true
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "transition",
+          "phase": "QNH mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            }
+          ],
+          "write": "selectMode",
+          "maxTransitions": 2,
+          "completion": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 2
+            }
+          ],
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "mode",
+                "equals": 1
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "pressure",
+          "property": "value",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 2
+            },
+            {
+              "property": "unitInHg",
+              "equals": true
+            },
+            {
+              "property": "value",
+              "input": true
+            }
+          ],
+          "write": "setValue",
+          "confirmation": "written",
+          "invalidate": "value"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 1
+        },
+        {
+          "property": "valueMode",
+          "equals": 2
+        },
+        {
+          "property": "unitInHg",
+          "equals": true
+        },
+        {
+          "property": "value",
+          "input": true
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fbwA32nx.baro.captain.std": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.captain.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.captain.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.captain.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectMode": 0
+          }
+        }
+      ],
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "STD mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 0
+            },
+            {
+              "property": "valueMode",
+              "equals": 0
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "written"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 0
+        },
+        {
+          "property": "valueMode",
+          "equals": 0
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fbwA32nx.baro.firstOfficer.qnhHpa": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.firstOfficer.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.firstOfficer.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.firstOfficer.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "setValue": 2
+          }
+        }
+      ],
+      "input": {
+        "min": 948,
+        "max": 1084,
+        "step": 1,
+        "validation": "offset-step",
+        "scale": 1
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "unitInHg",
+          "conditions": [
+            {
+              "property": "unitInHg",
+              "equals": false
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "written",
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "unitInHg",
+                "equals": false
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "transition",
+          "phase": "QNH mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            }
+          ],
+          "write": "selectMode",
+          "maxTransitions": 2,
+          "completion": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 1
+            }
+          ],
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "mode",
+                "equals": 1
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "pressure",
+          "property": "value",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 1
+            },
+            {
+              "property": "unitInHg",
+              "equals": false
+            },
+            {
+              "property": "value",
+              "input": true
+            }
+          ],
+          "write": "setValue",
+          "confirmation": "written",
+          "invalidate": "value"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 1
+        },
+        {
+          "property": "valueMode",
+          "equals": 1
+        },
+        {
+          "property": "unitInHg",
+          "equals": false
+        },
+        {
+          "property": "value",
+          "input": true
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fbwA32nx.baro.firstOfficer.qnhInHg": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.firstOfficer.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.firstOfficer.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.firstOfficer.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "setValue": 2
+          }
+        }
+      ],
+      "input": {
+        "min": 27.99,
+        "max": 32.01,
+        "step": 0.01,
+        "validation": "offset-step",
+        "scale": 100
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "unitInHg",
+          "conditions": [
+            {
+              "property": "unitInHg",
+              "equals": true
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "written",
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "unitInHg",
+                "equals": true
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "transition",
+          "phase": "QNH mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            }
+          ],
+          "write": "selectMode",
+          "maxTransitions": 2,
+          "completion": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 2
+            }
+          ],
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "mode",
+                "equals": 1
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "pressure",
+          "property": "value",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 2
+            },
+            {
+              "property": "unitInHg",
+              "equals": true
+            },
+            {
+              "property": "value",
+              "input": true
+            }
+          ],
+          "write": "setValue",
+          "confirmation": "written",
+          "invalidate": "value"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 1
+        },
+        {
+          "property": "valueMode",
+          "equals": 2
+        },
+        {
+          "property": "unitInHg",
+          "equals": true
+        },
+        {
+          "property": "value",
+          "input": true
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fbwA32nx.baro.firstOfficer.std": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.firstOfficer.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.firstOfficer.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.firstOfficer.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectMode": 0
+          }
+        }
+      ],
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "STD mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 0
+            },
+            {
+              "property": "valueMode",
+              "equals": 0
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "written"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 0
+        },
+        {
+          "property": "valueMode",
+          "equals": 0
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fbwA32nx.baro.both.qnhHpa": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.captain.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.captain.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.captain.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "setValue": 2
+          }
+        },
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.firstOfficer.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.firstOfficer.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.firstOfficer.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectUnits": 3,
+            "selectMode": 4,
+            "setValue": 5
+          }
+        }
+      ],
+      "input": {
+        "min": 948,
+        "max": 1084,
+        "step": 1,
+        "validation": "offset-step",
+        "scale": 1
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "unitInHg",
+          "conditions": [
+            {
+              "property": "unitInHg",
+              "equals": false
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "written",
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "unitInHg",
+                "equals": false
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "transition",
+          "phase": "QNH mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            }
+          ],
+          "write": "selectMode",
+          "maxTransitions": 2,
+          "completion": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 1
+            }
+          ],
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "mode",
+                "equals": 1
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "pressure",
+          "property": "value",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 1
+            },
+            {
+              "property": "unitInHg",
+              "equals": false
+            },
+            {
+              "property": "value",
+              "input": true
+            }
+          ],
+          "write": "setValue",
+          "confirmation": "written",
+          "invalidate": "value"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 1
+        },
+        {
+          "property": "valueMode",
+          "equals": 1
+        },
+        {
+          "property": "unitInHg",
+          "equals": false
+        },
+        {
+          "property": "value",
+          "input": true
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fbwA32nx.baro.both.qnhInHg": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.captain.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.captain.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.captain.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "setValue": 2
+          }
+        },
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.firstOfficer.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.firstOfficer.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.firstOfficer.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectUnits": 3,
+            "selectMode": 4,
+            "setValue": 5
+          }
+        }
+      ],
+      "input": {
+        "min": 27.99,
+        "max": 32.01,
+        "step": 0.01,
+        "validation": "offset-step",
+        "scale": 100
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "unitInHg",
+          "conditions": [
+            {
+              "property": "unitInHg",
+              "equals": true
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "written",
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "unitInHg",
+                "equals": true
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "transition",
+          "phase": "QNH mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            }
+          ],
+          "write": "selectMode",
+          "maxTransitions": 2,
+          "completion": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 2
+            }
+          ],
+          "invalidate": "value",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "mode",
+                "equals": 1
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "pressure",
+          "property": "value",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 1
+            },
+            {
+              "property": "valueMode",
+              "equals": 2
+            },
+            {
+              "property": "unitInHg",
+              "equals": true
+            },
+            {
+              "property": "value",
+              "input": true
+            }
+          ],
+          "write": "setValue",
+          "confirmation": "written",
+          "invalidate": "value"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 1
+        },
+        {
+          "property": "valueMode",
+          "equals": 2
+        },
+        {
+          "property": "unitInHg",
+          "equals": true
+        },
+        {
+          "property": "value",
+          "input": true
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fbwA32nx.baro.both.std": {
+      "sampling": "raw",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean01",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.captain.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.captain.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.captain.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectMode": 0
+          }
+        },
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "mode": {
+              "fieldId": "baro.firstOfficer.mode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "valueMode": {
+              "fieldId": "baro.firstOfficer.valueMode",
+              "type": "enum",
+              "values": [
+                0,
+                1,
+                2
+              ]
+            },
+            "value": {
+              "fieldId": "baro.firstOfficer.value",
+              "type": "number",
+              "rounding": {
+                "property": "unitInHg",
+                "equals": true,
+                "scale": 100,
+                "otherwise": 1
+              }
+            },
+            "unitInHg": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "boolean01"
+            }
+          },
+          "writes": {
+            "selectMode": 1
+          }
+        }
+      ],
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "STD mode",
+          "property": "mode",
+          "conditions": [
+            {
+              "property": "mode",
+              "equals": 0
+            },
+            {
+              "property": "valueMode",
+              "equals": 0
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "written"
+        }
+      ],
+      "final": [
+        {
+          "property": "mode",
+          "equals": 0
+        },
+        {
+          "property": "valueMode",
+          "equals": 0
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a healthy FCU are required.",
+        "transportRejected": "SimConnect rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer write.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.captain.qnhHpa": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.captain.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.captain.hpa",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "decrease": 2,
+            "increase": 3
+          }
+        }
+      ],
+      "input": {
+        "min": 948,
+        "max": 1084,
+        "step": 1,
+        "validation": "scaled-integer",
+        "scale": 1
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "units",
+          "conditions": [
+            {
+              "property": "units",
+              "equals": "hpa"
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "units",
+                "equals": "hpa"
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "QNH mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": true
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "qnh",
+                "equals": true
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "step",
+          "phase": "pressure",
+          "property": "pressure",
+          "conditions": [
+            {
+              "property": "pressure",
+              "input": true,
+              "scale": 1
+            }
+          ],
+          "decrease": "decrease",
+          "increase": "increase",
+          "scale": 1,
+          "min": 948,
+          "max": 1084,
+          "maxSteps": 403
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": true
+        },
+        {
+          "property": "units",
+          "equals": "hpa"
+        },
+        {
+          "property": "pressure",
+          "input": true,
+          "scale": 1
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.captain.qnhInHg": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.captain.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.captain.inhg",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "decrease": 2,
+            "increase": 3
+          }
+        }
+      ],
+      "input": {
+        "min": 27.99,
+        "max": 32.01,
+        "step": 0.01,
+        "validation": "scaled-integer",
+        "scale": 100
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "units",
+          "conditions": [
+            {
+              "property": "units",
+              "equals": "inhg"
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "units",
+                "equals": "inhg"
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "QNH mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": true
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "qnh",
+                "equals": true
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "step",
+          "phase": "pressure",
+          "property": "pressure",
+          "conditions": [
+            {
+              "property": "pressure",
+              "input": true,
+              "scale": 100
+            }
+          ],
+          "decrease": "decrease",
+          "increase": "increase",
+          "scale": 100,
+          "min": 27.99,
+          "max": 32.01,
+          "maxSteps": 403
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": true
+        },
+        {
+          "property": "units",
+          "equals": "inhg"
+        },
+        {
+          "property": "pressure",
+          "input": true,
+          "scale": 100
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.captain.std": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.captain.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.captain.hpa",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectMode": 0
+          }
+        }
+      ],
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": false
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected"
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": false
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.firstOfficer.qnhHpa": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.firstOfficer.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.firstOfficer.hpa",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "decrease": 2,
+            "increase": 3
+          }
+        }
+      ],
+      "input": {
+        "min": 948,
+        "max": 1084,
+        "step": 1,
+        "validation": "scaled-integer",
+        "scale": 1
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "units",
+          "conditions": [
+            {
+              "property": "units",
+              "equals": "hpa"
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "units",
+                "equals": "hpa"
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "QNH mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": true
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "qnh",
+                "equals": true
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "step",
+          "phase": "pressure",
+          "property": "pressure",
+          "conditions": [
+            {
+              "property": "pressure",
+              "input": true,
+              "scale": 1
+            }
+          ],
+          "decrease": "decrease",
+          "increase": "increase",
+          "scale": 1,
+          "min": 948,
+          "max": 1084,
+          "maxSteps": 403
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": true
+        },
+        {
+          "property": "units",
+          "equals": "hpa"
+        },
+        {
+          "property": "pressure",
+          "input": true,
+          "scale": 1
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.firstOfficer.qnhInHg": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.firstOfficer.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.firstOfficer.inhg",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "decrease": 2,
+            "increase": 3
+          }
+        }
+      ],
+      "input": {
+        "min": 27.99,
+        "max": 32.01,
+        "step": 0.01,
+        "validation": "scaled-integer",
+        "scale": 100
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "units",
+          "conditions": [
+            {
+              "property": "units",
+              "equals": "inhg"
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "units",
+                "equals": "inhg"
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "QNH mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": true
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "qnh",
+                "equals": true
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "step",
+          "phase": "pressure",
+          "property": "pressure",
+          "conditions": [
+            {
+              "property": "pressure",
+              "input": true,
+              "scale": 100
+            }
+          ],
+          "decrease": "decrease",
+          "increase": "increase",
+          "scale": 100,
+          "min": 27.99,
+          "max": 32.01,
+          "maxSteps": 403
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": true
+        },
+        {
+          "property": "units",
+          "equals": "inhg"
+        },
+        {
+          "property": "pressure",
+          "input": true,
+          "scale": 100
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.firstOfficer.std": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.firstOfficer.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.firstOfficer.hpa",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectMode": 0
+          }
+        }
+      ],
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": false
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected"
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": false
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.both.qnhHpa": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.captain.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.captain.hpa",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "decrease": 2,
+            "increase": 3
+          }
+        },
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.firstOfficer.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.firstOfficer.hpa",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectUnits": 4,
+            "selectMode": 5,
+            "decrease": 6,
+            "increase": 7
+          }
+        }
+      ],
+      "input": {
+        "min": 948,
+        "max": 1084,
+        "step": 1,
+        "validation": "scaled-integer",
+        "scale": 1
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "units",
+          "conditions": [
+            {
+              "property": "units",
+              "equals": "hpa"
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "units",
+                "equals": "hpa"
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "QNH mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": true
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "qnh",
+                "equals": true
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "step",
+          "phase": "pressure",
+          "property": "pressure",
+          "conditions": [
+            {
+              "property": "pressure",
+              "input": true,
+              "scale": 1
+            }
+          ],
+          "decrease": "decrease",
+          "increase": "increase",
+          "scale": 1,
+          "min": 948,
+          "max": 1084,
+          "maxSteps": 403
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": true
+        },
+        {
+          "property": "units",
+          "equals": "hpa"
+        },
+        {
+          "property": "pressure",
+          "input": true,
+          "scale": 1
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.both.qnhInHg": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.captain.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.captain.inhg",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectUnits": 0,
+            "selectMode": 1,
+            "decrease": 2,
+            "increase": 3
+          }
+        },
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.firstOfficer.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.firstOfficer.inhg",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectUnits": 4,
+            "selectMode": 5,
+            "decrease": 6,
+            "increase": 7
+          }
+        }
+      ],
+      "input": {
+        "min": 27.99,
+        "max": 32.01,
+        "step": 0.01,
+        "validation": "scaled-integer",
+        "scale": 100
+      },
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "units",
+          "property": "units",
+          "conditions": [
+            {
+              "property": "units",
+              "equals": "inhg"
+            }
+          ],
+          "write": "selectUnits",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "units",
+                "equals": "inhg"
+              }
+            ],
+            "message": "Barometer units changed during the request."
+          }
+        },
+        {
+          "kind": "ensure",
+          "phase": "QNH mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": true
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected",
+          "invalidate": "pressure",
+          "freeze": {
+            "conditions": [
+              {
+                "property": "qnh",
+                "equals": true
+              }
+            ],
+            "message": "Barometer mode changed during the request."
+          }
+        },
+        {
+          "kind": "step",
+          "phase": "pressure",
+          "property": "pressure",
+          "conditions": [
+            {
+              "property": "pressure",
+              "input": true,
+              "scale": 100
+            }
+          ],
+          "decrease": "decrease",
+          "increase": "increase",
+          "scale": 100,
+          "min": 27.99,
+          "max": 32.01,
+          "maxSteps": 403
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": true
+        },
+        {
+          "property": "units",
+          "equals": "inhg"
+        },
+        {
+          "property": "pressure",
+          "input": true,
+          "scale": 100
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    },
+    "fenixA32x.baro.both.std": {
+      "sampling": "decoded",
+      "freshnessMs": 2000,
+      "prerequisites": [
+        {
+          "fieldId": "baro.healthy",
+          "type": "boolean",
+          "equals": true
+        }
+      ],
+      "targets": [
+        {
+          "id": "captain",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.captain.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitCaptain",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.captain.hpa",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectMode": 0
+          }
+        },
+        {
+          "id": "firstOfficer",
+          "observations": {
+            "qnh": {
+              "fieldId": "baro.firstOfficer.qnh",
+              "type": "boolean"
+            },
+            "units": {
+              "fieldId": "flightGuidance.baroUnitFirstOfficer",
+              "type": "enum",
+              "values": [
+                "hpa",
+                "inhg"
+              ]
+            },
+            "pressure": {
+              "fieldId": "baro.firstOfficer.hpa",
+              "type": "number",
+              "optional": true
+            }
+          },
+          "writes": {
+            "selectMode": 1
+          }
+        }
+      ],
+      "stages": [
+        {
+          "kind": "ensure",
+          "phase": "mode",
+          "property": "qnh",
+          "conditions": [
+            {
+              "property": "qnh",
+              "equals": false
+            }
+          ],
+          "write": "selectMode",
+          "confirmation": "affected"
+        }
+      ],
+      "final": [
+        {
+          "property": "qnh",
+          "equals": false
+        }
+      ],
+      "timing": {
+        "readbackTimeoutMs": 2500,
+        "pollMs": 50,
+        "totalTimeoutMs": 25000
+      },
+      "errors": {
+        "staleContext": "Aircraft or simulator connection changed. No further barometer writes were sent.",
+        "failed": "Barometer control failed.",
+        "unavailable": "Fresh barometer data and a powered FCU are required.",
+        "transportRejected": "The simulator rejected the barometer control.",
+        "writeRejected": "The sidecar did not accept the barometer input.",
+        "invalidInput": "Enter a valid pressure in the selected units.",
+        "timeout": "Barometer {phase} was not confirmed. No automatic retry was sent.",
+        "timeLimit": "Barometer adjustment reached its time limit. No automatic retry was sent.",
+        "finalChanged": "Barometer changed before final confirmation.",
+        "outOfRange": "The selected pressure readback is unavailable or outside the supported range.",
+        "missingValue": "Fresh pressure data is required.",
+        "unexpectedStep": "Pressure moved by an unexpected amount. Check altimeter linking or knob acceleration.",
+        "valueChanged": "Pressure changed during the request."
+      }
+    }
+  },
+  "provenance": {
+    "sourceCommit": "82c9b99ea9b44a65c2358782626e0b4158ba142a",
+    "method": "Explicit transcription of the pre-extraction controller sampling, limits, stage semantics and messages; existing operation/code arrays retained unchanged.",
+    "independentBehaviorOracles": [
+      "backend/aircraft/baro-execution-parity.test.ts",
+      "backend/aircraft/baro.test.ts",
+      "tests/scripts/test-fenix-baro-controls.js"
+    ],
+    "scope": "Only the 18 named stagedControl recipe additions and the 9 Fenix mode renames are projected for historical catalogue comparison. Existing data is compared to the original unchanged baseline.",
+    "oldSources": [
+      {
+        "path": "backend/aircraft/aircraft-integrations/fbw-a32nx/baro-control.ts",
+        "sha256": "c73df0b8b88427cfeff5b5a30e10dc1aa075c7206456e2e0429810b64651b02d"
+      },
+      {
+        "path": "backend/aircraft/aircraft-integrations/fenix-a32x/baro-control.ts",
+        "sha256": "8a4eb101a1b831c8280da5021824bcf0298c389cbd27b250d4923b71360273c1"
+      },
+      {
+        "path": "backend/aircraft/aircraft-integrations/fbw-a32nx/baro.ts",
+        "sha256": "264ed8443c2c31edc56b29ea4ef6bde59ada24098656c89fb3f18058aea16b90"
+      },
+      {
+        "path": "backend/aircraft/aircraft-integrations/fenix-a32x/baro.ts",
+        "sha256": "5522ada34ca11ae86e136c314fa495053413f17c625ff7fbe06adf2e83aeb179"
+      }
+    ]
+  }
+}

@@ -1,0 +1,443 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-13T11:26:44.324Z",
+  "source": {
+    "head": "a4eb8179e4d024ae98c65e9289d239c800402eb7",
+    "state": "dirty working tree before the complete YAML catalogue extraction",
+    "includedChanges": "Previously reviewed Fenix wing pilot, LVAR recovery correction and A32NX strobe wording; this is not the clean HEAD definition set.",
+    "integrationSnapshotSha256": "c144662967c8cb0de1aad8a08f1696c68a54626d56f03327c75bc51d03a7c568",
+    "rawProfilesSnapshotSha256": "df1803a76729b589dc34553a648541b9a05d85b9308cb79faa7a376880e01785",
+    "resolvedProfilesSnapshotSha256": "197544d845654beb5ec9134430091b12a7d237bb29a665612613167e64bfe08c",
+    "runtimeParity": true,
+    "sourceManifestSha256": "2c5b225688689f6fdea35569e398f425c6958b9bdd8230d9d8e036ea0956e289",
+    "dirtySourceFiles": [
+      "backend/aircraft/aircraft-integrations/fenix-a32x/index.ts",
+      "backend/aircraft/aircraft-integrations/action-group-yaml.ts",
+      "backend/aircraft/aircraft-integrations/fenix-a32x/actions.ts",
+      "backend/aircraft/aircraft-integrations/fenix-a32x/wing-light-actions.yaml",
+      "backend/aircraft/aircraft-integrations/fenix-a32x/fields.ts",
+      "backend/aircraft/aircraft-integrations/fenix-a32x/wing-light-fields.yaml",
+      "backend/aircraft/aircraft-integrations/fbw-a32nx/actions.ts",
+      "backend/aircraft/aircraft-integrations/fbw-a32nx/light-fields.yaml"
+    ]
+  },
+  "fingerprint": {
+    "algorithm": "sha256",
+    "encoding": "UTF-8",
+    "integrationAndRawProfileSerialization": "JSON.stringify(value)",
+    "resolvedProfileSerialization": "JSON.stringify(orderedDefinitionValue(value)) from tests/helpers/ordered-definition-fingerprint.js",
+    "ownPropertyOrder": "preserved",
+    "integrationAndRawProfileJsonRoundTripVerified": true,
+    "note": "Recursive Object.is/Reflect.ownKeys comparison proved JSON preserves every value, own property and order in integration/raw-profile baselines. Resolved profiles include explicit undefined properties, preserved by typed ordered-value encoding."
+  },
+  "totals": {
+    "integrations": 18,
+    "fields": 1310,
+    "actions": 1518,
+    "profiles": 51
+  },
+  "routeInventory": {
+    "simconnect-sequence:(default):input": 102,
+    "input-event:(default):fixed": 63,
+    "simconnect-sequence:(default):fixed": 315,
+    "mobiflight-calculator:pulse:fixed": 34,
+    "mobiflight-calculator:(default):fixed": 308,
+    "lvar:(default):fixed": 483,
+    "mobiflight-calculator:single:fixed": 14,
+    "mobiflight-calculator:step-to-target:input": 15,
+    "mobiflight-calculator:fenix-baro:input": 6,
+    "mobiflight-calculator:fenix-baro:fixed": 3,
+    "simbridge-mcdu:(default):input": 2,
+    "sdk:(default):fixed": 478,
+    "sdk:(default):input": 17
+  },
+  "integrations": {
+    "inibuilds-a380": {
+      "sha256": "c918480d6a95f93256965ad40e22870336e8b93a2c36664256ccc096a80d511f",
+      "fields": 51,
+      "actions": 68,
+      "routes": 68,
+      "routeInventory": {
+        "simconnect-sequence:(default):input": 8,
+        "input-event:(default):fixed": 53,
+        "simconnect-sequence:(default):fixed": 7
+      }
+    },
+    "headwind-a330": {
+      "sha256": "a35263097b2830759753913144a11bc9334150f81a93058ae38b75dbd8cea6ca",
+      "fields": 21,
+      "actions": 14,
+      "routes": 14,
+      "routeInventory": {
+        "simconnect-sequence:(default):input": 5,
+        "simconnect-sequence:(default):fixed": 9
+      }
+    },
+    "fenix-a32x": {
+      "sha256": "eb984d35edb4d285a8c6eecf5ce85dc93623a1a1d0514925beb54d778b0aed95",
+      "fields": 161,
+      "actions": 327,
+      "routes": 578,
+      "routeInventory": {
+        "mobiflight-calculator:pulse:fixed": 22,
+        "mobiflight-calculator:(default):fixed": 251,
+        "lvar:(default):fixed": 251,
+        "simconnect-sequence:(default):fixed": 25,
+        "mobiflight-calculator:single:fixed": 6,
+        "mobiflight-calculator:step-to-target:input": 8,
+        "simconnect-sequence:(default):input": 6,
+        "mobiflight-calculator:fenix-baro:input": 6,
+        "mobiflight-calculator:fenix-baro:fixed": 3
+      }
+    },
+    "fbw-a32nx": {
+      "sha256": "8ea18686aeb774c70972940852d6b9890710cefc2c6b4d89fa04b877894f1345",
+      "fields": 166,
+      "actions": 292,
+      "routes": 292,
+      "routeInventory": {
+        "simconnect-sequence:(default):fixed": 89,
+        "lvar:(default):fixed": 175,
+        "simconnect-sequence:(default):input": 22,
+        "mobiflight-calculator:single:fixed": 4,
+        "simbridge-mcdu:(default):input": 2
+      }
+    },
+    "fbw-a380x": {
+      "sha256": "5587ee64c036b473160693d6fe9424420e35fe7a7b5430266a33c755e4ddca70",
+      "fields": 78,
+      "actions": 57,
+      "routes": 57,
+      "routeInventory": {
+        "simconnect-sequence:(default):fixed": 41,
+        "simconnect-sequence:(default):input": 12,
+        "mobiflight-calculator:single:fixed": 4
+      }
+    },
+    "ifly-737-max-8": {
+      "sha256": "055c7c1b12e206897663a82c7314467da0159e39dab01c3d654de6e9d1e1b4d9",
+      "fields": 41,
+      "actions": 0,
+      "routes": 0,
+      "routeInventory": {}
+    },
+    "inibuilds-a310": {
+      "sha256": "acdb3b30c2dcf87faea0ad5f885b253e5348b8483de0bafb2adee132615e0a14",
+      "fields": 42,
+      "actions": 0,
+      "routes": 0,
+      "routeInventory": {}
+    },
+    "inibuilds-a330": {
+      "sha256": "2dcd8f8853851d417657fa45a1b73c5dac7066d82e5d8560ce6709709e365ed0",
+      "fields": 45,
+      "actions": 0,
+      "routes": 0,
+      "routeInventory": {}
+    },
+    "inibuilds-a350": {
+      "sha256": "b4f4759af32b3ce97e4ab76e8099d9e73de5e0d195b73e11d095334c26084710",
+      "fields": 69,
+      "actions": 90,
+      "routes": 147,
+      "routeInventory": {
+        "simconnect-sequence:(default):input": 10,
+        "mobiflight-calculator:(default):fixed": 57,
+        "lvar:(default):fixed": 57,
+        "simconnect-sequence:(default):fixed": 23
+      }
+    },
+    "inibuilds-tristar": {
+      "sha256": "ed5dc674c8b618810e1f8b8b1e982577f27db64fb218e659609e042dcaa5e829",
+      "fields": 41,
+      "actions": 26,
+      "routes": 26,
+      "routeInventory": {
+        "simconnect-sequence:(default):fixed": 26
+      }
+    },
+    "workingtitle-747-8": {
+      "sha256": "4b2d4a70560a4280f9dcac05a7f7bc2ae13aebb4b7b995bccb0ce6e278b850cc",
+      "fields": 48,
+      "actions": 0,
+      "routes": 0,
+      "routeInventory": {}
+    },
+    "asobo-787": {
+      "sha256": "e1c52d07de4851d3d41ec61a83184e3d5c9f52f41ccb0b14c62460c3be72d489",
+      "fields": 44,
+      "actions": 0,
+      "routes": 0,
+      "routeInventory": {}
+    },
+    "microsoft-737-max-8": {
+      "sha256": "e4d4076c42cf20d98b2e420b5507288ecc398d5975ddf8be417e9c1188164cd5",
+      "fields": 46,
+      "actions": 46,
+      "routes": 46,
+      "routeInventory": {
+        "simconnect-sequence:(default):fixed": 32,
+        "simconnect-sequence:(default):input": 4,
+        "input-event:(default):fixed": 10
+      }
+    },
+    "microsoft-atr-72-600": {
+      "sha256": "03c89a90b88c32886d2d9ddd621d79139e04cee5bd99070bd04a4f7df084f49c",
+      "fields": 34,
+      "actions": 0,
+      "routes": 0,
+      "routeInventory": {}
+    },
+    "microsoft-inibuilds-a32x": {
+      "sha256": "49ae8d08b2222af16d3ed8ecb528974ac33371ac6eccaa422d8f4edc77a1c6e7",
+      "fields": 55,
+      "actions": 42,
+      "routes": 42,
+      "routeInventory": {
+        "simconnect-sequence:(default):fixed": 38,
+        "simconnect-sequence:(default):input": 4
+      }
+    },
+    "pmdg-737": {
+      "sha256": "2967f3cbadbda211b1ddf84e8f45d15c9486cfd4ca946e86b1c26ab728088a96",
+      "fields": 130,
+      "actions": 187,
+      "routes": 201,
+      "routeInventory": {
+        "simconnect-sequence:(default):input": 7,
+        "sdk:(default):fixed": 166,
+        "sdk:(default):input": 7,
+        "simconnect-sequence:(default):fixed": 21
+      }
+    },
+    "pmdg-777": {
+      "sha256": "719f276550c6609dc5f666c3be8513a7d2cf7471e222d316432a2607cd9018d5",
+      "fields": 180,
+      "actions": 345,
+      "routes": 345,
+      "routeInventory": {
+        "simconnect-sequence:(default):fixed": 4,
+        "sdk:(default):input": 10,
+        "sdk:(default):fixed": 312,
+        "simconnect-sequence:(default):input": 19
+      }
+    },
+    "tfdi-md-11": {
+      "sha256": "b234a43d44bc93efd75a7fe1dbd4fb33ca12975e4f667030ca10db82aa4500b8",
+      "fields": 58,
+      "actions": 24,
+      "routes": 24,
+      "routeInventory": {
+        "simconnect-sequence:(default):input": 5,
+        "mobiflight-calculator:pulse:fixed": 12,
+        "mobiflight-calculator:step-to-target:input": 7
+      }
+    }
+  },
+  "profiles": {
+    "bundled/msfs/airbus-base": {
+      "rawSha256": "7071f836ccd6cf45ac0b43c74515145dca415bb45b47b936ffbed5c73cc1bc1b",
+      "resolvedSha256": "c778018e7e28b4eb71e515817023808342d3dfdad0ba122923994470a79545d3"
+    },
+    "bundled/msfs/asobo-787": {
+      "rawSha256": "de92cf1d91a12fb7f2cdfcee03b6fa89ff70bd625e701d9caca22726d4bef95e",
+      "resolvedSha256": "dadaf3bbbba54aa2e4b471006102fe40ef3ec198098c1d57d023f7ae60e83f83"
+    },
+    "bundled/msfs/boeing-base": {
+      "rawSha256": "db915ef56e1788d214f91fbc31949d0225b6a66921bf8233ae328245715fff17",
+      "resolvedSha256": "602f4e95edf78faa0222da36e47278a7e2f159d7c23a84591cd1d15be1b167d1"
+    },
+    "bundled/msfs/fbw-a32nx": {
+      "rawSha256": "20cc8988655bb01f0a2a9bef5c496b34149f6a9546eddf517afa1b63455832e4",
+      "resolvedSha256": "0fb353d006fb5ad8f087d0e2e34f9890c4d404dc03255df3b0016981e4812f98"
+    },
+    "bundled/msfs/fbw-a380x": {
+      "rawSha256": "41673e42f4e33a984c6a3e86fc2c4a3f3d309291c5bf17fe88d4b99f84b8b4f9",
+      "resolvedSha256": "d5cf49279949262153988527f38ef0b8a05f90fca930c81969ba7d7dcfa0aba0"
+    },
+    "bundled/msfs/fenix-a319": {
+      "rawSha256": "7097f2b522d7a7e57e06a4e757175ab3b7d66c9121ca13fb1a4ffc84bf332919",
+      "resolvedSha256": "8b2e8405f7c497449a2c2b53ef82fd2fdccab93ae176ce9af2074a626b48e901"
+    },
+    "bundled/msfs/fenix-a320": {
+      "rawSha256": "5b3bd6c721746c342854e5cc6c489786bd4bb48c5af8ae4a89d24e5958a69d51",
+      "resolvedSha256": "4df807b49fa259b25dd7122bc039154a8f6e95d23a6135876ab08f093378495f"
+    },
+    "bundled/msfs/fenix-a321": {
+      "rawSha256": "0eee0500a09b43351136d9c533daaa7f7524571cac51bbb7bc8c0985cb779bb6",
+      "resolvedSha256": "01691200fa19d4d8a0aa932f7daec17a194f6171aaff49dbf9dcda1d248e9bcf"
+    },
+    "bundled/msfs/fenix-a32x-base": {
+      "rawSha256": "d141733896b2f1cf65761517309473d082afbad08a40509360225d8ac6d8a394",
+      "resolvedSha256": "83f64254179957bf5e02385d9f2f437356bc1c13cb4647ed62ff2fc85badb7a6"
+    },
+    "bundled/msfs/fss-e175": {
+      "rawSha256": "ee483ed06b41199ec34efd2e9fd35d583f092476a67adbb735d5e523f451ab1f",
+      "resolvedSha256": "3f5ea886b2fea9de17ad4a21e570fdd6f949d5f296bda301a189357dd11bf127"
+    },
+    "bundled/msfs/ga-base": {
+      "rawSha256": "9b7d6efcc96e6ea3e64ee152852a9ea04e725d60293891fe26cad86ffd9d569e",
+      "resolvedSha256": "abbb6a035ce1a0ff435efe0851bd8ed0d7eb79b33edee879bc504be92415acba"
+    },
+    "bundled/msfs/generic": {
+      "rawSha256": "61513b9355c63acf6aa0a52eadabd9c094d4ed0ef43124c0cd71634a865404f5",
+      "resolvedSha256": "81cf98be35e652eb88744a21e7bbdb903d36db01e5c9edc19c4e7bbfac5044e8"
+    },
+    "bundled/msfs/headwind-a330": {
+      "rawSha256": "ab07326a76b0672deb9e57dbad06a2e07eb0c7bc81a205f4efb9b6d9bfdcaa62",
+      "resolvedSha256": "e7b8c30503eea9d3095a849acac75ecf8929d2b9263341321b9826fc4b421513"
+    },
+    "bundled/msfs/horizon-787-9": {
+      "rawSha256": "33f827e3a314b8276c188faaf69579ed062e269cd8eec9a89e23c223eb918497",
+      "resolvedSha256": "3505578d0c17eba54e5e39776debc149d2a13bd20cc4505995e68486a1f0279e"
+    },
+    "bundled/msfs/ifly-737-max-8": {
+      "rawSha256": "8f3030943dec19a1234c46b560377668e5fde9a0d7bd95baf9d156b775bdd858",
+      "resolvedSha256": "aeb145795fb979756623d9e8eefe7405a382fa520e9ef1a3776b7de0c8ee904b"
+    },
+    "bundled/msfs/inibuilds-a300": {
+      "rawSha256": "63b109596acb3d1d8d86e3bd1557a40e472760b1696a61d6567b9e7b74929341",
+      "resolvedSha256": "a6f33ec439b9d069de881521b2ea33b1a7b142cb259037dfed13ecc13a82c75e"
+    },
+    "bundled/msfs/inibuilds-a310": {
+      "rawSha256": "0b5fe243a5e22d4e72411ab570c0a180660bb62f027f4701b1861a494bde2ba7",
+      "resolvedSha256": "fe00eafdbdb937b6b135875044d39bb94302a2ef0d6d591e2b299c6b3d813f1e"
+    },
+    "bundled/msfs/inibuilds-a320neo-v2": {
+      "rawSha256": "f28cde0e48612da99998b7b2327122c09991f81ee648d4e55537e58f83d4bb1f",
+      "resolvedSha256": "9e31a02c7de73e15d97711987d45a530756c18c6cc9f446059f61f2797ec1096"
+    },
+    "bundled/msfs/inibuilds-a321lr": {
+      "rawSha256": "497e6cf000e9502df277b765a3d275b860dc5145d6f5c1dceb437a355fb2b356",
+      "resolvedSha256": "0da2476558105a4e36735d384b51b29ed03a9352d2c864df895278bcbc3c4135"
+    },
+    "bundled/msfs/inibuilds-a330": {
+      "rawSha256": "871b9f470dcb97ddff6d9376c444ba896a7ad4a005e0d4dcd095b90df32b22b2",
+      "resolvedSha256": "ea4420d62af3f36517a47a2bf04733d37e4ccef9ae50ad7c2c879be08e4cae39"
+    },
+    "bundled/msfs/inibuilds-a350-1000": {
+      "rawSha256": "9803db601f26aadb6769cd8b597bcacccb70b40e3973682ff10fa921c7391820",
+      "resolvedSha256": "723707e859ea717dbf9a2799492d56eb20e27c10b757b22c3e0b75a5645d3b27"
+    },
+    "bundled/msfs/inibuilds-a350-900": {
+      "rawSha256": "ce31e19137f073d5f04866f74b94f54602bda61984aae1304d98e0ab7749146a",
+      "resolvedSha256": "d09da6ca9ee279ee42165bb096e050205a67dd29a17a22dbd3a9caa0553f2c02"
+    },
+    "bundled/msfs/inibuilds-a350-base": {
+      "rawSha256": "ea014547cb0e12e9b999c4a78cec79c4d1698adeae302dfedc08ef234c23f1c4",
+      "resolvedSha256": "41d335dbd5de9500e5f92de9888e37f64fb9e11aaa831effcf5de37031620d85"
+    },
+    "bundled/msfs/inibuilds-a380-800-rr": {
+      "rawSha256": "ae19322a81b5e4db11a39dffb9fe671d7b5b6e7aa38b9ee194d1c7a466544c0f",
+      "resolvedSha256": "d351066cf27593d6b4f22754c794424fe4188a65b6387b8f9b5d5950024a7c93"
+    },
+    "bundled/msfs/inibuilds-a400m": {
+      "rawSha256": "e26043f5e36714b2d5a2beed0641f7017946448f64e5ef308dfaa6e8cd9b99f8",
+      "resolvedSha256": "432163c9c15e0728dc5666d8d6fa7666f68806158cebe214fbbc70f6a003a089"
+    },
+    "bundled/msfs/inibuilds-tristar": {
+      "rawSha256": "e39455269543adf4760e326cfc04456b0846e29bd78876bf9b94edfbe07f6a9f",
+      "resolvedSha256": "0a9098e8072498042fffaa5eea0014265adedc16f2532e357fd3e5fec06bf414"
+    },
+    "bundled/msfs/justflight-146": {
+      "rawSha256": "68caa2ce9227b0e3a559411fbfcb2d3d4abf66568ec41251338849c8883c59d7",
+      "resolvedSha256": "eb88bb89c7351bd22af037677a8c2394415b5399290ebbae5f1ff004a7fcdd5a"
+    },
+    "bundled/msfs/kuro-787-8": {
+      "rawSha256": "47dba02edb7d216a404f6c9bb892f6d2c5112dd6d82d40f326fe2bf4aa243b11",
+      "resolvedSha256": "9dcba8a2425ced8822c4fdd74ebd899978a437c90f701f1174a81c9c8cf5ed53"
+    },
+    "bundled/msfs/microsoft-737-max-8": {
+      "rawSha256": "a0639e316c57b279e9c628247a2b496d44aca316ba5070215b25143cbec68f2a",
+      "resolvedSha256": "7e95b36311362112c0e62a3e2f0ba3b3f49adbdb9a86f257bacaa6f674d6cae9"
+    },
+    "bundled/msfs/microsoft-atr-72-600": {
+      "rawSha256": "2985ef41098fbd19a9f17c07b08106081962c71b78c3e52a11e03868ed95e75a",
+      "resolvedSha256": "95a9de72df3bd647327b7d211523505e2b24658933684f56874800fddb811278"
+    },
+    "bundled/msfs/miltech-c17": {
+      "rawSha256": "bcc4bba656eab5585ee0d03c1409dfda63ac5f5b98cc05375d353debee6087cd",
+      "resolvedSha256": "d233a513c702e9261c78a1db9c0082539962569748952de3767944cc985f6e9c"
+    },
+    "bundled/msfs/pmdg-737-600": {
+      "rawSha256": "cf6b9f133c942f96bfe0de8b5e9eea88a4bf360a22badfe021657afa0cc640c4",
+      "resolvedSha256": "1214fae0f689dfa0549aed616f82ed64875e510de9dd3031f3d4d9df9c967e7c"
+    },
+    "bundled/msfs/pmdg-737-700": {
+      "rawSha256": "68b5d65eae93642e6a8de94fec935943e388cefd5ca02333582d5847026f6af3",
+      "resolvedSha256": "3ac857e943a6485bae4b477e0dff71654a3c36ccddb35df2081076dec6aebeaa"
+    },
+    "bundled/msfs/pmdg-737-900": {
+      "rawSha256": "c66201c4522674b8580736f6e25c24b7fa66841574b8a9e2a8753028d84ce1b1",
+      "resolvedSha256": "79a84051e3cd2db0bf5a23f5822816ed221e1bdf98f269e970fab1a6dc14a4c7"
+    },
+    "bundled/msfs/pmdg-737": {
+      "rawSha256": "56c757adff1ecfb0afe1637ac788192415c4f1580bc51616a23dcb1878fe6a6f",
+      "resolvedSha256": "159c6480bfe730b8d2ef07f2a95b0b27f0245ac3c58b293833baf330c6262cbc"
+    },
+    "bundled/msfs/pmdg-777-200er": {
+      "rawSha256": "f9271be725f744e33978e44ad0b6e1526bd8a2e1ddc13637474bc91da976adad",
+      "resolvedSha256": "7106e5b0a1a445dc7394d567d618369aff6b25ffb6baf5b0702cc9ce4f7f70f4"
+    },
+    "bundled/msfs/pmdg-777-200lr": {
+      "rawSha256": "741d9077e7391e47a4c2f74cc07e3398d6f4a2e868b319419b5dfccc7d5be3a3",
+      "resolvedSha256": "96e1c78ac55bcc786330c905c4df8b61e382501bb60d97dde13a290a52a130a0"
+    },
+    "bundled/msfs/pmdg-777": {
+      "rawSha256": "5a396dc2193e0f3f754b224e768e0e4c6f2fde6101681d78d6411d8838c985c9",
+      "resolvedSha256": "c27f02c2a3fd08b29591976f13299e409a77b8f4fe90ff817b8b55da2794a246"
+    },
+    "bundled/msfs/pmdg-777f": {
+      "rawSha256": "28a805480efe00180643b95e85e43cf55d809abc8dc7b74f8d55d0c699874e82",
+      "resolvedSha256": "7d7643808dcf75068233002a51adeee58b80fb71fb69900f30cd97bf3d2e724d"
+    },
+    "bundled/msfs/regional-jet": {
+      "rawSha256": "cd7edf63e07058f5ebedfa15a883aa6162fa395b4be8873ac9be67972fba6c07",
+      "resolvedSha256": "8a58a6e0f4a4481e1402d6d4397b12a7810c0e84e329e0fbfc6c48ea3a338ce3"
+    },
+    "bundled/msfs/tfdi-md-11": {
+      "rawSha256": "0a977a51994f901197400b59ca843d92025de158c166df7658328f6014282d48",
+      "resolvedSha256": "8c2b0f0b0fc752562aa1d17cd1a7da90f43f76cbb8d93d91d83610d1a536ca98"
+    },
+    "bundled/msfs/turboprop-base": {
+      "rawSha256": "d9d9eafc061021ec013573a4a1c6995af06cffe49c6c326b2fc77f0925b1449d",
+      "resolvedSha256": "bfcde11230006be9709b09f6218769fa5b89e2e8b4655eb8a95e26ce1d2ac38b"
+    },
+    "bundled/msfs/virtualcol-a220": {
+      "rawSha256": "179e5bf381dd5c0d10ef8e26b5e43925884c802bfb5304fd4097b5c0b7210524",
+      "resolvedSha256": "b955d135d2a746fa8486f739b7184dc898f56e27b237ac3a1d35ad040a55e975"
+    },
+    "bundled/msfs/widebody-base": {
+      "rawSha256": "96cce32c6f5dcfdacb7652c4da6b0d993cc0cb35bfd9a61fba72e8f02fadbe6b",
+      "resolvedSha256": "7502df826cc1ee4ac22aa0fb2faf6b2ed556641362bfacd6af7065a869a8142d"
+    },
+    "bundled/msfs/workingtitle-747-8": {
+      "rawSha256": "982f758cda2ef9cfaefc8ea34a57d80beb9cea0ab34d4c70c80e42a6923b7142",
+      "resolvedSha256": "666b14277d43fb89e06d676020f391395a84763af79ef270429e533cea8ff164"
+    },
+    "bundled/msfs/workingtitle-citation-longitude": {
+      "rawSha256": "1484bfbef7ddc8162cb3bb1a236556c7e3f6bb90c27620d61f6edd53ef1b5129",
+      "resolvedSha256": "b992f552e293c53efebf93844e3037aa27dfdf1ed109f34367d9f42478d5b3b9"
+    },
+    "bundled/msfs/workingtitle-cj4": {
+      "rawSha256": "962b483f2e4883b116b773d06ecb515838e9fe4cdddc01a174eeedff359a1c2a",
+      "resolvedSha256": "629251fe8400bbbb3caba732ea81ed874765bf25b302e331121a1c9452fbfb77"
+    },
+    "bundled/xplane/generic": {
+      "rawSha256": "af34eb190d7146e0b65ff0b1105a7397c5d3cf5394e00b5106acbd0b855a400c",
+      "resolvedSha256": "70e9c837358bf0f930f5e4ac4f807fcff28885f2a10e2844a1f4290aef5f55c7"
+    },
+    "bundled/xplane/laminar-737-800": {
+      "rawSha256": "25ff5fd134a738cfa53b2ad56defebad5125618c05451c5b85ab6bc3c27ec84d",
+      "resolvedSha256": "93aff0eba61a4177a646a28830794348d8c8ea93def7b6e9f370bf25a4ca2054"
+    },
+    "bundled/xplane/toliss-a320-family": {
+      "rawSha256": "6f8d88b7774c446ec1f2101b35cf19ac8ae9fa06bc2e1c7a62d5a7960e575ca3",
+      "resolvedSha256": "0854869cfb10c6fd4eddd157fd01a77fb73e26b11e3370a4d90d383895098d23"
+    },
+    "bundled/xplane/zibo-737-800": {
+      "rawSha256": "99ab0c76e0dfabcd9e2f337cc90b00f67c092997583f90c75c84ca10be2288cc",
+      "resolvedSha256": "2691404d148288a17746f27a3023746ff5ba7da6db4f05cb55366bd78fcf2cdb"
+    }
+  }
+}

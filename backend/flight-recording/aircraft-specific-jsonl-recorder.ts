@@ -362,6 +362,7 @@ class AircraftSpecificJsonlRecorder {
   numericIntervalMs: number;
   maxFileBytes: number;
   acceptedFileBytes: number;
+  startupFileBytes = 0;
   persistedConfigSignature: string | null;
   persistedConfigId: number | null;
   lastCheckpointMs: number | null;
@@ -492,6 +493,7 @@ class AircraftSpecificJsonlRecorder {
       this.seq = 1;
       this.rowCount = 1;
       this.acceptedFileBytes = manifestBytes;
+      this.startupFileBytes = manifestBytes;
       this.started = true;
       console.log(`[aircraft-specific-jsonl] Recording started: ${this.filePath}`);
       return true;
@@ -1047,6 +1049,11 @@ class AircraftSpecificJsonlRecorder {
     };
   }
 
+  getProgress() {
+    if (this.closed || this.lastError || this.captureDisabled || !this.stream) return null;
+    return { recordingSessionId: this.recordingSessionId, writtenBytes: this.startupFileBytes + this.stream.bytesWritten };
+  }
+
 }
 
 function startFlight(options: AircraftSpecificRecorderOptions = {}): AircraftSpecificJsonlRecorder | null {
@@ -1099,6 +1106,7 @@ function getStats(): AircraftSpecificRecorderStats | null {
 }
 
 module.exports = {
+  getProgress: () => activeRecorder?.getProgress() || null,
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_SYNC_INTERVAL_MS,
   JSONL_STREAM_BACKLOG_MAX_BYTES,

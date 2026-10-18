@@ -1696,9 +1696,14 @@ async function main() {
 
     assert.equal(status.recordingVisible, true, 'recording status should show the indicator');
     assert.equal(status.recordingFailed, false, 'active recording should not be treated as failed');
-    assert.equal(status.recordingBadgeLabel, 'REC', 'active recording should use the REC badge');
-    assert.equal(status.recordingTitle, 'Recording Flight Log', 'active recording should use the saving title');
+    assert.equal(status.recordingBadgeLabel, 'Flight REC', 'active recording should identify flight capture');
+    assert.equal(status.recordingTitle, 'Recording flight data', 'active recording should explain what is captured');
     assert.equal(status.recordingDetail, 'C:/Flights/active-flight.csv', 'active recording should show the provided path');
+    assert.equal(status.recordingSizeLabel, '', 'older backends do not imply a zero-size recording');
+    for (const [sizeBytes, expected] of [[862208, '842 KB'], [1363149, '1.3 MB'], [null, ''], [-1, ''], ['1024', ''], [Infinity, '']]) {
+      status.ingestMessage({ type: 'flightRecording', status: 'recording', sizeBytes });
+      assert.equal(status.recordingSizeLabel, expected, 'format valid byte counts and suppress unavailable values');
+    }
 
     status.ingestMessage({
       type: 'flightRecording',
@@ -1709,8 +1714,9 @@ async function main() {
     assert.equal(status.recordingVisible, true, 'finalizing status should keep the indicator visible');
     assert.equal(status.recordingFailed, false, 'finalizing should not be treated as failed');
     assert.equal(status.recordingFinalizing, true, 'finalizing status should expose a dedicated flag');
-    assert.equal(status.recordingBadgeLabel, 'SAVE', 'finalizing should use the SAVE badge');
-    assert.equal(status.recordingTitle, 'Finalizing Flight Log', 'finalizing should explain the save phase');
+    assert.equal(status.recordingBadgeLabel, 'Saving flight…', 'finalizing should explain the save phase');
+    assert.equal(status.recordingTitle, 'Saving flight recording', 'finalizing should explain the save phase');
+    assert.equal(status.recordingSizeLabel, '', 'finalizing does not retain a stale active count');
     assert.equal(status.recordingDetail, 'active-flight.csv', 'finalizing should show the file being saved');
 
     status.ingestMessage({
@@ -1721,11 +1727,12 @@ async function main() {
 
     assert.equal(status.recordingVisible, true, 'recording errors should remain visible');
     assert.equal(status.recordingFailed, true, 'recording errors should use failed state');
-    assert.equal(status.recordingBadgeLabel, 'NO REC', 'recording errors should warn that recording is unavailable');
+    assert.equal(status.recordingBadgeLabel, 'Flight recording failed', 'recording errors should warn that recording is unavailable');
     assert.equal(status.recordingDetail, 'Flight recording finalization failed', 'recording error copy should render from state');
 
     status.ingestMessage({ type: 'flightRecording', status: 'stopped' });
     assert.equal(status.recordingVisible, false, 'stopped recording should hide the indicator');
+    assert.equal(status.recording.sizeBytes, null, 'stopped recording clears the previous size');
     assert.equal(status.recordingStartAvailable, false, 'manual start should stay unavailable before simulator telemetry is live');
 
     status.ingestMessage({ type: 'simState', simconnectConnected: true, inMenu: false });
@@ -2037,6 +2044,35 @@ async function main() {
   });
 
   console.log('\n--- simbrief store ---\n');
+  await test('confirmed settings saves correlate acknowledgements, recover after disconnect and dispose pending work', async () => {
+    resetStoreTestContext();
+    const { emitAppSettingsSaved, emitWsClose } = await import(toFrontendUrl('src', 'app', 'runtime-signals.js'));
+    const store = useAppSettingsStore();
+    const requests = [];
+    store.bindRuntimeActions({ onSaveSettings: (patch, options) => { requests.push({ patch, ...options }); return true; } });
+    let settled = false;
+    const first = store.saveSettingsConfirmed({ onboarding: { completed: true } }).then(result => { settled = true; return result; });
+    emitAppSettingsSaved({ requestId: 'unrelated', ok: true });
+    await Promise.resolve();
+    assert.equal(settled, false, 'unrelated acknowledgements do not confirm completion');
+    assert.equal((await store.saveSettingsConfirmed({})).ok, false, 'overlapping saves are rejected');
+    emitWsClose();
+    assert.equal((await first).ok, false);
+    const second = store.saveSettingsConfirmed({ onboarding: { completed: true } });
+    emitAppSettingsSaved({ requestId: requests[0].requestId, ok: true });
+    emitAppSettingsSaved({ requestId: requests[1].requestId, ok: false, error: 'Disk full' });
+    assert.equal((await second).error, 'Disk full', 'a late reply cannot settle the retry');
+    const timeout = await store.saveSettingsConfirmed({}, { timeoutMs: 1 });
+    assert.equal(timeout.ok, false);
+    assert.match(timeout.error, /confirmation/);
+    const success = store.saveSettingsConfirmed({ onboarding: { completed: true } });
+    emitAppSettingsSaved({ requestId: requests.at(-1).requestId, ok: true, settings: { onboarding: { completed: true } } });
+    assert.equal((await success).ok, true);
+    const disposed = store.saveSettingsConfirmed({});
+    store.$dispose();
+    assert.equal((await disposed).ok, false, 'disposal settles the caller and releases subscriptions and timer');
+  });
+
   await test('SimBrief runway analysis keeps only the planned runway and compact performance fields', () => {
     const sections = buildRunwayAnalysisSections({
       takeoff: {

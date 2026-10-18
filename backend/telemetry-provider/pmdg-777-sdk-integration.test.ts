@@ -10,6 +10,137 @@ const PMDG_777_PROFILE_KEY = 'bundled/msfs/pmdg-777';
 const PMDG_777_PROFILE_REVISION = 11;
 const PMDG_777_ADAPTER_ID = 'pmdg-777';
 
+// Replay the 17 October -300ER observations through the production command
+// service/provider. Values and timing come from the live record, not the recipe.
+async function withSurfaceFixture(t, profileKey, run) {
+  const original = profileLoader.getActiveProfileId();
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.UTC(2026, 9, 17) });
+  try {
+    profileLoader.setActiveProfile(profileKey);
+    const revision = profileLoader.getActiveProfileRevision();
+    const provider = new SimConnectTelemetryProvider();
+    provider._connected = true;
+    provider._systemState = { sim: 1 };
+    provider._data = { userInput: true };
+    const snapshot = { adapterId: 'clientdata-manifest', status: 'running', snapshotSequence: 1,
+      updatedAt: new Date().toISOString(), normalized: { flaps: { label: '5' }, spoilers: { handlePercent: 0 } } };
+    const events = [];
+    const fixture = { provider, snapshot, events, connected: true,
+      onPress: (_name) => {},
+      publish(kind, value, fresh = true) {
+        if (kind === 'flaps') snapshot.normalized.flaps.label = value;
+        else snapshot.normalized.spoilers.handlePercent = value;
+        if (fresh) { snapshot.snapshotSequence++; snapshot.updatedAt = new Date().toISOString(); }
+      },
+      async advance(ms) {
+        await new Promise(resolve => setImmediate(resolve));
+        for (let elapsed = 0; elapsed < ms; elapsed += 50) {
+          t.mock.timers.tick(Math.min(50, ms - elapsed));
+          await new Promise(resolve => setImmediate(resolve));
+        }
+      },
+      execute(kind, value) {
+        return executeAircraftCommand(provider, { commandId: `surfaces.${kind}.set`, input: { value },
+          profileKey, profileRevision: revision }, { profile: profileLoader.loadProfile(profileKey),
+          profileRevision: revision, requireProfileToken: true, capabilities: provider.getAircraftControlCapabilities() });
+      },
+    };
+    const bridge = { getSnapshot: () => ({ status: 'running' }),
+      async sendSdkEvent(name, value) {
+        events.push({ name, value });
+        if (value === 0x20000000) fixture.onPress(name);
+        return { ok: true };
+      },
+    };
+    provider._lvarBridge = bridge;
+    provider._ensureControlWriteBridge = async () => bridge;
+    provider._sdkBridge = { getSnapshot: () => snapshot, isDataConnected: () => fixture.connected };
+    await run(fixture);
+  } finally { t.mock.timers.reset(); profileLoader.setActiveProfile(original); }
+}
+
+test('777 exact flap selection survives the observed 3.5-second response and serializes duplicates', async (t) => {
+  for (const profileKey of [PMDG_777_PROFILE_KEY, 'bundled/msfs/pmdg-777-200er',
+    'bundled/msfs/pmdg-777-200lr', 'bundled/msfs/pmdg-777f']) {
+    await withSurfaceFixture(t, profileKey, async h => {
+      for (const [target, label, event] of [['15', '15', '#74706'], ['5', '5', '#74705']]) {
+        h.provider._aircraftIntegrationActionLastAttemptAt.clear();
+        h.onPress = () => setTimeout(() => h.publish('flaps', label), 3500);
+        const before = h.events.length;
+        let settled = false;
+        const pending = h.execute('flaps', target).then(result => { settled = true; return result; });
+        await h.advance(2600);
+        assert.equal(settled, false, `${profileKey}: still observing beyond the old deadline`);
+        assert.equal((await h.execute('flaps', target)).code, 'action_in_progress', 'overlapping request cannot dispatch again');
+        await h.advance(1000);
+        const result = await pending;
+        assert.equal(result.ok, true, result.error);
+        assert.equal(result.confirmedValue, label);
+        assert.deepEqual(h.events.slice(before), [{ name: event, value: 0x20000000 }, { name: event, value: 0x00020000 }]);
+        assert.equal((await h.execute('flaps', target)).noOp, true, 'already-selected is a zero-write success');
+        assert.equal(h.events.length, before + 2);
+      }
+    });
+  }
+});
+
+test('777 delayed flap selection still rejects stale, disconnected, changed-profile and wrong-target readbacks', async (t) => {
+  for (const outcome of ['stale', 'disconnected', 'profile', 'wrong-target', 'unchanged']) {
+    await withSurfaceFixture(t, PMDG_777_PROFILE_KEY, async h => {
+      h.onPress = () => setTimeout(() => {
+        if (outcome === 'unchanged') return;
+        h.publish('flaps', outcome === 'wrong-target' ? '20' : '15', outcome !== 'stale');
+        // SdkBridge retires its running snapshot on disconnect; preserve that
+        // actual lifecycle instead of inventing contradictory bridge states.
+        if (outcome === 'disconnected') { h.connected = false; h.snapshot.status = 'disconnected'; }
+        if (outcome === 'profile') profileLoader.setActiveProfile('bundled/msfs/pmdg-737');
+      }, 3500);
+      const pending = h.execute('flaps', '15');
+      await h.advance(5100);
+      const result = await pending;
+      assert.equal(result.ok, false, outcome);
+      assert.equal(result.confirmedValue, undefined, outcome);
+      assert.equal(h.events.length, 2, 'expiry or lost context must never retry the click');
+      assert.equal(h.provider._aircraftIntegrationActionsInFlight.size, 0, 'failure releases the physical-control lock');
+      if (outcome !== 'profile') {
+        h.connected = true;
+        h.snapshot.status = 'running';
+        h.publish('flaps', '5');
+        h.onPress = () => h.publish('flaps', '15');
+        assert.equal((await h.execute('flaps', '15')).ok, true, 'a later valid request can recover');
+        assert.equal(h.events.length, 4);
+      }
+    });
+  }
+});
+
+test('777 HALF confirms the observed SDK lever 75, never an intermediate 50 or stale matching value', async (t) => {
+  for (const fresh of [true, false]) {
+    await withSurfaceFixture(t, PMDG_777_PROFILE_KEY, async h => {
+      h.onPress = () => {
+        // Deliberately exercise a plausible intermediate value to prevent
+        // confirmation against the old 50 target during lever travel.
+        setTimeout(() => h.publish('spoilers', 50, fresh), 800);
+        setTimeout(() => h.publish('spoilers', 75, fresh), 1100);
+      };
+      let settled = false;
+      const pending = h.execute('spoilers', 'half').then(result => { settled = true; return result; });
+      await h.advance(900);
+      assert.equal(settled, false, 'an intermediate handle value cannot confirm HALF');
+      assert.equal((await h.execute('spoilers', 'retracted')).code, 'action_in_progress', 'all positions share the in-flight lock');
+      await h.advance(1700);
+      const result = await pending;
+      assert.equal(result.ok, fresh, result.error);
+      assert.equal(result.confirmedValue, fresh ? 75 : undefined);
+      assert.deepEqual(h.events, [{ name: '#74616', value: 0x20000000 }, { name: '#74616', value: 0x00020000 }]);
+      if (fresh) {
+        assert.equal((await h.execute('spoilers', 'half')).noOp, true);
+        assert.equal(h.events.length, 2, 'confirmed HALF does not send another click');
+      }
+    });
+  }
+});
+
 async function withGearFixture(profileKey, run) {
   const originalProfileKey = profileLoader.getActiveProfileId();
   try {

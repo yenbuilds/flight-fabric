@@ -53,6 +53,7 @@ const {
 const { computeIasTrend, computePitchBankRates } = require('../utils/flight-kinematics');
 
 const flightCsvWriter = require('../flight-recording/flight-csv-writer');
+const { getRecordingSizeBytes } = require('../flight-recording/recording-progress') as typeof import('../flight-recording/recording-progress');
 const { createFlightCsvStore } = require('../flight-recording/flight-csv-store') as {
   createFlightCsvStore: (_options?: AnyRecord) => AnyRecord;
 };
@@ -740,20 +741,7 @@ async function runSimbridgeCore({
     // Send current flight recording status to new clients
     // This ensures the recording indicator shows correctly after page refresh
     try {
-      if (!recordingBundleFailureHandling && flightCsvWriter.isRecording()) {
-        const csvStats = flightCsvWriter.getStats();
-        ws.send(JSON.stringify({
-          type: MSG.FLIGHT_RECORDING,
-          status: 'recording',
-          fileName: typeof csvStats?.filePath === 'string' ? path.basename(csvStats.filePath) : '',
-          // outputDir intentionally omitted: it is a full local disk path that
-          // would be sent to any connected client including remote mobile clients
-          // when REMOTE_ACCESS_ENABLE=1. The frontend falls back to filePath for
-          // display (index-app.js: msg.outputDir || msg.filePath || fallback).
-          flightId: csvStats?.flightId,
-          rowsWritten: csvStats?.rowCount,
-        }));
-      }
+      ws.send(JSON.stringify(getFlightRecordingStatus()));
     } catch {}
 
     // Send current aircraft profile to new clients
@@ -883,6 +871,7 @@ async function runSimbridgeCore({
           getSimState: () => runtimeState.sim.lastState,
           getPhase,
           flightCsvWriter,
+          getFlightRecordingStatus,
           flightCsvStore,
           recordingBundleGuard,
           flightActive,
@@ -2750,6 +2739,9 @@ async function runSimbridgeCore({
         type: MSG.FLIGHT_RECORDING,
         status: 'recording',
         fileName,
+        recordingSessionId,
+        sizeBytes: getRecordingSizeBytes(recordingSessionId, [flightCsvWriter, automationJsonlRecorder, aircraftSpecificJsonlRecorder]),
+        rowsWritten: stats?.rowCount,
         // outputDir intentionally omitted: full local disk path should not
         // be broadcast to all clients (incl. remote mobile clients).
         flightId,
@@ -3372,6 +3364,20 @@ async function runSimbridgeCore({
   // ───────────────────────────────────────────────────────────────────────────
   // Tick Helper Group: Flight-time and Stability Utilities
   // ───────────────────────────────────────────────────────────────────────────
+  function getFlightRecordingStatus() {
+    const latest = runtimeState.replay?.latestMessages?.[MSG.FLIGHT_RECORDING];
+    if (!latest) return { type: MSG.FLIGHT_RECORDING, status: 'stopped' };
+    if (latest.status !== 'recording') return latest;
+    if (recordingBundleFailureHandling || !flightCsvWriter.isRecording()) {
+      return { type: MSG.FLIGHT_RECORDING, status: 'stopped' };
+    }
+    return {
+      ...latest,
+      sizeBytes: getRecordingSizeBytes(latest.recordingSessionId, [flightCsvWriter, automationJsonlRecorder, aircraftSpecificJsonlRecorder]),
+      rowsWritten: flightCsvWriter.getProgress?.()?.rowCount,
+    };
+  }
+
   function broadcastFlightTimeIfDue(nowEpochMs, timestampIso) {
     if (!flightActive || !flightStartEpochMs) return;
     const elapsedMs = computeElapsedMs(nowEpochMs, flightStartEpochMs);
@@ -3379,6 +3385,9 @@ async function runSimbridgeCore({
     if (elapsedSec === lastFlightTimeBroadcastSec) return;
 
     lastFlightTimeBroadcastSec = elapsedSec;
+    // Use the existing one-second tick: no polling timer survives a flight.
+    const recordingStatus = getFlightRecordingStatus();
+    if (recordingStatus.status === 'recording') broadcast(recordingStatus);
     try {
       broadcast({
         type: MSG.FLIGHT_TIME,

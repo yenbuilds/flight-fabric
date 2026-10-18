@@ -1,12 +1,15 @@
-import type { AircraftIntegrationActionRoute } from './aircraft-integrations/types.js';
-import { executeA32nxMinimums } from './aircraft-integrations/fbw-a32nx/minimums-control.js';
+import type { AircraftIntegrationActionRoute } from './integration-engine/types.js';
+import { executeGuardedDisplayEntry } from './guarded-display-entry.js';
 
-type ExecutionRequest = Omit<Parameters<typeof executeA32nxMinimums>[0], 'target'>;
+type ExecutionRequest = Omit<Parameters<typeof executeGuardedDisplayEntry>[0], 'recipe'>;
 
-/** Aircraft-owned selection for the existing registry-validated minimums route. */
-export function resolveMinimumsExecution(adapterId: string, route: AircraftIntegrationActionRoute) {
-  if (adapterId !== 'fbw-a32nx' || route.transport !== 'simbridge-mcdu') return null;
+/** Public minimums result adapter for the registry-validated display-entry recipe. */
+export function resolveMinimumsExecution(_adapterId: string, route: AircraftIntegrationActionRoute) {
+  if (route.transport !== 'simbridge-mcdu' || !route.displayEntry) return null;
   return {
-    execute: (request: ExecutionRequest) => executeA32nxMinimums({ ...request, target: route.target }),
+    execute: async (request: ExecutionRequest) => {
+      const result = await executeGuardedDisplayEntry({ ...request, recipe: route.displayEntry });
+      return result.code === 'entry_unconfirmed' ? { ...result, code: 'minimums_unconfirmed' } : result;
+    },
   };
 }

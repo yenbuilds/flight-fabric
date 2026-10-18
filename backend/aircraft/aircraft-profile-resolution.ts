@@ -15,7 +15,7 @@ export function resolveLoadedProfile(params: {
   visited?: Set<string>;
   ensureBundledProfilesAvailable: () => void;
   resolveProfilePath: (locatorValue: unknown) => AnyRecord | null;
-  readProfileFile: (filePath: string) => AnyRecord | null;
+  readProfileFile: (filePath: string, profileKey: string) => AnyRecord | null;
   isProfileDefinition: (profile: unknown) => boolean;
   buildCanonicalProfile: (resolved: AnyRecord, rawProfile: AnyRecord) => AnyRecord;
   resolveInheritance: (profile: AnyRecord, visited: Set<string>) => AnyRecord;
@@ -45,9 +45,9 @@ export function resolveLoadedProfile(params: {
     return null;
   }
 
-  const rawProfile = readProfileFile(resolved.filePath);
+  const rawProfile = readProfileFile(resolved.filePath, resolved.profileKey);
   if (!rawProfile || !isProfileDefinition(rawProfile)) {
-    log(`Skipping invalid profile JSON: ${resolved.filePath}`);
+    log(`Skipping invalid profile definition: ${resolved.filePath}`);
     return null;
   }
 

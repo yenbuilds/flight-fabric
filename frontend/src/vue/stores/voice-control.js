@@ -34,6 +34,10 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     // True only in the desktop app, where the Electron voice bridge exists.
     // Recognition can still be off or failing; this says voice is possible.
     bridgeAvailable: false,
+    runtimeLoaded: false,
+    recognitionChanging: false,
+    recognitionChangeId: 0,
+    recognitionSaveFailed: false,
     panelOpen: false,
     settingsReturnToAircraft: false,
     setupDismissed: readStorageValue(SETUP_DISMISSED_KEY, { fallback: '' }) === 'yes',
@@ -103,6 +107,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     },
     setBridgeAvailable(value = false) { this.bridgeAvailable = value === true; },
     applyRuntimeInfo(info = {}) {
+      this.runtimeLoaded = true;
       if (info.enabled !== true) this.inputDevicesError = '';
       const engine = info?.engine || {};
       const ptt = info?.pushToTalk || {};
@@ -186,7 +191,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     releaseToTalk() { return this._runtimeActions?.finish?.() || false; },
     cancel() { return this._runtimeActions?.cancel?.('user') || false; },
     retryPushToTalk() { return this._runtimeActions?.retryPushToTalk?.() || false; },
-    setRecognitionEnabled(value) { return this._runtimeActions?.setRecognitionEnabled?.(value) || false; },
+    setRecognitionEnabled(value, options) { return this._runtimeActions?.setRecognitionEnabled?.(value, options) || false; },
     setMode(value) { return this._runtimeActions?.setMode?.(value) || false; },
     setCloudProvider(value) { return this._runtimeActions?.setCloudProvider?.(value) || false; },
     saveCloudKey(providerId, value) { return this._runtimeActions?.saveCloudKey?.(providerId, value) || false; },

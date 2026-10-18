@@ -4,6 +4,16 @@ import { watch } from 'vue';
 // a save from a replacement settings runtime.
 let settingsSaveSequence = 0;
 
+// Settings snapshots contain normalized objects and scalar values. Keep only
+// fields edited since this form's baseline; refresh everything else from disk.
+function mergeSettingsDraft(previous, draft, saved) {
+  return Object.fromEntries(Object.entries(saved).map(([key, value]) => [key,
+    value && typeof value === 'object'
+      ? mergeSettingsDraft(previous[key], draft[key], value)
+      : draft[key] !== previous[key] ? draft[key] : value,
+  ]));
+}
+
 export function initSettingsRuntime({
   $,
   getAppSettings,
@@ -137,8 +147,16 @@ export function initSettingsRuntime({
     }
   }
 
+  function normalizeFormSettings(settings) {
+    const normalized = appSettingsShared.normalizeAppSettings(settings);
+    // The General form does not own setup completion. Compare and save only
+    // its preferences, even when the backend returns completed onboarding.
+    delete normalized.onboarding;
+    return normalized;
+  }
+
   function readFormSettings() {
-    return settingsEditorStore.serializeSettings();
+    return normalizeFormSettings(settingsEditorStore.serializeSettings());
   }
 
   function getRestartReasonsForSettings(settings) {
@@ -178,7 +196,7 @@ export function initSettingsRuntime({
   }
 
   function submitSettings() {
-    if (!canManageSettings() || settingsFormStore?.saveBusy || settingsFormStore?.reloadBusy) return false;
+    if (!canManageSettings() || settingsUiStore?.introOpen || settingsFormStore?.saveBusy || settingsFormStore?.reloadBusy) return false;
     if (!settingsHydrated) {
       settingsFormStore?.setSaveBusy?.(false);
       settingsFormStore?.setSaveEnabled?.(false);
@@ -253,15 +271,21 @@ export function initSettingsRuntime({
     return hasLocalEdits && JSON.stringify(readFormSettings()) !== lastSavedJson;
   }
 
-  function applySettingsToForm(settings) {
+  function applySettingsToForm(settings, { preserveEdits = false } = {}) {
+    const previous = preserveEdits && lastSavedJson ? JSON.parse(lastSavedJson) : null;
+    const draft = previous ? readFormSettings() : null;
+    let savedJson;
     applyingFormState = true;
     try {
       settingsEditorStore.applySettings(settings);
+      const saved = readFormSettings();
+      savedJson = JSON.stringify(saved);
+      if (draft) settingsEditorStore.applySettings(mergeSettingsDraft(previous, draft, saved));
     } finally {
       applyingFormState = false;
     }
-    lastSavedJson = JSON.stringify(readFormSettings());
-    hasLocalEdits = false;
+    lastSavedJson = savedJson;
+    hasLocalEdits = JSON.stringify(readFormSettings()) !== lastSavedJson;
     settingsHydrated = true;
     updateDirtyState();
   }
@@ -381,7 +405,9 @@ export function initSettingsRuntime({
       const forceApply = settingsFormStore?.reloadBusy === true;
       settingsFormStore?.setReloadBusy?.(false);
       if (settingsHydrated && hasDirtyLocalEdits() && !forceApply) {
-        updateDirtyState();
+        // Another settings client can update untouched values while this
+        // form has a draft. A later save must not restore those old values.
+        applySettingsToForm(detail.settings, { preserveEdits: true });
         return;
       }
       applySettingsToForm(detail.settings);
@@ -408,7 +434,7 @@ export function initSettingsRuntime({
       const newerEdits = submittedSettingsJson !== null && JSON.stringify(readFormSettings()) !== submittedSettingsJson;
       const savedSettings = detail.settings || (submittedSettingsJson ? JSON.parse(submittedSettingsJson) : null);
       if (pendingRestartSave && savedSettings
-        && JSON.stringify(appSettingsShared.normalizeAppSettings(savedSettings)) !== pendingRestartSave.settingsJson) {
+        && JSON.stringify(normalizeFormSettings(savedSettings)) !== pendingRestartSave.settingsJson) {
         clearSubmittedSave();
         settleRestartSave(false);
         setStatus('Save confirmation did not match your edits. Your draft is kept; reload or save again before restarting.', 'error');
@@ -417,7 +443,7 @@ export function initSettingsRuntime({
       clearSubmittedSave();
       if (savedSettings) {
         if (newerEdits) {
-          lastSavedJson = JSON.stringify(appSettingsShared.normalizeAppSettings(savedSettings));
+          lastSavedJson = JSON.stringify(normalizeFormSettings(savedSettings));
           updateDirtyState();
         } else {
           applySettingsToForm(savedSettings);

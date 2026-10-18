@@ -11,7 +11,7 @@ const { privateKeyPath } = require('./desktop-update-release');
 const { buildInstallerFileName, buildPortableFileName, publishedInstallerAssetName } = require('./release-names');
 
 test('release CLI creates encrypted disposable keys, signs exact bytes, verifies and withdraws', async (t) => {
-  const parent = fs.realpathSync(os.tmpdir());
+  const parent = fs.realpathSync(process.env.RUNNER_TEMP || os.tmpdir());
   const directory = fs.mkdtempSync(path.join(parent, 'ff-update-signing-test-'));
   t.after(() => {
     assert.equal(path.dirname(fs.realpathSync(directory)), parent);

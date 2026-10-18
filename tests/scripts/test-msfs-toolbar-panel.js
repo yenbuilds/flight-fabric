@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 const { page, aircraftProfile } = require('./test-msfs-toolbar-panel-runtime');
 
@@ -613,6 +613,77 @@ test('generated voice reference is current with the desktop voice modules', asyn
   const parsed = JSON.parse(current);
   assert.ok(parsed.flightPlanQueries.length >= 3);
   assert.ok(Object.keys(parsed.aircraftQueries).length >= 5);
+});
+
+test('voice reference CLI reads current source without rebuilding absent or stale dist', (t) => {
+  const scratch = path.join(ROOT, '.tmp');
+  fs.mkdirSync(scratch, { recursive: true });
+  const fixture = fs.mkdtempSync(path.join(scratch, 'toolbar-voice-source-'));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  const write = (relative, contents) => {
+    const target = path.join(fixture, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, contents);
+  };
+  const copy = (relative) => write(relative, fs.readFileSync(path.join(ROOT, relative)));
+  const copiedModules = new Set();
+  const copyVoiceModule = (relative) => {
+    if (copiedModules.has(relative)) return;
+    copiedModules.add(relative);
+    copy(relative);
+    const source = fs.readFileSync(path.join(ROOT, relative), 'utf8');
+    for (const match of source.matchAll(/(?:from\s*|import\s*)['"](\.[^'"]+)['"]/g)) {
+      copyVoiceModule(path.posix.normalize(path.posix.join(path.posix.dirname(relative), match[1])));
+    }
+  };
+  for (const file of [
+    'scripts/build-toolbar-voice-reference.mjs', 'scripts/typescript-source-loader.js', 'scripts/backend-runtime-paths.js',
+    'frontend/package.json', 'frontend/toolbar/voice-reference.json',
+    'backend/aircraft/aircraft-profile-sources.ts', 'backend/aircraft/aircraft-definition-files.json',
+    'backend/aircraft/aircraft-definition-catalogue.ts',
+    'backend/aircraft/integration-engine/definition-yaml.ts',
+  ]) copy(file);
+  for (const file of require('../../backend/aircraft/aircraft-definition-files.json')) {
+    copy('backend/aircraft/aircraft-integrations/' + file);
+  }
+  copyVoiceModule('frontend/src/voice/state-queries.js');
+  copyVoiceModule('frontend/src/voice/flight-plan-queries.js');
+  write('scripts/build-backend-runtime.js', "require('node:fs').writeFileSync('unexpected-backend-build', 'called'); throw new Error('Voice reference must not rebuild the backend');\n");
+  const run = (...args) => spawnSync(process.execPath, ['scripts/build-toolbar-voice-reference.mjs', ...args], {
+    cwd: fixture, encoding: 'utf8', windowsHide: true, timeout: 15000,
+  });
+  const cold = run('--check');
+  assert.equal(cold.status, 0, cold.stderr);
+  assert.equal(fs.existsSync(path.join(fixture, 'dist')), false, 'cold check does not create a runtime');
+
+  const distMarkers = [
+    'dist/backend/core/simbridge-core.js', 'dist/backend/aircraft/aircraft-profile-sources.js',
+    'dist/backend/telemetry-provider/' + (process.platform === 'win32' ? 'ff-rust-simconnect-sidecar.exe' : 'ff-rust-simconnect-sidecar'),
+    'dist/shared/flight-phases.js', 'dist/shared/app-settings-shared.js', 'dist/frontend/marker.txt',
+  ];
+  for (const marker of distMarkers) write(marker, 'stale runtime marker: ' + marker);
+  const stale = run('--check');
+  assert.equal(stale.status, 0, stale.stderr);
+
+  const fenixPath = path.join(fixture, 'backend/aircraft/aircraft-integrations/fenix-a32x.yaml');
+  const document = require('yaml').parse(fs.readFileSync(fenixPath, 'utf8'));
+  delete document.profiles['bundled/msfs/fenix-a319'];
+  fs.writeFileSync(fenixPath, JSON.stringify(document));
+  const changed = run('--check');
+  assert.equal(changed.status, 1);
+  assert.match(changed.stderr, /voice-reference\.json is out of date/);
+  const generated = run();
+  assert.equal(generated.status, 0, generated.stderr);
+  const reference = JSON.parse(fs.readFileSync(path.join(fixture, 'frontend/toolbar/voice-reference.json'), 'utf8'));
+  assert.equal(Object.hasOwn(reference.aircraftQueries, 'bundled/msfs/fenix-a319'), false, 'current YAML controls the generated catalogue');
+  assert.ok(Object.hasOwn(reference.aircraftQueries, 'bundled/msfs/fenix-a320'));
+
+  fs.unlinkSync(path.join(fixture, 'backend/aircraft/aircraft-profile-sources.ts'));
+  const missingSource = run('--check');
+  assert.equal(missingSource.status, 1);
+  assert.match(missingSource.stderr, /ENOENT.*aircraft-profile-sources\.ts/s, 'stale dist cannot fill a missing source');
+  assert.equal(fs.existsSync(path.join(fixture, 'unexpected-backend-build')), false);
+  for (const marker of distMarkers) assert.equal(fs.readFileSync(path.join(fixture, marker), 'utf8'), 'stale runtime marker: ' + marker);
 });
 
 // ---------------------------------------------------------------- relays

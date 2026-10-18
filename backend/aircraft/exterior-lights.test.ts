@@ -2,7 +2,7 @@ import assert = require('node:assert/strict');
 import test = require('node:test');
 
 const loader = require('./aircraft-profile-loader');
-const { defaultAircraftIntegrationRegistry: registry } = require('./aircraft-integrations');
+const { defaultAircraftIntegrationRegistry: registry } = require('./integration-engine');
 const { executeAircraftCommand, resolveAircraftCommand } = require('./aircraft-control-service');
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
 const capabilities = { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event'],

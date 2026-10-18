@@ -1,0 +1,425 @@
+{
+  "headwind-a330": [
+    {
+      "actionId": "lighting.preset.panels.set",
+      "label": "Panel backlighting",
+      "fields": [
+        "lighting.glareshieldPercent",
+        "lighting.glareshieldLcdPercent",
+        "lighting.mainAndPedestalPercent",
+        "lighting.overheadPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.flood.set",
+      "label": "Flood lighting",
+      "fields": [
+        "lighting.mainFloodPercent",
+        "lighting.pedestalFloodPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.captainDisplays.set",
+      "label": "Captain displays",
+      "displays": true,
+      "fields": [
+        "lighting.captainPfdPercent",
+        "lighting.captainNdPercent",
+        "lighting.captainWeatherPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.firstOfficerDisplays.set",
+      "label": "First officer displays",
+      "displays": true,
+      "fields": [
+        "lighting.firstOfficerPfdPercent",
+        "lighting.firstOfficerNdPercent",
+        "lighting.firstOfficerWeatherPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.engineDisplays.set",
+      "label": "Engine and system displays",
+      "displays": true,
+      "fields": [
+        "lighting.upperDisplayPercent",
+        "lighting.lowerDisplayPercent"
+      ]
+    }
+  ],
+  "fenix-a32x": [
+    {
+      "actionId": "lighting.preset.panels.set",
+      "label": "Panel backlighting",
+      "fields": [
+        "lighting.fcuPercent",
+        "lighting.fcuTextPercent",
+        "lighting.overheadPercent",
+        "lighting.pedestalPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.flood.set",
+      "label": "Flood and map lights",
+      "fields": [
+        "lighting.mainFloodPercent",
+        "lighting.pedestalFloodPercent",
+        "lighting.captainMapPercent",
+        "lighting.firstOfficerMapPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.captainDisplays.set",
+      "label": "Captain displays",
+      "displays": true,
+      "fields": [
+        "lighting.captainPfdPercent",
+        "lighting.captainNdPercent",
+        "lighting.captainWeatherPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.firstOfficerDisplays.set",
+      "label": "First officer displays",
+      "displays": true,
+      "fields": [
+        "lighting.firstOfficerPfdPercent",
+        "lighting.firstOfficerNdPercent",
+        "lighting.firstOfficerWeatherPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.engineDisplays.set",
+      "label": "Engine and system displays",
+      "displays": true,
+      "fields": [
+        "lighting.upperDisplayPercent",
+        "lighting.lowerDisplayPercent"
+      ]
+    }
+  ],
+  "fbw-a32nx": [
+    {
+      "actionId": "lighting.preset.panels.set",
+      "label": "Panel backlighting",
+      "fields": [
+        "lighting.glareshieldPercent",
+        "lighting.glareshieldLcdPercent",
+        "lighting.mainAndPedestalPercent",
+        "lighting.overheadPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.flood.set",
+      "label": "Flood and table lights",
+      "fields": [
+        "lighting.mainFloodPercent",
+        "lighting.pedestalFloodPercent",
+        "lighting.captainTablePercent",
+        "lighting.firstOfficerTablePercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.captainDisplays.set",
+      "label": "Captain displays",
+      "displays": true,
+      "fields": [
+        "lighting.captainPfdPercent",
+        "lighting.captainNdPercent",
+        "lighting.captainWeatherPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.firstOfficerDisplays.set",
+      "label": "First officer displays",
+      "displays": true,
+      "fields": [
+        "lighting.firstOfficerPfdPercent",
+        "lighting.firstOfficerNdPercent",
+        "lighting.firstOfficerWeatherPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.engineDisplays.set",
+      "label": "Engine and system displays",
+      "displays": true,
+      "fields": [
+        "lighting.upperDisplayPercent",
+        "lighting.lowerDisplayPercent"
+      ]
+    }
+  ],
+  "fbw-a380x": [
+    {
+      "actionId": "lighting.preset.panels.set",
+      "label": "Panel backlighting",
+      "fields": [
+        "lighting.glareshieldPercent",
+        "lighting.glareshieldLcdPercent",
+        "lighting.mainAndPedestalPercent",
+        "lighting.overheadPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.flood.set",
+      "label": "Flood and table lights",
+      "fields": [
+        "lighting.mainFloodPercent",
+        "lighting.pedestalFloodPercent",
+        "lighting.captainTablePercent",
+        "lighting.firstOfficerTablePercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.captainDisplays.set",
+      "label": "Captain displays",
+      "displays": true,
+      "fields": [
+        "lighting.captainPfdPercent",
+        "lighting.captainNdPercent",
+        "lighting.captainWeatherPercent",
+        "lighting.captainMfdPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.firstOfficerDisplays.set",
+      "label": "First officer displays",
+      "displays": true,
+      "fields": [
+        "lighting.firstOfficerPfdPercent",
+        "lighting.firstOfficerNdPercent",
+        "lighting.firstOfficerWeatherPercent",
+        "lighting.firstOfficerMfdPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.engineDisplays.set",
+      "label": "Engine and system displays",
+      "displays": true,
+      "fields": [
+        "lighting.upperDisplayPercent",
+        "lighting.lowerDisplayPercent"
+      ]
+    }
+  ],
+  "inibuilds-a350": [
+    {
+      "actionId": "lighting.preset.panels.set",
+      "label": "Panel backlighting",
+      "fields": [
+        "lighting.integralPercent",
+        "lighting.fcuPercent",
+        "lighting.fcuTextPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.flood.set",
+      "label": "Flood and dome lighting",
+      "fields": [
+        "lighting.mainFloodPercent",
+        "lighting.domePercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.captainTask.set",
+      "label": "Captain map, table and console lights",
+      "fields": [
+        "lighting.captainMapPercent",
+        "lighting.captainTablePercent",
+        "lighting.captainConsolePercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.firstOfficerTask.set",
+      "label": "First officer map, table and console lights",
+      "fields": [
+        "lighting.firstOfficerMapPercent",
+        "lighting.firstOfficerTablePercent",
+        "lighting.firstOfficerConsolePercent"
+      ]
+    },
+    {
+      "actionId": "lighting.preset.displays.set",
+      "label": "Flight displays",
+      "displays": true,
+      "fields": [
+        "lighting.captainDisplayPercent",
+        "lighting.firstOfficerDisplayPercent",
+        "lighting.mfdDisplayPercent",
+        "lighting.systemDisplayPercent"
+      ]
+    }
+  ],
+  "pmdg-737": [
+    {
+      "actionId": "lighting.cockpit.panels.set",
+      "label": "Panel backlighting",
+      "fields": [
+        "lighting.overheadCircuitBreakerPercent",
+        "lighting.overheadPanelPercent",
+        "lighting.mainPanelCaptainPercent",
+        "lighting.mainPanelFirstOfficerPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.cockpit.ambient.set",
+      "label": "Flood and background lighting",
+      "fields": [
+        "lighting.backgroundPercent",
+        "lighting.afdsFloodPercent",
+        "lighting.pedestalFloodPercent",
+        "lighting.pedestalPanelPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.cockpit.captainDisplays.set",
+      "label": "Captain and upper displays",
+      "displays": true,
+      "fields": [
+        "lighting.displayCaptainOutboardPercent",
+        "lighting.displayCaptainInboardPercent",
+        "lighting.displayCaptainMapPercent",
+        "lighting.displayUpperPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.cockpit.firstOfficerDisplays.set",
+      "label": "First officer and lower displays",
+      "displays": true,
+      "fields": [
+        "lighting.displayFirstOfficerOutboardPercent",
+        "lighting.displayFirstOfficerInboardPercent",
+        "lighting.displayFirstOfficerMapPercent",
+        "lighting.displayLowerPercent"
+      ]
+    }
+  ],
+  "pmdg-777": [
+    {
+      "actionId": "lighting.dome.set",
+      "label": "dome",
+      "fields": [
+        "lighting.domePercent"
+      ]
+    },
+    {
+      "actionId": "lighting.circuitBreaker.set",
+      "label": "circuit breaker",
+      "fields": [
+        "lighting.circuitBreakerPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.overheadPanel.set",
+      "label": "overhead panel",
+      "fields": [
+        "lighting.overheadPanelPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.glareshieldPanel.set",
+      "label": "glareshield panel",
+      "fields": [
+        "lighting.glareshieldPanelPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.glareshieldFlood.set",
+      "label": "glareshield flood",
+      "fields": [
+        "lighting.glareshieldFloodPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.leftPanel.set",
+      "label": "left panel",
+      "fields": [
+        "lighting.leftPanelPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.leftFlood.set",
+      "label": "left flood",
+      "fields": [
+        "lighting.leftFloodPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.rightPanel.set",
+      "label": "right panel",
+      "fields": [
+        "lighting.rightPanelPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.rightFlood.set",
+      "label": "right flood",
+      "fields": [
+        "lighting.rightFloodPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.aislePanel.set",
+      "label": "aisle panel",
+      "fields": [
+        "lighting.aislePanelPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.aisleFlood.set",
+      "label": "aisle flood",
+      "fields": [
+        "lighting.aisleFloodPercent"
+      ]
+    },
+    {
+      "actionId": "lighting.leftOutboardDisplay.set",
+      "label": "left outboard display",
+      "fields": [
+        "lighting.leftOutboardDisplayPercent"
+      ],
+      "displays": true
+    },
+    {
+      "actionId": "lighting.leftInboardDisplay.set",
+      "label": "left inboard display",
+      "fields": [
+        "lighting.leftInboardDisplayPercent"
+      ],
+      "displays": true
+    },
+    {
+      "actionId": "lighting.rightInboardDisplay.set",
+      "label": "right inboard display",
+      "fields": [
+        "lighting.rightInboardDisplayPercent"
+      ],
+      "displays": true
+    },
+    {
+      "actionId": "lighting.rightOutboardDisplay.set",
+      "label": "right outboard display",
+      "fields": [
+        "lighting.rightOutboardDisplayPercent"
+      ],
+      "displays": true
+    },
+    {
+      "actionId": "lighting.upperDisplay.set",
+      "label": "upper display",
+      "fields": [
+        "lighting.upperDisplayPercent"
+      ],
+      "displays": true
+    },
+    {
+      "actionId": "lighting.lowerDisplay.set",
+      "label": "lower display",
+      "fields": [
+        "lighting.lowerDisplayPercent"
+      ],
+      "displays": true
+    }
+  ]
+}

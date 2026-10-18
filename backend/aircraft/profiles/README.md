@@ -14,16 +14,22 @@ separate from simulator bindings.
 
 ## Layout
 
-Bundled FlightFabric profiles live under:
+Bundled FlightFabric profiles are authored in
+`backend/aircraft/aircraft-integrations/*.yaml`, beside each aircraft's field and
+action definitions. Each document's `profiles` map uses complete logical keys;
+a family document may contain several variants and their shared base. Aircraft
+without an adapter use a profile-only document.
 
-- `backend/aircraft/profiles/bundled/msfs/*.json`
-- `backend/aircraft/profiles/bundled/xplane/*.json`
+`backend/aircraft/aircraft-definition-files.json` lists the release-owned YAML
+files. Missing or unlisted files and duplicate profile keys fail validation.
+This directory retains the JSON interchange schema, templates and supporting
+documentation; it no longer contains a second authored profile catalogue.
 
 ## Loading and ownership
 
 Bundled profiles are read from the repository or installed app resources. The
-runtime accepts only `bundled/<simulator>/<id>` profiles owned by a Flight
-Fabric release. Profile import, editing, copying, deletion, and user-directory
+runtime accepts only `bundled/<simulator>/<id>` profiles owned by a FlightFabric
+release. Profile import, editing, copying, deletion, and user-directory
 overrides are intentionally unsupported. Older files under
 `Profiles/Aircraft/Local/` or `Profiles/Aircraft/Community/` are ignored and
 left untouched. These locations are unrelated to the MSFS `Community`
@@ -31,8 +37,13 @@ installation folder used as aircraft-matching evidence.
 
 ## File shape
 
-Each profile describes one simulator. MSFS and X-Plane variants use separate
-files.
+Each profile describes one simulator and preserves its own complete key. The
+shared YAML parser supplies the existing profile normalizer, inheritance and
+matching pipeline. JSON export remains supported in raw and flattened forms.
+
+An authored definition contains `schemaVersion: 1`, an optional top-level
+`integration` containing adapter fields/actions, and a `profiles` map. The
+profile objects inside that map retain the following JSON interchange shape.
 
 Basic shape:
 
@@ -192,7 +203,8 @@ The adapter owns the reviewed aircraft behavior:
 - transport routes such as MobiFlight calculator execution, Input
   Events, LVAR inputs, or vendor SDK commands.
 
-These mappings and routes do not belong in the profile JSON. Profiles must not
+These mappings and routes belong in the YAML document's top-level `integration`,
+separate from its `profiles` entries. Profile entries must not
 contain raw calculator code, adapter routes, backend commands, guard
 definitions, or transport readback rules. The browser receives only logical
 IDs, decoded values, and capability state.
@@ -399,8 +411,11 @@ X-Plane profiles use:
 
 ## Creation
 
-Add release-owned profiles to
-`backend/aircraft/profiles/bundled/<simulator>/`. Start from:
+Add release-owned profiles to the appropriate family YAML's `profiles` map, or
+create a profile-only YAML document under `backend/aircraft/aircraft-integrations/`
+and add its filename to `backend/aircraft/aircraft-definition-files.json`. Preserve
+the complete `bundled/<simulator>/<id>` key. The JSON interchange templates can
+be used to prepare the profile object before placing it in YAML:
 
 - `_template.json` for MSFS
 - `_template-xplane.json` for X-Plane

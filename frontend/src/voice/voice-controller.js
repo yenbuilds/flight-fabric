@@ -14,6 +14,7 @@ import { baroResultText } from '../aircraft/baro.js';
 import { comRadioResultText } from '../aircraft/com-radio.js';
 import { flapResultText } from '../aircraft/flap-controls.js';
 import { gearResultText } from '../aircraft/gear-controls.js';
+import { spoilerObservationFailureText } from '../aircraft/spoiler-controls.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } from './state-queries.js';
 import { answerFlightPlanQuery, flightPlanQueryExamples } from './flight-plan-queries.js';
@@ -38,6 +39,7 @@ export function createVoiceControlController({
   aircraftSpecificStore,
   simbriefStore = null,
   voiceStore,
+  isInputAllowed = () => true,
   globalRef = globalThis,
   createCapture = createPcmCapture,
   readback = null,
@@ -58,6 +60,7 @@ export function createVoiceControlController({
   let controllerActionRevision = 0;
   let pushToTalkRetry = null;
   let shortcutRecording = null;
+  let recognitionChange = null;
   const spokenReadback = readback || createLocalReadback({ globalRef });
   const acknowledgementTone = pushToTalkTone || createPushToTalkTone({ globalRef });
   const unsubscribers = [];
@@ -254,6 +257,11 @@ export function createVoiceControlController({
       voiceStore.setState('unavailable', 'Voice control is available in the desktop app.');
       return;
     }
+    if (!isInputAllowed()) {
+      resultHeld = false;
+      voiceStore.setState('blocked', 'Finish initial setup before using voice control.');
+      return;
+    }
     if (voiceStore.runtime.enabled !== true) {
       resultHeld = false;
       voiceStore.setState('disabled', 'Voice control is off. Enable it in Voice settings.');
@@ -303,6 +311,13 @@ export function createVoiceControlController({
     if (pendingCommand !== command) return;
     pendingCommand = null;
     resultHeld = true;
+    const spoilerUnconfirmed = spoilerObservationFailureText(result, command);
+    if (spoilerUnconfirmed) {
+      const detail = typeof result.error === 'string' && result.error.trim() ? ` ${result.error.trim()}` : '';
+      voiceStore.setState('error', `${spoilerUnconfirmed}${detail}`);
+      speakReadback(spoilerUnconfirmed);
+      return;
+    }
     const gear = gearResultText(result, command);
     if (gear) {
       const detail = typeof result.error === 'string' && result.error.trim() ? ` ${result.error.trim()}` : '';
@@ -417,6 +432,12 @@ export function createVoiceControlController({
     const input = { source, pttAttemptId: source === 'global' && typeof pttAttemptId === 'string' ? pttAttemptId : '' };
     const refuse = () => { retireGlobalAttempt(input); return false; };
     if (source === 'global' && !input.pttAttemptId) return false;
+    // Native keyboard/controller hooks bypass the modal's DOM input trap.
+    // Retire blocked holds here; completing setup must require a fresh press.
+    if (!isInputAllowed()) {
+      refreshReadyState();
+      return refuse();
+    }
     if (!disposed && source === 'global' && active?.source === 'global' && active.pttAttemptId === input.pttAttemptId) return true;
     if (disposed || active || voiceStore.controllerSetup?.active || shortcutRecording || voiceStore.shortcutRecording?.active
         || voiceTest.busy || deviceDiscovery || voiceStore.runtime.enabled !== true) return refuse();
@@ -975,32 +996,58 @@ export function createVoiceControlController({
     refreshReadyState();
   }
 
-  async function setRecognitionEnabled(value) {
+  async function setRecognitionEnabled(value, { requestMicrophoneAccess = true } = {}) {
     if (disposed || !api?.setRecognitionEnabled) return false;
     const nextEnabled = value === true;
-    if (!nextEnabled) void endShortcutRecording();
-    invalidatePushToTalkRetry();
-    if (!nextEnabled) cancelDeviceDiscovery();
-    if (!nextEnabled) await voiceTest.cancel();
-    if (!nextEnabled && active) await cancel('voice-disabled');
-    try {
-      const info = await api.setRecognitionEnabled(nextEnabled);
-      voiceStore.applyRuntimeInfo(info);
-      // Enabling voice is an explicit user action, so it is also the right
-      // time to briefly open the default input and reveal its real device
-      // labels. No PCM capture is created and the temporary stream is closed
-      // inside discoverAudioInputDevices().
-      if (voiceStore.runtime.enabled === true) await refreshInputDevices({ requestAccess: true });
-      else {
-        voiceStore.setInputDevices?.([]);
-        voiceStore.setInputDevicesError?.('');
+    const previous = recognitionChange;
+    const request = { retire: null };
+    const retired = new Promise(resolve => { request.retire = () => resolve(false); });
+    recognitionChange = request;
+    voiceStore.recognitionChangeId = (voiceStore.recognitionChangeId || 0) + 1;
+    voiceStore.recognitionChanging = true;
+    previous?.retire();
+    const current = () => !disposed && recognitionChange === request;
+    // Settings and the intro share one preference owner. A newer Off request
+    // must reach native persistence without waiting for an older model start.
+    const work = (async () => {
+      try {
+        if (!nextEnabled) void endShortcutRecording();
+        invalidatePushToTalkRetry();
+        cancelDeviceDiscovery();
+        if (!nextEnabled) await voiceTest.cancel();
+        if (!current()) return false;
+        if (!nextEnabled && active) await cancel('voice-disabled');
+        if (!current()) return false;
+        const info = await api.setRecognitionEnabled(nextEnabled);
+        if (!current()) return false;
+        voiceStore.recognitionSaveFailed = false;
+        voiceStore.applyRuntimeInfo(info);
+        // Enabling voice can briefly discover microphone labels. The intro
+        // explicitly opts out, and retired requests must never acquire input.
+        if (voiceStore.runtime.enabled === true && requestMicrophoneAccess) await refreshInputDevices({ requestAccess: true });
+        else if (voiceStore.runtime.enabled !== true) {
+          voiceStore.setInputDevices?.([]);
+          voiceStore.setInputDevicesError?.('');
+        }
+        if (!current()) return false;
+        refreshReadyState();
+        return voiceStore.runtime.enabled === nextEnabled;
+      } catch (error) {
+        if (current()) {
+          // Native Off closes input even when the settings write fails. Keep
+          // that distinction across consumers until a later save succeeds.
+          voiceStore.recognitionSaveFailed = true;
+          voiceStore.setState('error', error?.message || 'Voice control setting could not be changed.');
+        }
+        return false;
+      } finally {
+        if (recognitionChange === request) {
+          recognitionChange = null;
+          voiceStore.recognitionChanging = false;
+        }
       }
-      refreshReadyState();
-      return voiceStore.runtime.enabled === nextEnabled;
-    } catch (error) {
-      voiceStore.setState('error', error?.message || 'Voice control setting could not be changed.');
-      return false;
-    }
+    })();
+    return Promise.race([work, retired]);
   }
 
   function handlePushToTalk(event = {}) {
@@ -1174,6 +1221,10 @@ export function createVoiceControlController({
 
   async function dispose() {
     disposed = true;
+    recognitionChange?.retire();
+    recognitionChange = null;
+    voiceStore.recognitionChangeId = (voiceStore.recognitionChangeId || 0) + 1;
+    voiceStore.recognitionChanging = false;
     void endShortcutRecording();
     cancelDeviceDiscovery();
     invalidatePushToTalkRetry();

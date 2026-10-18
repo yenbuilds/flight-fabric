@@ -10,6 +10,7 @@ import { useSystemHostStore } from '../stores/system-host.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useShellStore } from '../stores/shell.js';
 import { useProfilesStore } from '../stores/profiles.js';
+import { focusSettingsSection } from '../settings-section-navigation.js';
 
 const status = useStatusStore();
 const systemHost = useSystemHostStore();
@@ -23,6 +24,27 @@ function handleStartRecordingManual() {
 
 function handleEndFlightManual() {
   status.requestEndFlightManual();
+}
+
+async function openRecordingView(tabId, close) {
+  if (profiles.authorizationScope !== 'full-control') return;
+  if (tabs.activeTabId !== tabId && !tabs.requestTabChange(tabId)) return;
+  close();
+  tabs.closeMoreSheet();
+  await nextTick();
+  await nextTick();
+  if (tabs.activeTabId !== tabId || profiles.authorizationScope !== 'full-control') return;
+  if (tabId === 'settings') {
+    await focusSettingsSection('settings-general');
+    if (tabs.activeTabId !== tabId) return;
+    const control = document.getElementById('setting-recording-auto-start');
+    if (control?.getClientRects().length && !control.closest('[inert]')) {
+      control.focus({ preventScroll: true });
+      control.scrollIntoView({ block: 'center', behavior: 'instant' });
+    }
+  } else {
+    document.getElementById('timeline-flight-search')?.focus({ preventScroll: true });
+  }
 }
 
 async function openMobileAccess() {
@@ -143,28 +165,33 @@ async function openMobileAccess() {
             <div id="recording-indicator" :class="{ hidden: !status.recordingVisible }">
               <AppTooltip placement="bottom-end" tooltip-class="w-72" anchor-tag="div" interactive trigger-mode="click" :label="status.recordingTitle" :disabled="!status.recordingVisible">
                 <template #default="{ open, toggle, tooltipId }">
-                  <button id="recording-details-btn" type="button" class="ff-status-chip recording-details-trigger" :class="status.recordingPillToneClass"
-                    :aria-label="`${status.recordingTitle}. Open recording details`" aria-haspopup="dialog" :aria-expanded="open" :aria-controls="tooltipId" @click="toggle">
-                    <span class="h-2 w-2 rounded-full animate-pulse" :class="status.recordingDotToneClass" aria-hidden="true"></span>
-                    <span class="font-medium" :class="status.recordingLabelToneClass">{{ status.recordingBadgeLabel }}</span>
+                  <button id="recording-details-btn" type="button" class="recording-details-trigger"
+                    :aria-label="status.recordingAccessibleLabel" aria-haspopup="dialog" :aria-expanded="open" :aria-controls="tooltipId" @click="toggle">
+                    <span class="ff-status-chip recording-badge" :class="status.recordingPillToneClass">
+                      <span class="recording-dot h-2 w-2 rounded-full" :class="status.recordingDotToneClass" aria-hidden="true"></span>
+                      <span class="font-medium" :class="status.recordingLabelToneClass">{{ status.recordingBadgeLabel }}</span>
+                      <span v-if="status.recording.status === 'recording' && status.recordingSizeLabel" id="recording-size" class="recording-size text-fg">
+                        <svg class="recording-storage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" focusable="false"><path d="m5 4-3 11v5h20v-5L19 4Z" stroke-linejoin="round"/><path d="M2 15h20M6 18h.01M10 18h.01" stroke-linecap="round"/></svg>
+                        <span>{{ status.recordingSizeLabel }}</span>
+                      </span>
+                    </span>
                   </button>
                 </template>
-                <template #content>
+                <template #content="{ close }">
                   <div class="mb-2 text-xs font-semibold" :class="status.recordingTitleToneClass">{{ status.recordingTitle }}</div>
-                  <div id="recording-path" class="break-all font-mono text-[10px] text-gray-400">
-                    <template v-if="status.recordingFailed">
-                      <strong class="text-warning">Recording Failed</strong><br>
-                      <span>{{ status.recordingDetail }}</span>
-                    </template>
-                    <template v-else>
-                      <strong>Saving to:</strong><br>
-                      <span>{{ status.recordingDetail }}</span>
-                    </template>
-                  </div>
-                  <div class="mt-2 border-t border-border/70 pt-2">
-                    <div class="mb-2 text-[10px] text-muted-fg">
-                      Flight logs are saved automatically when you land or change aircraft.
+                  <p v-if="status.recordingFailed" id="recording-path" class="text-xs text-warning">{{ status.recordingDetail }}</p>
+                  <template v-else>
+                    <p class="text-xs leading-relaxed text-muted-fg">{{ status.recordingFinalizing ? 'Finishing the local recording for your Logbook and debrief.' : 'Flight data is being saved locally for your Logbook and debrief.' }}</p>
+                    <div v-if="status.recording.status === 'recording'" class="my-3 flex items-center gap-2 text-xs text-fg">
+                      <svg class="h-4 w-4 shrink-0 text-muted-fg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true" focusable="false"><path d="m5 4-3 11v5h20v-5L19 4Z" stroke-linejoin="round"/><path d="M2 15h20M6 18h.01M10 18h.01" stroke-linecap="round"/></svg>
+                      <span>{{ status.recordingSizeLabel ? `${status.recordingSizeLabel} written this flight` : 'Recording size unavailable' }}</span>
                     </div>
+                    <div v-if="status.recordingDetail" id="recording-path" class="mt-2 break-all text-[10px] text-muted-fg">
+                      <span>{{ status.recording.outputDir || status.recording.filePath ? 'Recording location' : 'Recording file' }}</span>
+                      <div class="font-mono">{{ status.recordingDetail }}</div>
+                    </div>
+                  </template>
+                  <div class="mt-2 border-t border-border/70 pt-2">
                     <button
                       v-if="profiles.authorizationScope === 'full-control'"
                       id="end-flight-btn"
@@ -175,6 +202,10 @@ async function openMobileAccess() {
                     >
                       {{ status.recordingFinalizing ? 'Saving flight...' : 'End Flight Manually' }}
                     </button>
+                    <div v-if="profiles.authorizationScope === 'full-control'" class="mt-2 grid gap-1">
+                      <button id="recording-logbook-btn" type="button" class="ff-button-secondary justify-center px-3 py-1.5 text-xs" @click="openRecordingView('timeline', close)">View Logbook</button>
+                      <button id="recording-settings-btn" type="button" class="ff-button-secondary justify-center px-3 py-1.5 text-xs" @click="openRecordingView('settings', close)">Recording settings</button>
+                    </div>
                   </div>
                 </template>
               </AppTooltip>

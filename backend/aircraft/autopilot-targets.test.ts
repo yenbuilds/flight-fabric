@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
-const { defaultAircraftIntegrationRegistry: registry } = require('./aircraft-integrations');
+const { defaultAircraftIntegrationRegistry: registry } = require('./integration-engine');
 
 function action(adapter, profile, id) {
   return registry.resolveAction({ adapterId: adapter, profileKey: `bundled/msfs/${profile}`, actionId: id });

@@ -135,7 +135,8 @@ onUnmounted(() => {
         aria-label="Correct aircraft profile match"
         aria-controls="aircraft-profile-correction-panel"
       >
-        Wrong aircraft?
+        <span class="aircraft-correction-full">Wrong aircraft?</span>
+        <span class="aircraft-correction-compact">Match?</span>
       </summary>
 
       <div
@@ -191,6 +192,13 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.aircraft-correction-compact { display: none; }
+
+@media (max-width: 360px) {
+  .aircraft-correction-full { display: none; }
+  .aircraft-correction-compact { display: inline; }
+}
+
 .aircraft-profile-correction-panel {
   width: min(18rem, calc(100vw - 1.5rem));
 }

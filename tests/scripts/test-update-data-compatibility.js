@@ -50,6 +50,27 @@ function assertPreferences(settings) {
   assert.equal(settings.debrief.stabilityCriteria.speedPlusKts, 7);
 }
 
+function reopenSettings() {
+  const settingsModule = runtime('core', 'user-settings.js');
+  delete require.cache[settingsModule];
+  return require(settingsModule);
+}
+
+test('virgin profile keeps setup required until completion and restores each recording choice', () => {
+  assert.equal(fs.existsSync(settingsFile), false, 'no settings exist before the first launch');
+  const initial = reopenSettings();
+  assert.equal(initial.settings.onboarding.completed, false);
+  assert.equal(JSON.parse(fs.readFileSync(settingsFile, 'utf8')).onboarding.completed, false);
+  assert.equal(reopenSettings().settings.onboarding.completed, false, 'relaunching unfinished setup does not complete it');
+  for (const autoStart of [false, true]) {
+    const current = reopenSettings();
+    current.updateUserSettings({ onboarding: { completed: true }, recording: { autoStart } });
+    const restored = reopenSettings().settings;
+    assert.equal(restored.onboarding.completed, true);
+    assert.equal(restored.recording.autoStart, autoStart, 'the explicit recording choice survives a fresh settings load');
+  }
+});
+
 for (const historical of provenance.settings) {
   test(historical.tag + ' settings retain saved choices on direct load, save and reopen', () => {
     fs.copyFileSync(path.join(fixtures, historical.file), settingsFile);
@@ -57,10 +78,22 @@ for (const historical of provenance.settings) {
     delete require.cache[settingsModule];
     const current = require(settingsModule);
     assertPreferences(current.settings);
+    assert.equal(current.settings.onboarding.completed, false, 'pre-intro versions require setup once');
     current.saveUserSettings(current.settings);
     assertPreferences(JSON.parse(fs.readFileSync(settingsFile, 'utf8')));
     delete require.cache[settingsModule];
-    assertPreferences(require(settingsModule).settings);
+    const restored = require(settingsModule);
+    assertPreferences(restored.settings);
+    assert.equal(restored.settings.onboarding.completed, false, 'an ordinary settings save does not complete setup');
+    restored.updateUserSettings({ onboarding: { completed: true } });
+    // The launcher runs again after an update/reinstall. Its own settings save
+    // must preserve the backend-owned setup flag and recording preference.
+    const { createSettingsStore } = require('../../electron/settings-store');
+    const launcher = createSettingsStore({ settingsFile });
+    assert.equal(launcher.saveSettings(launcher.getSettings()).success, true);
+    const relaunched = reopenSettings().settings;
+    assertPreferences(relaunched);
+    assert.equal(relaunched.onboarding.completed, true, 'completed setup stays complete after launcher save and reload');
   });
 }
 

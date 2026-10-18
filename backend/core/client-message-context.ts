@@ -5,6 +5,7 @@ export type ClientMessageContextState = {
   getSimState?: unknown;
   getPhase: unknown;
   flightCsvWriter: unknown;
+  getFlightRecordingStatus?: unknown;
   flightCsvStore?: unknown;
   recordingBundleGuard: unknown;
   flightActive: unknown;
@@ -35,6 +36,7 @@ export function buildClientMessageContext(state: ClientMessageContextState): Cli
     getSimState: state.getSimState,
     getPhase: state.getPhase,
     flightCsvWriter: state.flightCsvWriter,
+    getFlightRecordingStatus: state.getFlightRecordingStatus,
     flightCsvStore: state.flightCsvStore,
     recordingBundleGuard: state.recordingBundleGuard,
     flightActive: state.flightActive,

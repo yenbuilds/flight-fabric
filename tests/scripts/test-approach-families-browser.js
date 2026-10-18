@@ -4,6 +4,8 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const ROOT = path.resolve(__dirname, '../..'), OUT = path.join(ROOT, '.tmp', 'approach-families-browser');
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const PMDG_PROFILES = ['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900',
+  'pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f'];
 
 async function browser() {
   const { app, BrowserWindow } = require('electron');
@@ -17,6 +19,35 @@ async function browser() {
     await win.loadURL(`${process.env.FF_APPROACH_FAMILIES_URL}/fixture`);
     for (let i = 0; i < 100 && !await evaluate('return Boolean(window.familiesReady);'); i++) await wait(50);
     assert.equal(await evaluate('return Boolean(window.familiesReady);'), true);
+    win.webContents.debugger.attach('1.3');
+    // Real pointer input on the rendered MCP must dispatch the same canonical
+    // engagement command as voice for every profile sharing these two panels.
+    for (const width of [1180, 320]) for (const profile of PMDG_PROFILES) {
+      win.setContentSize(width, 844);
+      await evaluate(`await familiesTest.select('${profile}');`);
+      const is737 = profile.startsWith('pmdg-737');
+      for (const [field, action, phrase] of [
+        [is737 ? 'afds.headingSelect' : 'flightGuidance.headingHold', is737 ? 'afds.headingSelect.engage' : 'afds.headingHold.engage', is737 ? 'engage heading select' : 'engage heading hold'],
+        [is737 ? 'afds.approach' : 'flightGuidance.approach', 'afds.approach.engage', 'approach'],
+      ]) {
+        const selector = `[data-aircraft-action="${action}"]`;
+        await evaluate(`familiesTest.clear(); await familiesTest.publish(false, { '${field}': false });
+          for (let el=document.querySelector('${selector}'); el; el=el.parentElement) if (el.tagName==='DETAILS') el.open=true;
+          await familiesTest.tick(); document.querySelector('${selector}').scrollIntoView({block:'center'});`);
+        assert.equal(await evaluate(`return document.querySelector('${selector}').disabled;`), false, `${profile} ${action} ready`);
+        const voice = await evaluate(`return familiesTest.voice('${phrase}');`);
+        assert.equal(voice.ok, true, `${profile}: ${phrase}`);
+        const before = await evaluate('return familiesTest.sent.length;');
+        const point = await evaluate(`const r=document.querySelector('${selector}').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2};`);
+        for (const type of ['mousePressed', 'mouseReleased']) await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1 });
+        await evaluate('await familiesTest.tick();');
+        assert.equal(await evaluate('return familiesTest.sent.length;'), before + 1, `${profile} native ${action} click`);
+        assert.deepEqual(await evaluate('return familiesTest.sent.at(-1);'), { type: 'canonical', commandId: voice.commandId, input: voice.input });
+        assert.equal(await evaluate(`return document.querySelector('${selector}').disabled;`), true, 'pending engagement rejects duplicates');
+        await evaluate(`familiesTest.clear(); await familiesTest.publish(true, { '${field}': false });`);
+        assert.equal(await evaluate(`return document.querySelector('${selector}').disabled;`), true, 'unavailable readback blocks engagement');
+      }
+    }
     for (const width of [1180, 390, 320]) {
       win.setContentSize(width, width === 1180 ? 700 : 844); await wait(50);
       for (const profile of ['pmdg-737', 'pmdg-777', 'fenix-a320']) {
@@ -34,6 +65,12 @@ async function browser() {
         assert.deepEqual(await evaluate('return familiesTest.sent[0];'), { type: 'canonical', commandId: 'surfaces.spoilers.set', input: { value: 'half' } });
         assert.equal(await evaluate(`return [...document.querySelectorAll('${group} button')].every(b => b.disabled);`), true, `${profile} pending shared physical control`);
         await evaluate('familiesTest.clear(); await familiesTest.publish();');
+        if (profile === 'pmdg-777') {
+          for (const [handle, selected] of [[75, true], [50, false], [100, false]]) {
+            await evaluate(`await familiesTest.publish(false, { 'controls.speedbrakePercent': ${handle} });`);
+            assert.equal(await evaluate(`return document.querySelector('${selectButton}').getAttribute('aria-pressed');`), String(selected), `777 HALF at SDK lever ${handle}`);
+          }
+        }
         const brakeButton = fenix ? '[aria-label="Autobrake MEDIUM"]' : `[data-aircraft-action="${profile === 'pmdg-737' ? 'gear.autobrake.level3' : 'controls.autobrake.disarm'}"]`;
         await evaluate(`document.querySelector('${brakeButton}').click(); await familiesTest.tick();`);
         assert.deepEqual(await evaluate('return familiesTest.sent.at(-1);'), { type: 'canonical', commandId: 'surfaces.autobrake.set', input: { value: fenix ? 'medium' : profile === 'pmdg-737' ? '3' : 'disarm' } });
@@ -63,7 +100,7 @@ async function browser() {
 
       }
     }
-    assert.deepEqual(errors, []); console.log('Approach family browser checks passed: real Fenix and PMDG panels at desktop/390px/320px, aircraft-specific inputs, shared pending guards, stale and contradictory data.');
+    assert.deepEqual(errors, []); console.log('Approach family browser checks passed: native MCP heading/approach and voice parity for eight PMDG profiles at desktop/320px; Fenix and PMDG surfaces at desktop/390px/320px, pending guards and unavailable data.');
     win.destroy(); app.exit(0);
   } catch (error) {
     fs.writeFileSync(path.join(OUT, 'failure.png'), (await win.webContents.capturePage()).toPNG()); console.error(error, errors); app.exit(1);
@@ -76,7 +113,7 @@ async function main() {
   const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
   const { buildAircraftControlCapabilities } = require(runtime('aircraft/aircraft-control-service.js'));
   const catalogues = {};
-  for (const id of ['pmdg-737', 'pmdg-777', 'fenix-a320']) {
+  for (const id of [...PMDG_PROFILES, 'fenix-a320']) {
     loader.setActiveProfile(id); catalogues[id] = buildAircraftControlCapabilities(loader.getActiveProfile(), {
       profileRevision: loader.getAircraftSpecificConfig().profileRevision,
       capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] },

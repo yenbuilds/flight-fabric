@@ -241,6 +241,7 @@ function sendRequestStateSnapshot(ws: WsLike, {
   getPhase,
   getCabinAnnouncementsConfig,
   flightCsvWriter,
+  getFlightRecordingStatus,
   replayMessages,
   Debug,
 }: AnyRecord) {
@@ -268,7 +269,9 @@ function sendRequestStateSnapshot(ws: WsLike, {
     ws.send(JSON.stringify({ type: MSG.PHASE, value: currentPhase }));
   }
 
-  if (flightCsvWriter.isRecording()) {
+  if (typeof getFlightRecordingStatus === 'function') {
+    ws.send(JSON.stringify(getFlightRecordingStatus()));
+  } else if (flightCsvWriter.isRecording()) {
     const csvStats = flightCsvWriter.getStats();
     ws.send(JSON.stringify({
       type: MSG.FLIGHT_RECORDING,
@@ -649,6 +652,7 @@ async function handleClientMessage(ws, msg, context) {
     getSimState,
     getPhase,
     flightCsvWriter,
+    getFlightRecordingStatus,
     flightCsvStore : runtimeFlightCsvStore,
     recordingBundleGuard,
     flightActive,
@@ -777,6 +781,7 @@ async function handleClientMessage(ws, msg, context) {
         lastSimState,
         getPhase,
         flightCsvWriter,
+        getFlightRecordingStatus,
         replayMessages,
         getCabinAnnouncementsConfig,
         Debug,

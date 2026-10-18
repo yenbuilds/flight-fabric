@@ -1,0 +1,93 @@
+<svg id="still" xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600" fill="none">
+  <defs>
+    <radialGradient id="halo"><stop stop-color="#3C6190" stop-opacity=".4"/><stop offset="1" stop-color="#1A334B" stop-opacity="0"/></radialGradient>
+    <linearGradient id="frame" x1="113" y1="180" x2="433" y2="414" gradientUnits="userSpaceOnUse"><stop stop-color="#849BB2"/><stop offset=".45" stop-color="#425D78"/><stop offset="1" stop-color="#20384F"/></linearGradient>
+    <linearGradient id="sky" x1="268" y1="204" x2="268" y2="362" gradientUnits="userSpaceOnUse"><stop stop-color="#7BACC4"/><stop offset=".6" stop-color="#D2DCCA"/><stop offset="1" stop-color="#F2D5A1"/></linearGradient>
+    <linearGradient id="sea" x1="234" y1="314" x2="259" y2="392" gradientUnits="userSpaceOnUse"><stop stop-color="#4E959E"/><stop offset="1" stop-color="#255E77"/></linearGradient>
+    <linearGradient id="stand" x1="238" y1="404" x2="321" y2="478" gradientUnits="userSpaceOnUse"><stop stop-color="#658398"/><stop offset="1" stop-color="#283F58"/></linearGradient>
+    <linearGradient id="glass" x1="349" y1="221" x2="487" y2="385" gradientUnits="userSpaceOnUse"><stop stop-color="#3F6975"/><stop offset="1" stop-color="#1C3D50"/></linearGradient>
+    <linearGradient id="button" x1="417" y1="175" x2="459" y2="223" gradientUnits="userSpaceOnUse"><stop stop-color="#B7F2D7"/><stop offset="1" stop-color="#56CCB3"/></linearGradient>
+    <linearGradient id="yoke" x1="177" y1="435" x2="319" y2="516" gradientUnits="userSpaceOnUse"><stop stop-color="#7490B0"/><stop offset=".5" stop-color="#456383"/><stop offset="1" stop-color="#284361"/></linearGradient>
+    <clipPath id="screen"><rect x="113" y="192" width="316" height="196" rx="11"/></clipPath>
+    <filter id="shadow" x="-40%" y="-35%" width="190%" height="195%"><feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#07111E" flood-opacity=".32"/></filter>
+    <filter id="soft"><feGaussianBlur stdDeviation="10"/></filter>
+  </defs>
+  <style>
+    :root:target * { animation:none !important; }
+    .companion { animation:panel-in .7s cubic-bezier(.2,.65,.3,1) both; }
+    .toolbar-button { transform-box:fill-box; transform-origin:center; animation:button-in .5s ease-out .2s both; }
+    @keyframes panel-in { from { transform:translate(0,14px); opacity:0; } to { transform:none; opacity:1; } }
+    @keyframes button-in { from { transform:scale(.88); opacity:0; } to { transform:scale(1); opacity:1; } }
+    @media (prefers-reduced-motion:reduce) { .companion,.toolbar-button { animation:none; } }
+  </style>
+  <circle cx="300" cy="299" r="251" fill="url(#halo)"/>
+  <path d="M99 343C62 213 149 123 268 119C389 115 487 184 509 291" stroke="#A8BEDB" stroke-opacity=".16"/>
+  <path d="M119 451C218 519 403 510 477 421" stroke="#A8BEDB" stroke-opacity=".16"/>
+  <circle cx="269" cy="119" r="5" fill="#91B6D1"/>
+  <ellipse cx="300" cy="511" rx="181" ry="22" fill="#061520" opacity=".45" filter="url(#soft)"/>
+  <!-- A softly bevelled monitor frames an illustrated coastal approach. -->
+  <g filter="url(#shadow)">
+    <path d="M248 393H292L306 463H232Z" fill="url(#stand)"/>
+    <path d="M232 456H306L339 472C344 476 341 482 334 482H203C196 482 194 476 201 472Z" fill="url(#stand)"/>
+    <rect x="94" y="179" width="350" height="232" rx="23" fill="#263E54"/>
+    <rect x="94" y="171" width="350" height="234" rx="23" fill="url(#frame)" stroke="#98B3C4" stroke-opacity=".65"/>
+    <rect x="105" y="184" width="332" height="211" rx="15" fill="#11293D"/>
+    <g clip-path="url(#screen)">
+      <path d="M113 192H429V388H113Z" fill="url(#sky)"/>
+      <circle cx="347" cy="257" r="23" fill="#FAE5B8"/>
+      <path d="M144 246C151 235 163 236 170 241C171 225 192 220 202 232C214 226 225 233 227 241H254C260 241 260 250 253 250H144Z" fill="#EDF0DF" opacity=".7"/>
+      <path d="M300 216C306 207 314 209 318 212C322 201 337 202 341 213H362C368 213 368 221 362 221H300Z" fill="#EDF0DF" opacity=".5"/>
+      <path d="M113 299L151 294L179 302L207 292L231 301L273 296L308 304L356 293L429 296V389H113Z" fill="url(#sea)"/>
+      <path d="M313 293L296 308L308 318L274 333L289 345L266 356L252 388H429V305L383 294Z" fill="#8CAE99"/>
+      <path d="M313 293L296 308L308 318L274 333L289 345L266 356L252 388" stroke="#E3DDBA" stroke-width="3"/>
+      <path d="M328 308L337 308L376 388H299Z" fill="#637D81"/>
+      <path d="M330 312L332 318M334 324L337 332M340 342L345 354M350 366L357 382" stroke="#E9E8CF" stroke-width="2.5"/>
+      <path d="M123 321H151M177 335H209M145 355H192" stroke="#CAE1D7" stroke-opacity=".33" stroke-width="2" stroke-linecap="round"/>
+      <!-- Cockpit brow and lower instruments, deliberately illustrative. -->
+      <path d="M112 193H130L160 332L149 338Z" fill="#293E53"/>
+      <path d="M113 351C188 329 255 344 288 361L304 388H113Z" fill="#233A50"/>
+      <path d="M113 358C188 337 253 351 282 366" stroke="#6D8290" stroke-width="3"/>
+      <rect x="160" y="354" width="46" height="31" rx="4" fill="#131F35"/>
+      <path d="M165 359H201V372H165Z" fill="#73A7BD"/>
+      <path d="M165 372H201V380H165Z" fill="#BAA77B"/>
+      <path d="M177 369H189M183 365V374" stroke="#F2E4BB" stroke-width="2" stroke-linecap="round"/>
+      <rect x="219" y="360" width="40" height="25" rx="4" fill="#152B40"/>
+      <path d="M226 378L233 368L240 377L252 364" stroke="#93DCC2" stroke-width="2"/>
+    </g>
+    <circle cx="271" cy="399" r="2" fill="#A2DCC6"/>
+  </g>
+  <!-- A companion panel floating just out of the screen shows the concept, not fake product UI. -->
+  <g class="companion">
+    <g filter="url(#shadow)">
+      <rect x="354" y="239" width="135" height="181" rx="20" fill="#172F42"/>
+      <rect x="348" y="229" width="135" height="181" rx="20" fill="url(#glass)" stroke="#A0DCD7" stroke-opacity=".62"/>
+      <path d="M367 250H411" stroke="#C2E5DF" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="460" cy="250" r="3" fill="#94C7C6"/>
+      <path d="M366 270H465" stroke="#88B8B9" stroke-opacity=".27"/>
+      <path d="M365 305C386 272 411 320 432 291C441 279 450 285 464 281" stroke="#A6EAC8" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="365" cy="305" r="4" fill="#A6EAC8"/>
+      <circle cx="464" cy="281" r="4" fill="#EAD1A2"/>
+      <rect x="365" y="329" width="24" height="24" rx="7" fill="#98D4BC" fill-opacity=".2"/>
+      <path d="M372 341L376 345L383 337" stroke="#B1E8CD" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M402 336H454M402 345H432" stroke="#B9DAD7" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+      <rect x="365" y="367" width="24" height="24" rx="7" fill="#A3C3EF" fill-opacity=".18"/>
+      <path d="M372 379H382M377 374V384" stroke="#BAD7EE" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M402 374H447M402 383H437" stroke="#B9DAD7" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+    </g>
+  </g>
+  <g class="toolbar-button">
+    <rect x="418" y="167" width="56" height="56" rx="17" transform="rotate(10 418 167)" fill="url(#button)" filter="url(#shadow)"/>
+    <g transform="translate(441 197) rotate(10)">
+      <path d="M0-17C2-17 3-13 3-10L4-3L19 7V11L4 6L3 16L8 21V23L0 20L-8 23V21L-3 16L-4 6L-19 11V7L-4-3L-3-10C-3-13-2-17 0-17Z" fill="#235B5F"/>
+    </g>
+  </g>
+  <!-- Tactile desk controls ground the scene in a home simulator. -->
+  <path d="M182 455C174 438 154 442 153 458L156 486C157 501 174 509 198 510H287C308 510 320 501 320 484V455C318 440 299 440 295 455L290 479H191Z" fill="url(#yoke)" filter="url(#shadow)"/>
+  <path d="M161 457L164 483C165 492 177 497 191 498M311 457V482C311 492 304 498 289 498" stroke="#A1B9CD" stroke-opacity=".42" stroke-width="3" stroke-linecap="round"/>
+  <path d="M225 473H259L273 503H211Z" fill="#334F70"/>
+  <circle cx="243" cy="489" r="9" fill="#7BA5BD"/>
+  <circle cx="171" cy="466" r="4" fill="#A7E3C7"/>
+  <rect x="298" y="461" width="8" height="4" rx="2" fill="#EDD29E"/>
+  <circle cx="130" cy="133" r="6" fill="#E6C190"/>
+  <path d="M492 446V460M485 453H499" stroke="#7FBBB9" stroke-width="2" stroke-linecap="round"/>
+</svg>

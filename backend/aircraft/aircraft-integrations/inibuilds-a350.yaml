@@ -1,0 +1,3476 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: inibuilds-a350/nd-range.ts
+# Installed A350 1.2.6 cockpit behavior and HubHop use MAP_RANGE;
+# the older vendor PDF says MAP_MODE_RANGE. Both sides passed parked readback
+# checks on the -900; see docs/A350-PROFILE-VALIDATION.md for scope and limits.
+# The selector has twelve positions. Only the seven normal
+# navigation detents are exposed; airport zoom and mode-dependent scale are not.
+
+# Mapping source notes: inibuilds-a350/fields.ts
+# iniBuilds publishes these exact A350 variables for external hardware and
+# software. Raw names and selector detents remain private to this family
+# adapter; standard surface state is explicitly named below.
+
+# Shared source notes: cockpit-lighting.ts
+# These helper notes retain their stated aircraft and verification scope.
+# Explicit aircraft contracts, not generic MSFS potentiometer guesses. FBW
+# indices come from each aircraft's Flight Deck API. Headwind was separately
+# checked against its installed A330_NEO_INTERIOR.xml. Fenix names and 0..1
+# bounds come from the shipped Cockpit_Behavior.xml and knob templates.
+# iniBuilds A350 1.2.6 A350_Interior.behavior.xml: knob setters clamp
+# these LVARs to 0..100; display BRT buttons write 35/37/39/41 in that
+# same range. The adjacent even indices control contrast, not brightness.
+# See docs/COCKPIT-LIGHTING-VALIDATION.md for source and live evidence.
+# Headwind 10/11 are discrete ceiling/map lamps, unlike the FBW table knobs.
+# Indexed pots are read through the sidecar's A: variable reader;
+# they are not part of the generic telemetry SimVar subscription.
+# LIGHT_POTENTIOMETER_SET takes index first, brightness second.
+
+# Shared source notes: apu-start.ts
+# These helper notes retain their stated aircraft and verification scope.
+#  FBW's installed aircraft_preset_procedures.xml uses 3000 ms after master ON.
+#  Only for vendor-documented fixed START=1 controls (not Fenix counters).
+
+schemaVersion: 1
+integration:
+  id: inibuilds-a350
+  aircraft:
+    vendor: iniBuilds
+    family: A350
+  trustedProfileKeys:
+    - bundled/msfs/inibuilds-a350-900
+    - bundled/msfs/inibuilds-a350-1000
+  presentation:
+    templateId: inibuilds-a350
+    cockpitLightingGroups:
+      - actionId: lighting.preset.panels.set
+        label: Panel backlighting
+        fields:
+          - lighting.integralPercent
+          - lighting.fcuPercent
+          - lighting.fcuTextPercent
+      - actionId: lighting.preset.flood.set
+        label: Flood and dome lighting
+        fields:
+          - lighting.mainFloodPercent
+          - lighting.domePercent
+      - actionId: lighting.preset.captainTask.set
+        label: Captain map, table and console lights
+        fields:
+          - lighting.captainMapPercent
+          - lighting.captainTablePercent
+          - lighting.captainConsolePercent
+      - actionId: lighting.preset.firstOfficerTask.set
+        label: First officer map, table and console lights
+        fields:
+          - lighting.firstOfficerMapPercent
+          - lighting.firstOfficerTablePercent
+          - lighting.firstOfficerConsolePercent
+      - actionId: lighting.preset.displays.set
+        label: Flight displays
+        displays: true
+        fields:
+          - lighting.captainDisplayPercent
+          - lighting.firstOfficerDisplayPercent
+          - lighting.mfdDisplayPercent
+          - lighting.systemDisplayPercent
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # flightGuidance
+    flightGuidance.speedValue:
+      id: flightGuidance.speedValue
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIRSPEED_DIAL
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.headingDeg:
+      id: flightGuidance.headingDeg
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_HEADING_DIAL
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.altitudeFt:
+      id: flightGuidance.altitudeFt
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_ALTITUDE_DIAL
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.verticalSpeedFpm:
+      id: flightGuidance.verticalSpeedFpm
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_VVI_DIAL
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.flightDirector:
+      id: flightGuidance.flightDirector
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FD_ON
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.lsCaptain:
+      id: flightGuidance.lsCaptain
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LS_CAPTAIN
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.lsFirstOfficer:
+      id: flightGuidance.lsFirstOfficer
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LS_FO
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.verticalViewCaptain:
+      id: flightGuidance.verticalViewCaptain
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_VV_LEFT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.verticalViewFirstOfficer:
+      id: flightGuidance.verticalViewFirstOfficer
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_VV_RIGHT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.metricAltitude:
+      id: flightGuidance.metricAltitude
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_METRIC_STATE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+
+    # lights
+    lights.strobeMode:
+      id: lights.strobeMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_STROBE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": auto
+              "2": on
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_BEACON
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    lights.navMode:
+      id: lights.navMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_NAV
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": nav2
+              "2": nav1
+    lights.logoMode:
+      id: lights.logoMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_LOGO
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": auto
+              "2": on
+    lights.wing:
+      id: lights.wing
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_WING
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    lights.landing:
+      id: lights.landing
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_LANDING
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    lights.noseMode:
+      id: lights.noseMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_LIGHTS_NOSE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": taxi
+              "2": takeoff
+
+    # cabin
+    cabin.seatBeltsMode:
+      id: cabin.seatBeltsMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_SEATBELTS_SWITCH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": auto
+              "2": on
+    cabin.noSmokingMode:
+      id: cabin.noSmokingMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_NO_SMOKING_SWITCH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": auto
+              "2": on
+    cabin.noMobileMode:
+      id: cabin.noMobileMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_SIGNS_NO_MOBILE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": auto
+              "2": on
+    cabin.emergencyExitMode:
+      id: cabin.emergencyExitMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_EMER_EXIT_SWITCH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": arm
+              "2": on
+
+    # systems
+    systems.ignitionMode:
+      id: systems.ignitionMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_IGNITION_KNOB
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": crank
+              "1": normal
+              "2": ign-start
+    systems.gravityGearCover:
+      id: systems.gravityGearCover
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_GRAVITY_GEAR_COVER
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.gravityGearHandleMode:
+      id: systems.gravityGearHandleMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_GRAVITY_GEAR_HANDLE_STATE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": reset
+              "1": off
+              "2": down
+    systems.apuMaster:
+      id: systems.apuMaster
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_APU_MASTER_SWITCH
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.apuStart:
+      id: systems.apuStart
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_APU_START_BUTTON
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.airFlowMode:
+      id: systems.airFlowMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_FLOW_MODE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": manual
+              "1": low
+              "2": normal
+              "3": high
+    systems.crossBleedMode:
+      id: systems.crossBleedMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AIR_X_BLEED
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": closed
+              "1": auto
+              "2": open
+    systems.ramAir:
+      id: systems.ramAir
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_RAM_AIR_STATE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.wingAntiIce:
+      id: systems.wingAntiIce
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_WING_ANTI_ICE1_STATE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.probeWindowHeatMode:
+      id: systems.probeWindowHeatMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_PROBE_WINDOW_HEAT1_STATE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": auto
+              "1": on
+    systems.cabinPressureAltitudeMode:
+      id: systems.cabinPressureAltitudeMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_CABIN_PRESS_ALTITUDE_MANUAL_MODE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": auto
+              "1": manual
+    systems.cabinPressureVerticalSpeedMode:
+      id: systems.cabinPressureVerticalSpeedMode
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_CABIN_PRESS_VS_MODE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": auto
+              "1": manual
+    systems.ditching:
+      id: systems.ditching
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_DITCHING_STATE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.crewSupply:
+      id: systems.crewSupply
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_CREW_SUPPLY
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.emergencyElectricalGenerator:
+      id: systems.emergencyElectricalGenerator
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_EMER_ELEC_GEN_STATUS
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.groundControl:
+      id: systems.groundControl
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_GND_CTL
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.electricalSideIsolation:
+      id: systems.electricalSideIsolation
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_ELEC_SIDE_ISOL
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.electricalLoadManagement:
+      id: systems.electricalLoadManagement
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_ELEC_ELM
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.passengerSystems:
+      id: systems.passengerSystems
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_ELEC_PAX_SYS
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.galley:
+      id: systems.galley
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_ELEC_GALLEY
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.busTie:
+      id: systems.busTie
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_BUS_TIE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.evacuationCommand:
+      id: systems.evacuationCommand
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_EVAC_STATE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+
+    # controls
+    controls.flapsHandle:
+      id: controls.flapsHandle
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE PERCENT
+            unit: Percent
+          decode:
+            type: enum
+            values:
+              "0": 0
+              "25": 25
+              "50": 50
+              "75": 75
+              "100": 100
+    controls.autobrakeArmed:
+      id: controls.autobrakeArmed
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_AUTOBRAKE_ARMED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.busVoltage:
+      id: systems.busVoltage
+      sources:
+        - route:
+            type: lvar
+            name: A:ELECTRICAL MAIN BUS VOLTAGE:1
+            unit: Volts
+          decode:
+            type: number
+            precision: 1
+    controls.flapsIndex:
+      id: controls.flapsIndex
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE INDEX
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    controls.flapAngleDeg:
+      id: controls.flapAngleDeg
+      sources:
+        - route:
+            type: simvar
+            name: TRAILING EDGE FLAPS LEFT ANGLE
+            unit: Degrees
+          decode:
+            type: number
+            precision: 1
+    controls.speedbrakePercent:
+      id: controls.speedbrakePercent
+      sources:
+        - route:
+            type: lvar
+            name: A:SPOILERS HANDLE POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.spoilersArmed:
+      id: controls.spoilersArmed
+      sources:
+        - route:
+            type: simvar
+            name: SPOILERS ARMED
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearHandleDown:
+      id: controls.gearHandleDown
+      sources:
+        - route:
+            type: simvar
+            name: GEAR HANDLE POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearNosePct:
+      id: controls.gearNosePct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR CENTER POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearLeftPct:
+      id: controls.gearLeftPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR LEFT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearRightPct:
+      id: controls.gearRightPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR RIGHT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.parkingBrake:
+      id: controls.parkingBrake
+      sources:
+        - route:
+            type: simvar
+            name: BRAKE PARKING POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # navigation
+    navigation.captain.range:
+      id: navigation.captain.range
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_MAP_RANGE_CAPT_SWITCH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": zoom
+              "1": zoom
+              "2": zoom
+              "3": zoom
+              "4": zoom
+              "5": "10"
+              "6": "20"
+              "7": "40"
+              "8": "80"
+              "9": "160"
+              "10": "320"
+              "11": "640"
+    navigation.firstOfficer.range:
+      id: navigation.firstOfficer.range
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_MAP_RANGE_FO_SWITCH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": zoom
+              "1": zoom
+              "2": zoom
+              "3": zoom
+              "4": zoom
+              "5": "10"
+              "6": "20"
+              "7": "40"
+              "8": "80"
+              "9": "160"
+              "10": "320"
+              "11": "640"
+
+    # lighting
+    lighting.integralPercent:
+      id: lighting.integralPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_CKPT_LT_INTEG
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.fcuPercent:
+      id: lighting.fcuPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_DISPLAY_BRT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.fcuTextPercent:
+      id: lighting.fcuTextPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_FCU_INTEG_BRT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.mainFloodPercent:
+      id: lighting.mainFloodPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_CKPT_LT_FLOOD
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.domePercent:
+      id: lighting.domePercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_CKPT_LT_DOME
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.captainMapPercent:
+      id: lighting.captainMapPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_MIP_MAP_BRT_LEFT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.captainTablePercent:
+      id: lighting.captainTablePercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_SLIDING_TABLE_BRT_LEFT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.captainConsolePercent:
+      id: lighting.captainConsolePercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_MIP_CONSOLE_BRT_LEFT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerMapPercent:
+      id: lighting.firstOfficerMapPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_MIP_MAP_BRT_RIGHT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerTablePercent:
+      id: lighting.firstOfficerTablePercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_SLIDING_TABLE_BRT_RIGHT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerConsolePercent:
+      id: lighting.firstOfficerConsolePercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_MIP_CONSOLE_BRT_RIGHT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.captainDisplayPercent:
+      id: lighting.captainDisplayPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_POTENTIOMETER_35
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerDisplayPercent:
+      id: lighting.firstOfficerDisplayPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_POTENTIOMETER_37
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.mfdDisplayPercent:
+      id: lighting.mfdDisplayPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_POTENTIOMETER_39
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lighting.systemDisplayPercent:
+      id: lighting.systemDisplayPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:INI_POTENTIOMETER_41
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+
+    # flightGuidance
+    flightGuidance.speed.set:
+      id: flightGuidance.speed.set
+      input:
+        type: number
+        min: 100
+        max: 399
+        step: 1
+      guard:
+        cooldownMs: 300
+        groupId: iniA350.flightGuidance.speed
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.speed.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_AIRSPEED_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: flightGuidance.speedValue
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.heading.set:
+      id: flightGuidance.heading.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        cooldownMs: 300
+        groupId: iniA350.flightGuidance.heading
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.heading.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_HEADING_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: flightGuidance.headingDeg
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.altitude.set:
+      id: flightGuidance.altitude.set
+      input:
+        type: number
+        min: 0
+        max: 49000
+        step: 100
+      guard:
+        cooldownMs: 300
+        groupId: iniA350.flightGuidance.altitude
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.altitude.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_ALTITUDE_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: flightGuidance.altitudeFt
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.verticalSpeed.set:
+      id: flightGuidance.verticalSpeed.set
+      input:
+        type: number
+        min: -6000
+        max: 6000
+        step: 100
+      guard:
+        cooldownMs: 300
+        groupId: iniA350.flightGuidance.verticalSpeed
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.verticalSpeed.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_VVI_DIAL
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: flightGuidance.verticalSpeedFpm
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.flightDirector.off:
+      id: flightGuidance.flightDirector.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.flightDirector
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.flightDirector.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_FD_ON, Number)
+          readback:
+            fieldId: flightGuidance.flightDirector
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.flightDirector.off.lvar
+          transport: lvar
+          lvar: L:INI_FD_ON
+          unit: Number
+          value: 0
+          readback:
+            fieldId: flightGuidance.flightDirector
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.flightDirector.on:
+      id: flightGuidance.flightDirector.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.flightDirector
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.flightDirector.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_FD_ON, Number)
+          readback:
+            fieldId: flightGuidance.flightDirector
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.flightDirector.on.lvar
+          transport: lvar
+          lvar: L:INI_FD_ON
+          unit: Number
+          value: 1
+          readback:
+            fieldId: flightGuidance.flightDirector
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.lsCaptain.off:
+      id: flightGuidance.lsCaptain.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.lsCaptain
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.lsCaptain.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LS_CAPTAIN, Number)
+          readback:
+            fieldId: flightGuidance.lsCaptain
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.lsCaptain.off.lvar
+          transport: lvar
+          lvar: L:INI_LS_CAPTAIN
+          unit: Number
+          value: 0
+          readback:
+            fieldId: flightGuidance.lsCaptain
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.lsCaptain.on:
+      id: flightGuidance.lsCaptain.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.lsCaptain
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.lsCaptain.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LS_CAPTAIN, Number)
+          readback:
+            fieldId: flightGuidance.lsCaptain
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.lsCaptain.on.lvar
+          transport: lvar
+          lvar: L:INI_LS_CAPTAIN
+          unit: Number
+          value: 1
+          readback:
+            fieldId: flightGuidance.lsCaptain
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.lsFirstOfficer.off:
+      id: flightGuidance.lsFirstOfficer.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.lsFirstOfficer
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.lsFirstOfficer.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LS_FO, Number)
+          readback:
+            fieldId: flightGuidance.lsFirstOfficer
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.lsFirstOfficer.off.lvar
+          transport: lvar
+          lvar: L:INI_LS_FO
+          unit: Number
+          value: 0
+          readback:
+            fieldId: flightGuidance.lsFirstOfficer
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.lsFirstOfficer.on:
+      id: flightGuidance.lsFirstOfficer.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.lsFirstOfficer
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.lsFirstOfficer.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LS_FO, Number)
+          readback:
+            fieldId: flightGuidance.lsFirstOfficer
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.lsFirstOfficer.on.lvar
+          transport: lvar
+          lvar: L:INI_LS_FO
+          unit: Number
+          value: 1
+          readback:
+            fieldId: flightGuidance.lsFirstOfficer
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.verticalViewCaptain.off:
+      id: flightGuidance.verticalViewCaptain.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.verticalViewCaptain
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.verticalViewCaptain.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_VV_LEFT, Number)
+          readback:
+            fieldId: flightGuidance.verticalViewCaptain
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.verticalViewCaptain.off.lvar
+          transport: lvar
+          lvar: L:INI_VV_LEFT
+          unit: Number
+          value: 0
+          readback:
+            fieldId: flightGuidance.verticalViewCaptain
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.verticalViewCaptain.on:
+      id: flightGuidance.verticalViewCaptain.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.verticalViewCaptain
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.verticalViewCaptain.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_VV_LEFT, Number)
+          readback:
+            fieldId: flightGuidance.verticalViewCaptain
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.verticalViewCaptain.on.lvar
+          transport: lvar
+          lvar: L:INI_VV_LEFT
+          unit: Number
+          value: 1
+          readback:
+            fieldId: flightGuidance.verticalViewCaptain
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.verticalViewFirstOfficer.off:
+      id: flightGuidance.verticalViewFirstOfficer.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.verticalViewFirstOfficer
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.verticalViewFirstOfficer.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_VV_RIGHT, Number)
+          readback:
+            fieldId: flightGuidance.verticalViewFirstOfficer
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.verticalViewFirstOfficer.off.lvar
+          transport: lvar
+          lvar: L:INI_VV_RIGHT
+          unit: Number
+          value: 0
+          readback:
+            fieldId: flightGuidance.verticalViewFirstOfficer
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.verticalViewFirstOfficer.on:
+      id: flightGuidance.verticalViewFirstOfficer.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.verticalViewFirstOfficer
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.verticalViewFirstOfficer.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_VV_RIGHT, Number)
+          readback:
+            fieldId: flightGuidance.verticalViewFirstOfficer
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.verticalViewFirstOfficer.on.lvar
+          transport: lvar
+          lvar: L:INI_VV_RIGHT
+          unit: Number
+          value: 1
+          readback:
+            fieldId: flightGuidance.verticalViewFirstOfficer
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.metricAltitude.off:
+      id: flightGuidance.metricAltitude.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.metricAltitude
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.metricAltitude.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_FCU_METRIC_STATE, Number)
+          readback:
+            fieldId: flightGuidance.metricAltitude
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.metricAltitude.off.lvar
+          transport: lvar
+          lvar: L:INI_FCU_METRIC_STATE
+          unit: Number
+          value: 0
+          readback:
+            fieldId: flightGuidance.metricAltitude
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.metricAltitude.on:
+      id: flightGuidance.metricAltitude.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.flightGuidance.metricAltitude
+        retry: never
+      routes:
+        - id: iniA350.flightGuidance.metricAltitude.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_FCU_METRIC_STATE, Number)
+          readback:
+            fieldId: flightGuidance.metricAltitude
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.flightGuidance.metricAltitude.on.lvar
+          transport: lvar
+          lvar: L:INI_FCU_METRIC_STATE
+          unit: Number
+          value: 1
+          readback:
+            fieldId: flightGuidance.metricAltitude
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+
+    # lights
+    lights.strobe.off:
+      id: lights.strobe.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.strobe
+        retry: never
+      routes:
+        - id: iniA350.lights.strobe.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LIGHTS_STROBE, Number)
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: off
+            timeoutMs: 3000
+        - id: iniA350.lights.strobe.off.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_STROBE
+          unit: Number
+          value: 0
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: off
+            timeoutMs: 3000
+      verification: untested
+    lights.strobe.auto:
+      id: lights.strobe.auto
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.strobe
+        retry: never
+      routes:
+        - id: iniA350.lights.strobe.auto.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LIGHTS_STROBE, Number)
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: auto
+            timeoutMs: 3000
+        - id: iniA350.lights.strobe.auto.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_STROBE
+          unit: Number
+          value: 1
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: auto
+            timeoutMs: 3000
+      verification: untested
+    lights.strobe.on:
+      id: lights.strobe.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.strobe
+        retry: never
+      routes:
+        - id: iniA350.lights.strobe.on.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_LIGHTS_STROBE, Number)
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: on
+            timeoutMs: 3000
+        - id: iniA350.lights.strobe.on.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_STROBE
+          unit: Number
+          value: 2
+          readback:
+            fieldId: lights.strobeMode
+            expectedValue: on
+            timeoutMs: 3000
+      verification: untested
+    lights.beacon.off:
+      id: lights.beacon.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.beacon
+        retry: never
+      routes:
+        - id: iniA350.lights.beacon.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LIGHTS_BEACON, Number)
+          readback:
+            fieldId: lights.beacon
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.lights.beacon.off.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_BEACON
+          unit: Number
+          value: 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.beacon.on:
+      id: lights.beacon.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.beacon
+        retry: never
+      routes:
+        - id: iniA350.lights.beacon.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LIGHTS_BEACON, Number)
+          readback:
+            fieldId: lights.beacon
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.lights.beacon.on.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_BEACON
+          unit: Number
+          value: 1
+          readback:
+            fieldId: lights.beacon
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.off:
+      id: lights.nav.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.nav
+        retry: never
+      routes:
+        - id: iniA350.lights.nav.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LIGHTS_NAV, Number)
+          readback:
+            fieldId: lights.navMode
+            expectedValue: off
+            timeoutMs: 3000
+        - id: iniA350.lights.nav.off.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_NAV
+          unit: Number
+          value: 0
+          readback:
+            fieldId: lights.navMode
+            expectedValue: off
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.nav2:
+      id: lights.nav.nav2
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.nav
+        retry: never
+      routes:
+        - id: iniA350.lights.nav.nav2.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LIGHTS_NAV, Number)
+          readback:
+            fieldId: lights.navMode
+            expectedValue: nav2
+            timeoutMs: 3000
+        - id: iniA350.lights.nav.nav2.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_NAV
+          unit: Number
+          value: 1
+          readback:
+            fieldId: lights.navMode
+            expectedValue: nav2
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.nav1:
+      id: lights.nav.nav1
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.nav
+        retry: never
+      routes:
+        - id: iniA350.lights.nav.nav1.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_LIGHTS_NAV, Number)
+          readback:
+            fieldId: lights.navMode
+            expectedValue: nav1
+            timeoutMs: 3000
+        - id: iniA350.lights.nav.nav1.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_NAV
+          unit: Number
+          value: 2
+          readback:
+            fieldId: lights.navMode
+            expectedValue: nav1
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.off:
+      id: lights.logo.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.logo
+        retry: never
+      routes:
+        - id: iniA350.lights.logo.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LIGHTS_LOGO, Number)
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: off
+            timeoutMs: 3000
+        - id: iniA350.lights.logo.off.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_LOGO
+          unit: Number
+          value: 0
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: off
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.auto:
+      id: lights.logo.auto
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.logo
+        retry: never
+      routes:
+        - id: iniA350.lights.logo.auto.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LIGHTS_LOGO, Number)
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: auto
+            timeoutMs: 3000
+        - id: iniA350.lights.logo.auto.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_LOGO
+          unit: Number
+          value: 1
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: auto
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.on:
+      id: lights.logo.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.logo
+        retry: never
+      routes:
+        - id: iniA350.lights.logo.on.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_LIGHTS_LOGO, Number)
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: on
+            timeoutMs: 3000
+        - id: iniA350.lights.logo.on.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_LOGO
+          unit: Number
+          value: 2
+          readback:
+            fieldId: lights.logoMode
+            expectedValue: on
+            timeoutMs: 3000
+      verification: untested
+    lights.wing.off:
+      id: lights.wing.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.wing
+        retry: never
+      routes:
+        - id: iniA350.lights.wing.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LIGHTS_WING, Number)
+          readback:
+            fieldId: lights.wing
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.lights.wing.off.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_WING
+          unit: Number
+          value: 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.wing.on:
+      id: lights.wing.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.wing
+        retry: never
+      routes:
+        - id: iniA350.lights.wing.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LIGHTS_WING, Number)
+          readback:
+            fieldId: lights.wing
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.lights.wing.on.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_WING
+          unit: Number
+          value: 1
+          readback:
+            fieldId: lights.wing
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.landing.off:
+      id: lights.landing.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.landing
+        retry: never
+      routes:
+        - id: iniA350.lights.landing.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LIGHTS_LANDING, Number)
+          readback:
+            fieldId: lights.landing
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.lights.landing.off.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_LANDING
+          unit: Number
+          value: 0
+          readback:
+            fieldId: lights.landing
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.landing.on:
+      id: lights.landing.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.landing
+        retry: never
+      routes:
+        - id: iniA350.lights.landing.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LIGHTS_LANDING, Number)
+          readback:
+            fieldId: lights.landing
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.lights.landing.on.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_LANDING
+          unit: Number
+          value: 1
+          readback:
+            fieldId: lights.landing
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.nose.off:
+      id: lights.nose.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.nose
+        retry: never
+      routes:
+        - id: iniA350.lights.nose.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_LIGHTS_NOSE, Number)
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: off
+            timeoutMs: 3000
+        - id: iniA350.lights.nose.off.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_NOSE
+          unit: Number
+          value: 0
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: off
+            timeoutMs: 3000
+      verification: untested
+    lights.nose.taxi:
+      id: lights.nose.taxi
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.nose
+        retry: never
+      routes:
+        - id: iniA350.lights.nose.taxi.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_LIGHTS_NOSE, Number)
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: taxi
+            timeoutMs: 3000
+        - id: iniA350.lights.nose.taxi.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_NOSE
+          unit: Number
+          value: 1
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: taxi
+            timeoutMs: 3000
+      verification: untested
+    lights.nose.takeoff:
+      id: lights.nose.takeoff
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.lights.nose
+        retry: never
+      routes:
+        - id: iniA350.lights.nose.takeoff.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_LIGHTS_NOSE, Number)
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: takeoff
+            timeoutMs: 3000
+        - id: iniA350.lights.nose.takeoff.lvar
+          transport: lvar
+          lvar: L:INI_LIGHTS_NOSE
+          unit: Number
+          value: 2
+          readback:
+            fieldId: lights.noseMode
+            expectedValue: takeoff
+            timeoutMs: 3000
+      verification: untested
+
+    # cabin
+    cabin.seatBelts.off:
+      id: cabin.seatBelts.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.seatBelts
+        retry: never
+      routes:
+        - id: iniA350.cabin.seatBelts.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_SEATBELTS_SWITCH, Number)
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: off
+            timeoutMs: 3000
+        - id: iniA350.cabin.seatBelts.off.lvar
+          transport: lvar
+          lvar: L:INI_SEATBELTS_SWITCH
+          unit: Number
+          value: 0
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: off
+            timeoutMs: 3000
+      verification: untested
+    cabin.seatBelts.auto:
+      id: cabin.seatBelts.auto
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.seatBelts
+        retry: never
+      routes:
+        - id: iniA350.cabin.seatBelts.auto.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_SEATBELTS_SWITCH, Number)
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: auto
+            timeoutMs: 3000
+        - id: iniA350.cabin.seatBelts.auto.lvar
+          transport: lvar
+          lvar: L:INI_SEATBELTS_SWITCH
+          unit: Number
+          value: 1
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: auto
+            timeoutMs: 3000
+      verification: untested
+    cabin.seatBelts.on:
+      id: cabin.seatBelts.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.seatBelts
+        retry: never
+      routes:
+        - id: iniA350.cabin.seatBelts.on.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_SEATBELTS_SWITCH, Number)
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: on
+            timeoutMs: 3000
+        - id: iniA350.cabin.seatBelts.on.lvar
+          transport: lvar
+          lvar: L:INI_SEATBELTS_SWITCH
+          unit: Number
+          value: 2
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: on
+            timeoutMs: 3000
+      verification: untested
+    cabin.noSmoking.off:
+      id: cabin.noSmoking.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.noSmoking
+        retry: never
+      routes:
+        - id: iniA350.cabin.noSmoking.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_NO_SMOKING_SWITCH, Number)
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: off
+            timeoutMs: 3000
+        - id: iniA350.cabin.noSmoking.off.lvar
+          transport: lvar
+          lvar: L:INI_NO_SMOKING_SWITCH
+          unit: Number
+          value: 0
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: off
+            timeoutMs: 3000
+      verification: untested
+    cabin.noSmoking.auto:
+      id: cabin.noSmoking.auto
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.noSmoking
+        retry: never
+      routes:
+        - id: iniA350.cabin.noSmoking.auto.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_NO_SMOKING_SWITCH, Number)
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: auto
+            timeoutMs: 3000
+        - id: iniA350.cabin.noSmoking.auto.lvar
+          transport: lvar
+          lvar: L:INI_NO_SMOKING_SWITCH
+          unit: Number
+          value: 1
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: auto
+            timeoutMs: 3000
+      verification: untested
+    cabin.noSmoking.on:
+      id: cabin.noSmoking.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.noSmoking
+        retry: never
+      routes:
+        - id: iniA350.cabin.noSmoking.on.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_NO_SMOKING_SWITCH, Number)
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: on
+            timeoutMs: 3000
+        - id: iniA350.cabin.noSmoking.on.lvar
+          transport: lvar
+          lvar: L:INI_NO_SMOKING_SWITCH
+          unit: Number
+          value: 2
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: on
+            timeoutMs: 3000
+      verification: untested
+    cabin.noMobile.off:
+      id: cabin.noMobile.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.noMobile
+        retry: never
+      routes:
+        - id: iniA350.cabin.noMobile.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_SIGNS_NO_MOBILE, Number)
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: off
+            timeoutMs: 3000
+        - id: iniA350.cabin.noMobile.off.lvar
+          transport: lvar
+          lvar: L:INI_SIGNS_NO_MOBILE
+          unit: Number
+          value: 0
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: off
+            timeoutMs: 3000
+      verification: untested
+    cabin.noMobile.auto:
+      id: cabin.noMobile.auto
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.noMobile
+        retry: never
+      routes:
+        - id: iniA350.cabin.noMobile.auto.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_SIGNS_NO_MOBILE, Number)
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: auto
+            timeoutMs: 3000
+        - id: iniA350.cabin.noMobile.auto.lvar
+          transport: lvar
+          lvar: L:INI_SIGNS_NO_MOBILE
+          unit: Number
+          value: 1
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: auto
+            timeoutMs: 3000
+      verification: untested
+    cabin.noMobile.on:
+      id: cabin.noMobile.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.noMobile
+        retry: never
+      routes:
+        - id: iniA350.cabin.noMobile.on.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_SIGNS_NO_MOBILE, Number)
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: on
+            timeoutMs: 3000
+        - id: iniA350.cabin.noMobile.on.lvar
+          transport: lvar
+          lvar: L:INI_SIGNS_NO_MOBILE
+          unit: Number
+          value: 2
+          readback:
+            fieldId: cabin.noMobileMode
+            expectedValue: on
+            timeoutMs: 3000
+      verification: untested
+    cabin.emergencyExit.off:
+      id: cabin.emergencyExit.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.emergencyExit
+        retry: never
+      routes:
+        - id: iniA350.cabin.emergencyExit.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_EMER_EXIT_SWITCH, Number)
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: off
+            timeoutMs: 3000
+        - id: iniA350.cabin.emergencyExit.off.lvar
+          transport: lvar
+          lvar: L:INI_EMER_EXIT_SWITCH
+          unit: Number
+          value: 0
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: off
+            timeoutMs: 3000
+      verification: untested
+    cabin.emergencyExit.arm:
+      id: cabin.emergencyExit.arm
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.emergencyExit
+        retry: never
+      routes:
+        - id: iniA350.cabin.emergencyExit.arm.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_EMER_EXIT_SWITCH, Number)
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: arm
+            timeoutMs: 3000
+        - id: iniA350.cabin.emergencyExit.arm.lvar
+          transport: lvar
+          lvar: L:INI_EMER_EXIT_SWITCH
+          unit: Number
+          value: 1
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: arm
+            timeoutMs: 3000
+      verification: untested
+    cabin.emergencyExit.on:
+      id: cabin.emergencyExit.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.cabin.emergencyExit
+        retry: never
+      routes:
+        - id: iniA350.cabin.emergencyExit.on.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_EMER_EXIT_SWITCH, Number)
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: on
+            timeoutMs: 3000
+        - id: iniA350.cabin.emergencyExit.on.lvar
+          transport: lvar
+          lvar: L:INI_EMER_EXIT_SWITCH
+          unit: Number
+          value: 2
+          readback:
+            fieldId: cabin.emergencyExitMode
+            expectedValue: on
+            timeoutMs: 3000
+      verification: untested
+
+    # systems
+    systems.apuMaster.off:
+      id: systems.apuMaster.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.apuMaster
+        retry: never
+      routes:
+        - id: iniA350.systems.apuMaster.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_APU_MASTER_SWITCH, Number)
+          readback:
+            fieldId: systems.apuMaster
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.systems.apuMaster.off.lvar
+          transport: lvar
+          lvar: L:INI_APU_MASTER_SWITCH
+          unit: Number
+          value: 0
+          readback:
+            fieldId: systems.apuMaster
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    systems.apuMaster.on:
+      id: systems.apuMaster.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.apuMaster
+        retry: never
+      routes:
+        - id: iniA350.systems.apuMaster.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_APU_MASTER_SWITCH, Number)
+          readback:
+            fieldId: systems.apuMaster
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.systems.apuMaster.on.lvar
+          transport: lvar
+          lvar: L:INI_APU_MASTER_SWITCH
+          unit: Number
+          value: 1
+          readback:
+            fieldId: systems.apuMaster
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    systems.apuStart.start:
+      id: systems.apuStart.start
+      guard:
+        groupId: iniA350.systems.apuStart
+        cooldownMs: 3000
+        retry: never
+      routes:
+        - id: iniA350.systems.apuStart.start.simconnectSequence
+          transport: simconnect-sequence
+          confirmation: transport-acknowledged
+          operations:
+            - type: lvar
+              name: L:INI_APU_START_BUTTON
+              unit: Number
+              value: 1
+      verification: untested
+    systems.airFlow.manual:
+      id: systems.airFlow.manual
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.airFlow
+        retry: never
+      routes:
+        - id: iniA350.systems.airFlow.manual.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_AIR_FLOW_MODE, Number)
+          readback:
+            fieldId: systems.airFlowMode
+            expectedValue: manual
+            timeoutMs: 3000
+        - id: iniA350.systems.airFlow.manual.lvar
+          transport: lvar
+          lvar: L:INI_AIR_FLOW_MODE
+          unit: Number
+          value: 0
+          readback:
+            fieldId: systems.airFlowMode
+            expectedValue: manual
+            timeoutMs: 3000
+      verification: untested
+    systems.airFlow.low:
+      id: systems.airFlow.low
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.airFlow
+        retry: never
+      routes:
+        - id: iniA350.systems.airFlow.low.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_AIR_FLOW_MODE, Number)
+          readback:
+            fieldId: systems.airFlowMode
+            expectedValue: low
+            timeoutMs: 3000
+        - id: iniA350.systems.airFlow.low.lvar
+          transport: lvar
+          lvar: L:INI_AIR_FLOW_MODE
+          unit: Number
+          value: 1
+          readback:
+            fieldId: systems.airFlowMode
+            expectedValue: low
+            timeoutMs: 3000
+      verification: untested
+    systems.airFlow.normal:
+      id: systems.airFlow.normal
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.airFlow
+        retry: never
+      routes:
+        - id: iniA350.systems.airFlow.normal.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_AIR_FLOW_MODE, Number)
+          readback:
+            fieldId: systems.airFlowMode
+            expectedValue: normal
+            timeoutMs: 3000
+        - id: iniA350.systems.airFlow.normal.lvar
+          transport: lvar
+          lvar: L:INI_AIR_FLOW_MODE
+          unit: Number
+          value: 2
+          readback:
+            fieldId: systems.airFlowMode
+            expectedValue: normal
+            timeoutMs: 3000
+      verification: untested
+    systems.airFlow.high:
+      id: systems.airFlow.high
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.airFlow
+        retry: never
+      routes:
+        - id: iniA350.systems.airFlow.high.mobiflight
+          transport: mobiflight-calculator
+          code: 3 (>L:INI_AIR_FLOW_MODE, Number)
+          readback:
+            fieldId: systems.airFlowMode
+            expectedValue: high
+            timeoutMs: 3000
+        - id: iniA350.systems.airFlow.high.lvar
+          transport: lvar
+          lvar: L:INI_AIR_FLOW_MODE
+          unit: Number
+          value: 3
+          readback:
+            fieldId: systems.airFlowMode
+            expectedValue: high
+            timeoutMs: 3000
+      verification: untested
+    systems.crossBleed.closed:
+      id: systems.crossBleed.closed
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.crossBleed
+        retry: never
+      routes:
+        - id: iniA350.systems.crossBleed.closed.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_AIR_X_BLEED, Number)
+          readback:
+            fieldId: systems.crossBleedMode
+            expectedValue: closed
+            timeoutMs: 3000
+        - id: iniA350.systems.crossBleed.closed.lvar
+          transport: lvar
+          lvar: L:INI_AIR_X_BLEED
+          unit: Number
+          value: 0
+          readback:
+            fieldId: systems.crossBleedMode
+            expectedValue: closed
+            timeoutMs: 3000
+      verification: untested
+    systems.crossBleed.auto:
+      id: systems.crossBleed.auto
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.crossBleed
+        retry: never
+      routes:
+        - id: iniA350.systems.crossBleed.auto.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_AIR_X_BLEED, Number)
+          readback:
+            fieldId: systems.crossBleedMode
+            expectedValue: auto
+            timeoutMs: 3000
+        - id: iniA350.systems.crossBleed.auto.lvar
+          transport: lvar
+          lvar: L:INI_AIR_X_BLEED
+          unit: Number
+          value: 1
+          readback:
+            fieldId: systems.crossBleedMode
+            expectedValue: auto
+            timeoutMs: 3000
+      verification: untested
+    systems.crossBleed.open:
+      id: systems.crossBleed.open
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.crossBleed
+        retry: never
+      routes:
+        - id: iniA350.systems.crossBleed.open.mobiflight
+          transport: mobiflight-calculator
+          code: 2 (>L:INI_AIR_X_BLEED, Number)
+          readback:
+            fieldId: systems.crossBleedMode
+            expectedValue: open
+            timeoutMs: 3000
+        - id: iniA350.systems.crossBleed.open.lvar
+          transport: lvar
+          lvar: L:INI_AIR_X_BLEED
+          unit: Number
+          value: 2
+          readback:
+            fieldId: systems.crossBleedMode
+            expectedValue: open
+            timeoutMs: 3000
+      verification: untested
+    systems.ramAir.off:
+      id: systems.ramAir.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.ramAir
+        retry: never
+      routes:
+        - id: iniA350.systems.ramAir.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_RAM_AIR_STATE, Number)
+          readback:
+            fieldId: systems.ramAir
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.systems.ramAir.off.lvar
+          transport: lvar
+          lvar: L:INI_RAM_AIR_STATE
+          unit: Number
+          value: 0
+          readback:
+            fieldId: systems.ramAir
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    systems.ramAir.on:
+      id: systems.ramAir.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.ramAir
+        retry: never
+      routes:
+        - id: iniA350.systems.ramAir.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_RAM_AIR_STATE, Number)
+          readback:
+            fieldId: systems.ramAir
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.systems.ramAir.on.lvar
+          transport: lvar
+          lvar: L:INI_RAM_AIR_STATE
+          unit: Number
+          value: 1
+          readback:
+            fieldId: systems.ramAir
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    systems.wingAntiIce.off:
+      id: systems.wingAntiIce.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.wingAntiIce
+        retry: never
+      routes:
+        - id: iniA350.systems.wingAntiIce.off.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_WING_ANTI_ICE1_STATE, Number)
+          readback:
+            fieldId: systems.wingAntiIce
+            expectedValue: false
+            timeoutMs: 3000
+        - id: iniA350.systems.wingAntiIce.off.lvar
+          transport: lvar
+          lvar: L:INI_WING_ANTI_ICE1_STATE
+          unit: Number
+          value: 0
+          readback:
+            fieldId: systems.wingAntiIce
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    systems.wingAntiIce.on:
+      id: systems.wingAntiIce.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.wingAntiIce
+        retry: never
+      routes:
+        - id: iniA350.systems.wingAntiIce.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_WING_ANTI_ICE1_STATE, Number)
+          readback:
+            fieldId: systems.wingAntiIce
+            expectedValue: true
+            timeoutMs: 3000
+        - id: iniA350.systems.wingAntiIce.on.lvar
+          transport: lvar
+          lvar: L:INI_WING_ANTI_ICE1_STATE
+          unit: Number
+          value: 1
+          readback:
+            fieldId: systems.wingAntiIce
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    systems.probeWindowHeat.auto:
+      id: systems.probeWindowHeat.auto
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.probeWindowHeat
+        retry: never
+      routes:
+        - id: iniA350.systems.probeWindowHeat.auto.mobiflight
+          transport: mobiflight-calculator
+          code: 0 (>L:INI_PROBE_WINDOW_HEAT1_STATE, Number)
+          readback:
+            fieldId: systems.probeWindowHeatMode
+            expectedValue: auto
+            timeoutMs: 3000
+        - id: iniA350.systems.probeWindowHeat.auto.lvar
+          transport: lvar
+          lvar: L:INI_PROBE_WINDOW_HEAT1_STATE
+          unit: Number
+          value: 0
+          readback:
+            fieldId: systems.probeWindowHeatMode
+            expectedValue: auto
+            timeoutMs: 3000
+      verification: untested
+    systems.probeWindowHeat.on:
+      id: systems.probeWindowHeat.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.systems.probeWindowHeat
+        retry: never
+      routes:
+        - id: iniA350.systems.probeWindowHeat.on.mobiflight
+          transport: mobiflight-calculator
+          code: 1 (>L:INI_PROBE_WINDOW_HEAT1_STATE, Number)
+          readback:
+            fieldId: systems.probeWindowHeatMode
+            expectedValue: on
+            timeoutMs: 3000
+        - id: iniA350.systems.probeWindowHeat.on.lvar
+          transport: lvar
+          lvar: L:INI_PROBE_WINDOW_HEAT1_STATE
+          unit: Number
+          value: 1
+          readback:
+            fieldId: systems.probeWindowHeatMode
+            expectedValue: on
+            timeoutMs: 3000
+      verification: untested
+
+    # controls
+    controls.gear.up:
+      id: controls.gear.up
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.controls.gear
+        retry: never
+      routes:
+        - id: iniA350.controls.gear.up.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: GEAR_UP
+              value: 0
+          readback:
+            fieldId: controls.gearHandleDown
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    controls.gear.down:
+      id: controls.gear.down
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.controls.gear
+        retry: never
+      routes:
+        - id: iniA350.controls.gear.down.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: GEAR_DOWN
+              value: 0
+          readback:
+            fieldId: controls.gearHandleDown
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    controls.autobrake.arm:
+      id: controls.autobrake.arm
+      guard:
+        groupId: iniA350.controls.autobrake
+        cooldownMs: 750
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 22
+            max: 32
+      verification: partial
+      routes:
+        - id: iniA350.controls.autobrake.arm.native
+          transport: input-event
+          inputEvent: AIRLINER_LDG_AUTO_BRK
+          value: 1
+          readback:
+            fieldId: controls.autobrakeArmed
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+    controls.autobrake.disarm:
+      id: controls.autobrake.disarm
+      guard:
+        groupId: iniA350.controls.autobrake
+        cooldownMs: 750
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 22
+            max: 32
+      verification: partial
+      routes:
+        - id: iniA350.controls.autobrake.disarm.native
+          transport: input-event
+          inputEvent: AIRLINER_LDG_AUTO_BRK
+          value: 0
+          readback:
+            fieldId: controls.autobrakeArmed
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+    controls.flaps.decrease:
+      id: controls.flaps.decrease
+      guard:
+        cooldownMs: 300
+        groupId: iniA350.controls.flaps
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: iniA350.controls.flaps.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: FLAPS_DECR
+              value: 0
+          readback:
+            fieldId: controls.flapsIndex
+            confirmation: changed
+            timeoutMs: 3000
+      verification: untested
+    controls.flaps.increase:
+      id: controls.flaps.increase
+      guard:
+        cooldownMs: 300
+        groupId: iniA350.controls.flaps
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: iniA350.controls.flaps.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: FLAPS_INCR
+              value: 0
+          readback:
+            fieldId: controls.flapsIndex
+            confirmation: changed
+            timeoutMs: 3000
+      verification: untested
+    controls.parkingBrake.off:
+      id: controls.parkingBrake.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.controls.parkingBrake
+        retry: never
+      routes:
+        - id: iniA350.controls.parkingBrake.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: PARKING_BRAKE_SET
+              value: 0
+          readback:
+            fieldId: controls.parkingBrake
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    controls.parkingBrake.on:
+      id: controls.parkingBrake.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.controls.parkingBrake
+        retry: never
+      routes:
+        - id: iniA350.controls.parkingBrake.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: PARKING_BRAKE_SET
+              value: 1
+          readback:
+            fieldId: controls.parkingBrake
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    controls.spoilersArmed.off:
+      id: controls.spoilersArmed.off
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.controls.spoilersArmed
+        retry: never
+      routes:
+        - id: iniA350.controls.spoilersArmed.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: SPOILERS_ARM_OFF
+              value: 0
+          readback:
+            fieldId: controls.spoilersArmed
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    controls.spoilersArmed.on:
+      id: controls.spoilersArmed.on
+      guard:
+        cooldownMs: 500
+        groupId: iniA350.controls.spoilersArmed
+        retry: never
+      routes:
+        - id: iniA350.controls.spoilersArmed.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: SPOILERS_ARM_ON
+              value: 0
+          readback:
+            fieldId: controls.spoilersArmed
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    controls.speedbrake.set:
+      id: controls.speedbrake.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        cooldownMs: 300
+        groupId: iniA350.controls.speedbrake
+        retry: never
+      routes:
+        - id: iniA350.controls.speedbrake.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: SPOILERS_SET
+              inputValue:
+                source: input
+                scale: 163.83
+                round: nearest
+          readback:
+            fieldId: controls.speedbrakePercent
+            expectedInput: true
+            timeoutMs: 3000
+            freshness: field
+      verification: untested
+
+    # navigation
+    navigation.captain.range.nm10:
+      id: navigation.captain.range.nm10
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.captain.range.nm10
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_CAPT_SWITCH
+              unit: Number
+              value: 5
+          readback:
+            fieldId: navigation.captain.range
+            expectedValue: "10"
+            timeoutMs: 2500
+            freshness: field
+    navigation.captain.range.nm20:
+      id: navigation.captain.range.nm20
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.captain.range.nm20
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_CAPT_SWITCH
+              unit: Number
+              value: 6
+          readback:
+            fieldId: navigation.captain.range
+            expectedValue: "20"
+            timeoutMs: 2500
+            freshness: field
+    navigation.captain.range.nm40:
+      id: navigation.captain.range.nm40
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.captain.range.nm40
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_CAPT_SWITCH
+              unit: Number
+              value: 7
+          readback:
+            fieldId: navigation.captain.range
+            expectedValue: "40"
+            timeoutMs: 2500
+            freshness: field
+    navigation.captain.range.nm80:
+      id: navigation.captain.range.nm80
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.captain.range.nm80
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_CAPT_SWITCH
+              unit: Number
+              value: 8
+          readback:
+            fieldId: navigation.captain.range
+            expectedValue: "80"
+            timeoutMs: 2500
+            freshness: field
+    navigation.captain.range.nm160:
+      id: navigation.captain.range.nm160
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.captain.range.nm160
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_CAPT_SWITCH
+              unit: Number
+              value: 9
+          readback:
+            fieldId: navigation.captain.range
+            expectedValue: "160"
+            timeoutMs: 2500
+            freshness: field
+    navigation.captain.range.nm320:
+      id: navigation.captain.range.nm320
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.captain.range.nm320
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_CAPT_SWITCH
+              unit: Number
+              value: 10
+          readback:
+            fieldId: navigation.captain.range
+            expectedValue: "320"
+            timeoutMs: 2500
+            freshness: field
+    navigation.captain.range.nm640:
+      id: navigation.captain.range.nm640
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.captain.range.nm640
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_CAPT_SWITCH
+              unit: Number
+              value: 11
+          readback:
+            fieldId: navigation.captain.range
+            expectedValue: "640"
+            timeoutMs: 2500
+            freshness: field
+    navigation.firstOfficer.range.nm10:
+      id: navigation.firstOfficer.range.nm10
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.firstOfficer.range.nm10
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_FO_SWITCH
+              unit: Number
+              value: 5
+          readback:
+            fieldId: navigation.firstOfficer.range
+            expectedValue: "10"
+            timeoutMs: 2500
+            freshness: field
+    navigation.firstOfficer.range.nm20:
+      id: navigation.firstOfficer.range.nm20
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.firstOfficer.range.nm20
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_FO_SWITCH
+              unit: Number
+              value: 6
+          readback:
+            fieldId: navigation.firstOfficer.range
+            expectedValue: "20"
+            timeoutMs: 2500
+            freshness: field
+    navigation.firstOfficer.range.nm40:
+      id: navigation.firstOfficer.range.nm40
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.firstOfficer.range.nm40
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_FO_SWITCH
+              unit: Number
+              value: 7
+          readback:
+            fieldId: navigation.firstOfficer.range
+            expectedValue: "40"
+            timeoutMs: 2500
+            freshness: field
+    navigation.firstOfficer.range.nm80:
+      id: navigation.firstOfficer.range.nm80
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.firstOfficer.range.nm80
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_FO_SWITCH
+              unit: Number
+              value: 8
+          readback:
+            fieldId: navigation.firstOfficer.range
+            expectedValue: "80"
+            timeoutMs: 2500
+            freshness: field
+    navigation.firstOfficer.range.nm160:
+      id: navigation.firstOfficer.range.nm160
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.firstOfficer.range.nm160
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_FO_SWITCH
+              unit: Number
+              value: 9
+          readback:
+            fieldId: navigation.firstOfficer.range
+            expectedValue: "160"
+            timeoutMs: 2500
+            freshness: field
+    navigation.firstOfficer.range.nm320:
+      id: navigation.firstOfficer.range.nm320
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.firstOfficer.range.nm320
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_FO_SWITCH
+              unit: Number
+              value: 10
+          readback:
+            fieldId: navigation.firstOfficer.range
+            expectedValue: "320"
+            timeoutMs: 2500
+            freshness: field
+    navigation.firstOfficer.range.nm640:
+      id: navigation.firstOfficer.range.nm640
+      verification: untested
+      guard:
+        groupId: iniA350.navigation.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: iniA350.navigation.firstOfficer.range.nm640
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MAP_RANGE_FO_SWITCH
+              unit: Number
+              value: 11
+          readback:
+            fieldId: navigation.firstOfficer.range
+            expectedValue: "640"
+            timeoutMs: 2500
+            freshness: field
+
+    # lighting
+    lighting.preset.panels.set:
+      id: lighting.preset.panels.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: inibuilds-a350.lighting.preset.panels.set
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_CKPT_LT_INTEG
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_FCU_DISPLAY_BRT
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_FCU_INTEG_BRT
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: lighting.integralPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.fcuPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.fcuTextPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.flood.set:
+      id: lighting.preset.flood.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: inibuilds-a350.lighting.preset.flood.set
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_CKPT_LT_FLOOD
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_CKPT_LT_DOME
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: lighting.mainFloodPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.domePercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.captainTask.set:
+      id: lighting.preset.captainTask.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: inibuilds-a350.lighting.preset.captainTask.set
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MIP_MAP_BRT_LEFT
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_SLIDING_TABLE_BRT_LEFT
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_MIP_CONSOLE_BRT_LEFT
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: lighting.captainMapPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.captainTablePercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.captainConsolePercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.firstOfficerTask.set:
+      id: lighting.preset.firstOfficerTask.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: inibuilds-a350.lighting.preset.firstOfficerTask.set
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_MIP_MAP_BRT_RIGHT
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_SLIDING_TABLE_BRT_RIGHT
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_MIP_CONSOLE_BRT_RIGHT
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: lighting.firstOfficerMapPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerTablePercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerConsolePercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.displays.set:
+      id: lighting.preset.displays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: inibuilds-a350.lighting.preset.displays.set
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:INI_POTENTIOMETER_35
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_POTENTIOMETER_37
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_POTENTIOMETER_39
+              unit: Number
+              inputValue:
+                source: input
+            - type: lvar
+              name: L:INI_POTENTIOMETER_41
+              unit: Number
+              inputValue:
+                source: input
+          readbacks:
+            - fieldId: lighting.captainDisplayPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerDisplayPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.mfdDisplayPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.systemDisplayPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    controls.flaps.set:
+      id: controls.flaps.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 25
+      guard:
+        groupId: iniA350.controls.flaps
+        cooldownMs: 750
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 22
+            max: 32
+      verification: partial
+      routes:
+        - id: iniA350.controls.flaps.set.wheel
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 16384 (A:FLAPS NUM HANDLE POSITIONS, Number) / (>B:AIRLINER_Flaps_Inc)
+          decreaseCode: 16384 (A:FLAPS NUM HANDLE POSITIONS, Number) / (>B:AIRLINER_Flaps_Dec)
+          maxSteps: 4
+          readback:
+            fieldId: controls.flapsHandle
+            expectedInput: true
+            timeoutMs: 3000
+            freshness: field
+  catalogue:
+    order: 8
+    legacyExports:
+      INIBUILDS_A350_1000_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/inibuilds-a350-1000
+        order: 26
+      INIBUILDS_A350_900_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/inibuilds-a350-900
+        order: 27
+      INIBUILDS_A350_ADAPTER_ID:
+        kind: id
+        order: 28
+      INIBUILDS_A350_INTEGRATION:
+        kind: integration
+        order: 29
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/inibuilds-a350-900:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: inibuilds-a350-900
+    name: iniBuilds Airbus A350-900
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-05-04T00:00:00Z
+    updatedAt: 2026-09-25T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/inibuilds-a350-base
+    abstract: false
+    aircraft:
+      category: D
+    integration:
+      matching:
+        priority: 90
+        titleContains:
+          - iniBuilds Airbus A350-900
+          - iniBuilds A350-900
+        titleRegex: inibuilds.*(a350[- ]?900|a359)|(a350[- ]?900|a359).*inibuilds
+        configPathContains:
+          - inibuilds-a350-900
+          - inibuilds_a350_900
+          - inibuilds-aircraft-a350-900
+        configPathRegex: inibuilds.*(a350[-_ ]?900|a359)|(a350[-_ ]?900|a359).*inibuilds
+      telemetry:
+        lights: {}
+      presentation: {}
+    meta:
+      developer: iniBuilds
+      platforms:
+        - msfs2020
+        - msfs2024
+      contributor: YenBuilds
+      updated: 2026-09-25
+      status: partial
+      variant: A350-900
+      notes: iniBuilds Airbus A350-900 (ICAO A359). Extends the shared trusted A350 adapter and activates the
+        dedicated page and voice command catalogue.
+    provenance:
+      sources:
+        - type: community
+          authority: community
+          access: public
+          supportsActiveMappings: false
+          name: Original HubHop A350 ND range mappings
+          url: https://hubhop.mobiflight.com/preset/?id=c73915cb-73f3-48a7-a444-f745a8c472fc
+          retrievedAt: 2026-09-07
+          notes: HubHop presets map INI_MAP_RANGE_CAPT_SWITCH and INI_MAP_RANGE_FO_SWITCH positions 5..11 to the normal
+            10..640 NM range detents. This differs from INI_MAP_MODE_RANGE_* in the official LVar PDF. The
+            adapter uses the original integration spelling with same-field confirmation, never writes both
+            names, and leaves airport zoom selection unavailable. Installed MSFS 2024 A350 1.2.6 cockpit
+            behavior confirms the MAP_RANGE names and 0-11 detents. On 2026-09-25 the -900 passed same-field
+            10-20-10 range checks on both sides; displayed scale and -1000 live acceptance remain pending. See
+            docs/A350-PROFILE-VALIDATION.md. See docs/ATC-EFIS-AIRCRAFT-COVERAGE.md.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: iniBuilds A350 Airliner LVAR List (A350 LVARs-FEB2025.pdf)
+          url: https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/
+          retrievedAt: 2026-09-02
+          notes: Covers the published INI_* state variables, selector detents and direct FCU set/read variables used by
+            the shared A350 adapter. iniBuilds explicitly documents third-party read/write use.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK aircraft events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Key_Events.htm
+          retrievedAt: 2026-09-02
+          notes: Covers the adapter's GEAR_UP, GEAR_DOWN, FLAPS_INCR, FLAPS_DECR, PARKING_BRAKE_SET, SPOILERS_ARM_OFF,
+            SPOILERS_ARM_ON and SPOILERS_SET standard surface routes.
+        - type: official-docs
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: false
+          name: iniBuilds A350 Airliner for MSFS product page
+          url: https://inibuilds.com/products/inibuilds-a350-airliner-msfs-2024
+          retrievedAt: 2026-09-02
+          notes: Product and platform identity for the A350-900 package variant. Active mappings are inherited from the
+            source-backed family profile.
+        - type: official-docs
+          authority: regulator
+          access: public
+          supportsActiveMappings: false
+          name: UK CAA TCDS UK.TC.A.00157 - Airbus A350
+          url: https://www.caa.co.uk/Documents/Download/3934/ca692457-336e-4190-840e-cd26cf498935/3888
+          retrievedAt: 2026-06-03
+          notes: Documents A350-900 variant identity and certified weight context.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: iniBuilds A350 1.2.6 flap lever and landing autobrake behavior
+          url: https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/
+          retrievedAt: 2026-10-17
+          notes: Installed Function_Interior_A350/model/A350_Interior.behavior.xml SHA256
+            886c885ce5ee2480740fafed75c5d38fcca6d4cc8bd77b9b391556b58744b2fb. The cockpit wheel calls
+            AIRLINER_Flaps_Inc / AIRLINER_Flaps_Dec with 16384 divided by FLAPS NUM HANDLE POSITIONS; these
+            invoke AIRLINER_FLAPS and INI.FLAPS_SET. FlightFabric follows that wheel sequence, independently
+            confirming each 25-percent FLAPS HANDLE PERCENT detent, at most four steps. Direct target jumps
+            left the A350-1000 at FULL after selecting 1; the stepped FULL-to-1 route restored cockpit 1+F on
+            2026-10-17. AIRLINER_LDG_AUTO_BRK triggers INI_AUTOBRAKE_ARMED_CMD; independent
+            INI_AUTOBRAKE_ARMED confirms arm/disarm with fresh same-target no-op protection. Manual 1.5 pages
+            65-67 requires runway/exit setup for BTV. -1000 lever, autobrake and restoration checks passed;
+            -900, airborne transitions and actual landing braking remain pending. See
+            docs/A350-PROFILE-VALIDATION.md.
+      verification:
+        status: partial
+        lastVerified: 2026-09-25
+        knownIssues:
+          - "MSFS 2024 A350 1.2.6 Default Cabin title and vendor-qualified preset path were captured live and
+            select this profile in the production matcher. Other liveries, presets and MSFS 2020 identities
+            remain untested. Scoped ground checks and limits: docs/A350-PROFILE-VALIDATION.md."
+  bundled/msfs/inibuilds-a350-1000:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: inibuilds-a350-1000
+    name: iniBuilds Airbus A350-1000
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-05-04T00:00:00Z
+    updatedAt: 2026-09-02T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/inibuilds-a350-base
+    abstract: false
+    aircraft:
+      category: D
+    integration:
+      matching:
+        priority: 90
+        titleContains:
+          - iniBuilds Airbus A350-1000
+          - iniBuilds A350-1000
+        titleRegex: inibuilds.*(a350[- ]?1000|a35k)|(a350[- ]?1000|a35k).*inibuilds
+        configPathContains:
+          - inibuilds-a350-1000
+          - inibuilds_a350_1000
+          - inibuilds-aircraft-a350-1000
+        configPathRegex: inibuilds.*(a350[-_ ]?1000|a35k)|(a350[-_ ]?1000|a35k).*inibuilds
+      telemetry:
+        lights: {}
+      presentation: {}
+    meta:
+      developer: iniBuilds
+      platforms:
+        - msfs2020
+        - msfs2024
+      contributor: YenBuilds
+      updated: 2026-09-02
+      status: partial
+      variant: A350-1000
+      notes: iniBuilds Airbus A350-1000 (ICAO A35K). Extends the shared trusted A350 adapter and activates the
+        dedicated page and voice command catalogue.
+    provenance:
+      sources:
+        - type: community
+          authority: community
+          access: public
+          supportsActiveMappings: false
+          name: Original HubHop A350 ND range mappings
+          url: https://hubhop.mobiflight.com/preset/?id=c73915cb-73f3-48a7-a444-f745a8c472fc
+          retrievedAt: 2026-09-07
+          notes: HubHop presets map INI_MAP_RANGE_CAPT_SWITCH and INI_MAP_RANGE_FO_SWITCH positions 5..11 to the normal
+            10..640 NM range detents. This differs from INI_MAP_MODE_RANGE_* in the official LVar PDF. The
+            adapter uses the original integration spelling with same-field confirmation, never writes both
+            names, and leaves airport zoom selection unavailable. Installed MSFS 2024 A350 1.2.6 cockpit
+            behavior confirms the MAP_RANGE names and 0-11 detents. On 2026-09-25 the -900 passed same-field
+            10-20-10 range checks on both sides; displayed scale and -1000 live acceptance remain pending. See
+            docs/A350-PROFILE-VALIDATION.md. See docs/ATC-EFIS-AIRCRAFT-COVERAGE.md.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: iniBuilds A350 Airliner LVAR List (A350 LVARs-FEB2025.pdf)
+          url: https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/
+          retrievedAt: 2026-09-02
+          notes: Covers the published INI_* state variables, selector detents and direct FCU set/read variables used by
+            the shared A350 adapter. iniBuilds explicitly documents third-party read/write use.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK aircraft events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Key_Events.htm
+          retrievedAt: 2026-09-02
+          notes: Covers the adapter's GEAR_UP, GEAR_DOWN, FLAPS_INCR, FLAPS_DECR, PARKING_BRAKE_SET, SPOILERS_ARM_OFF,
+            SPOILERS_ARM_ON and SPOILERS_SET standard surface routes.
+        - type: official-docs
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: false
+          name: iniBuilds A350 Airliner for MSFS product page
+          url: https://inibuilds.com/products/inibuilds-a350-airliner-msfs-2024
+          retrievedAt: 2026-09-02
+          notes: Product and platform identity for the A350-1000 package variant. Active mappings are inherited from the
+            source-backed family profile.
+        - type: official-docs
+          authority: regulator
+          access: public
+          supportsActiveMappings: false
+          name: UK CAA TCDS UK.TC.A.00157 - Airbus A350
+          url: https://www.caa.co.uk/Documents/Download/3934/ca692457-336e-4190-840e-cd26cf498935/3888
+          retrievedAt: 2026-06-03
+          notes: Documents A350-1000 variant identity and certified weight context.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: iniBuilds A350 1.2.6 flap lever and landing autobrake behavior
+          url: https://forum.inibuilds.com/topic/25015-key-lvars-list-a350/
+          retrievedAt: 2026-10-17
+          notes: Installed Function_Interior_A350/model/A350_Interior.behavior.xml SHA256
+            886c885ce5ee2480740fafed75c5d38fcca6d4cc8bd77b9b391556b58744b2fb. The cockpit wheel calls
+            AIRLINER_Flaps_Inc / AIRLINER_Flaps_Dec with 16384 divided by FLAPS NUM HANDLE POSITIONS; these
+            invoke AIRLINER_FLAPS and INI.FLAPS_SET. FlightFabric follows that wheel sequence, independently
+            confirming each 25-percent FLAPS HANDLE PERCENT detent, at most four steps. Direct target jumps
+            left the A350-1000 at FULL after selecting 1; the stepped FULL-to-1 route restored cockpit 1+F on
+            2026-10-17. AIRLINER_LDG_AUTO_BRK triggers INI_AUTOBRAKE_ARMED_CMD; independent
+            INI_AUTOBRAKE_ARMED confirms arm/disarm with fresh same-target no-op protection. Manual 1.5 pages
+            65-67 requires runway/exit setup for BTV. -1000 lever, autobrake and restoration checks passed;
+            -900, airborne transitions and actual landing braking remain pending. See
+            docs/A350-PROFILE-VALIDATION.md.
+      verification:
+        status: partial
+        lastVerified: 2026-09-02
+        knownIssues:
+          - Exact A350-1000 simulator title and package path strings still require confirmation across current
+            MSFS 2020 and MSFS 2024 builds.

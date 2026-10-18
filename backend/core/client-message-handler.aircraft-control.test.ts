@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -786,6 +787,26 @@ test('requestState clears stale recording indicators when no flight is recording
   });
 });
 
+test('requestState restores current recording size and terminal state through the runtime snapshot', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    for (const current of [
+      { type: 'flightRecording', status: 'recording', recordingSessionId: 'current-flight', sizeBytes: 862208 },
+      { type: 'flightRecording', status: 'finalizing' },
+      { type: 'flightRecording', status: 'failed', error: 'Low disk space' },
+      { type: 'flightRecording', status: 'stopped' },
+    ]) {
+      const ws = buildWs();
+      await handleClientMessage(ws, { type: 'requestState' }, buildContext(null, {
+        getFlightRecordingStatus: () => current,
+        getPhase: () => null,
+        replayMessages: [{ type: 'flightRecording', status: 'recording', sizeBytes: 100 }],
+      }));
+      assert.deepEqual(ws.messages.filter(message => message.type === 'flightRecording'), [current]);
+    }
+  });
+});
+
 test('endFlightManual waits for CSV finalization before reporting success', async () => {
   await withTempAppData(async () => {
     const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
@@ -1031,7 +1052,7 @@ test('requestAppSettings exposes resolved storage paths to privileged websocket 
     assert.equal(ws.messages[0].storage.appDataDir, storagePaths.getAppDataRoot());
     assert.equal(ws.messages[0].storage.settingsFile, storagePaths.getSettingsFilePath());
     assert.equal('aircraftProfilesDir' in ws.messages[0].storage, false);
-    assert.match(ws.messages[0].storage.bundledAircraftProfilesDir, /backend[\\/]aircraft[\\/]profiles[\\/]bundled$/);
+    assert.match(ws.messages[0].storage.bundledAircraftProfilesDir, /backend[\\/]aircraft[\\/]aircraft-integrations$/);
     assert.equal(ws.messages[0].storage.cabinAnnouncementAudioDir, storagePaths.getCabinAnnouncementAudioDir());
     assert.equal(ws.messages[0].storage.themesDir, storagePaths.getThemesDir());
     assert.equal(ws.messages[0].storage.logbookFile, storagePaths.getLogbookFilePath());
@@ -1312,6 +1333,89 @@ test('saveAppSettings reports recording auto-start changes as restart-required',
     assert.equal(ws.messages[0].settings.recording.autoStart, false);
     assert.equal(ws.messages[0].restartRequired, true);
     assert.deepEqual(ws.messages[0].restartReasons, ['Automatic recording']);
+  });
+});
+
+test('onboarding completion persists with the recording choice and survives stale settings forms', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const { updateUserSettings, loadUserSettings, SETTINGS_FILE } = require(resolveBackendPath('core', 'user-settings.js'));
+    // An existing installation without the new field must still require setup.
+    updateUserSettings({ recording: { autoStart: true }, network: { onlineMapTiles: false } });
+    const legacy = loadUserSettings();
+    delete legacy.onboarding;
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(legacy), 'utf8');
+    assert.equal(loadUserSettings().onboarding.completed, false);
+    const ws = buildWs({ privileged: true });
+    await handleClientMessage(ws, {
+      type: 'saveAppSettings', requestId: 'setup-1',
+      settings: { onboarding: { completed: true }, recording: { autoStart: false } },
+    }, buildContext(null));
+    assert.equal(ws.messages[0].ok, true);
+    assert.equal(ws.messages[0].settings.onboarding.completed, true);
+    assert.equal(loadUserSettings().recording.autoStart, false);
+    assert.equal(loadUserSettings().network.onlineMapTiles, false, 'unrelated preferences survive the setup patch');
+    await handleClientMessage(ws, {
+      type: 'saveAppSettings', settings: { onboarding: { completed: false }, cabinAnnouncements: { enabled: true } },
+    }, buildContext(null));
+    assert.equal(loadUserSettings().onboarding.completed, true, 'stale forms cannot make setup reappear');
+    await handleClientMessage(ws, { type: 'requestAppSettings' }, buildContext(null));
+    assert.equal(ws.messages.at(-1).settings.onboarding.completed, true, 'fresh clients restore the durable flag');
+  });
+});
+
+test('both onboarding recording choices reach runtime configuration after a restart', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const ws = buildWs({ privileged: true });
+    const startupEnv = { ...process.env };
+    delete startupEnv.RECORDING_AUTO_START;
+    for (const autoStart of [false, true]) {
+      await handleClientMessage(ws, {
+        type: 'saveAppSettings', requestId: `setup-recording-${autoStart}`,
+        settings: { onboarding: { completed: true }, recording: { autoStart } },
+      }, buildContext(null));
+      assert.equal(ws.messages.at(-1).ok, true);
+      assert.equal(ws.messages.at(-1).restartRequired, true);
+      // A fresh process must consume the committed file rather than the
+      // handler's in-memory settings or its acknowledgement payload.
+      const restored = JSON.parse(execFileSync(process.execPath, ['-e', `
+        const config = require(${JSON.stringify(resolveBackendPath('core', 'config.js'))});
+        const { settings } = require(${JSON.stringify(resolveBackendPath('core', 'user-settings.js'))});
+        process.stdout.write(JSON.stringify({ autoStart: config.recording.autoStart, completed: settings.onboarding.completed }));
+      `], { env: startupEnv, encoding: 'utf8', timeout: 10000, windowsHide: true }));
+      assert.deepEqual(restored, { autoStart, completed: true });
+    }
+  });
+});
+
+test('a failed settings file replacement cannot complete onboarding or change the recording choice', async () => {
+  await withTempAppData(async () => {
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const { loadUserSettings, SETTINGS_FILE } = require(resolveBackendPath('core', 'user-settings.js'));
+    const ws = buildWs({ privileged: true });
+    const request = { type: 'saveAppSettings', requestId: 'setup-disk-failure',
+      settings: { onboarding: { completed: true }, recording: { autoStart: false } } };
+    const rename = fs.renameSync;
+    try {
+      fs.renameSync = (source, target) => {
+        if (path.resolve(String(target)) === path.resolve(SETTINGS_FILE)) {
+          throw Object.assign(new Error('No space left on device'), { code: 'ENOSPC' });
+        }
+        return rename(source, target);
+      };
+      await handleClientMessage(ws, request, buildContext(null));
+    } finally {
+      fs.renameSync = rename;
+    }
+    assert.equal(ws.messages[0].ok, false);
+    assert.equal(ws.messages[0].requestId, request.requestId);
+    assert.equal(loadUserSettings().onboarding.completed, false);
+    assert.equal(loadUserSettings().recording.autoStart, true);
+    await handleClientMessage(ws, request, buildContext(null));
+    assert.equal(ws.messages[1].ok, true, 'retry can commit after storage recovers');
+    assert.equal(loadUserSettings().onboarding.completed, true);
+    assert.equal(loadUserSettings().recording.autoStart, false);
   });
 });
 
@@ -2157,6 +2261,47 @@ test('Trusted-LAN client-message authorization is deny-by-default across all thr
     assert.equal(isClientMessageAuthorized(privileged, retiredType), false, `${retiredType}: retired`);
   }
   assert.equal(isClientMessageAuthorized(privileged, null), false);
+});
+
+test('privileged profile inspection lists and exports real profiles without changing the active aircraft', async () => {
+  await withTempAppData(async () => {
+    const profileLoader = require(resolveBackendPath('aircraft', 'aircraft-profile-loader.js'));
+    const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+    const active = profileLoader.setActiveProfile('bundled/msfs/fbw-a32nx');
+    assert.ok(active);
+    const revision = profileLoader.getActiveProfileRevision();
+    const ws = buildWs({ privileged: true });
+    const context = buildContext(null, {
+      flightCsvStore: {},
+      broadcast() { assert.fail('Read-only profile inspection must not broadcast a profile change'); },
+    });
+
+    await handleClientMessage(ws, { type: 'listProfiles' }, context);
+    assert.equal(ws.messages.length, 1);
+    assert.equal(ws.messages[0].type, 'profileList');
+    assert.ok(Array.isArray(ws.messages[0].profiles));
+    const listed = ws.messages[0].profiles.find(profile => profile.qualifiedId === 'bundled/msfs/pmdg-737-700');
+    assert.ok(listed);
+    assert.equal(listed.id, 'pmdg-737-700');
+    assert.equal(listed.name, 'PMDG Boeing 737-700');
+    assert.equal(listed.namespace, 'bundled');
+    assert.equal(listed.simulator, 'msfs');
+
+    await handleClientMessage(ws, { type: 'exportProfile', id: 'bundled/msfs/pmdg-737-700' }, context);
+    assert.equal(ws.messages.length, 2);
+    const exported = ws.messages[1];
+    assert.equal(exported.type, 'profileExported');
+    assert.equal(exported.filename, 'pmdg-737-700.json');
+    assert.equal(exported.profile.id, 'pmdg-737-700');
+    assert.equal(exported.profile.name, 'PMDG Boeing 737-700');
+    assert.equal(exported.profile.namespace, 'bundled');
+    assert.equal(exported.profile.simulator, 'msfs');
+    assert.equal(exported.profile.extends, 'bundled/msfs/pmdg-737', 'inspection exports the authored profile, retaining inheritance');
+    assert.equal('_source' in exported.profile, false);
+    assert.equal('_qualifiedId' in exported.profile, false);
+    assert.equal(profileLoader.getActiveProfile(), active);
+    assert.equal(profileLoader.getActiveProfileRevision(), revision);
+  });
 });
 
 test('unpaired and aircraft-control clients cannot read private data or mutate relayed state', async () => {

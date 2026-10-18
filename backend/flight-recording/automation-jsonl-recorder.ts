@@ -593,6 +593,7 @@ class AutomationJsonlRecorder {
   explicitFlushPromise: Promise<boolean> | null;
   maxFileBytes: number;
   acceptedFileBytes: number;
+  startupFileBytes = 0;
   periodicSyncTimer: NodeJS.Timeout | null;
   syncDirty: boolean;
   syncCatchUpDue: boolean;
@@ -800,6 +801,7 @@ class AutomationJsonlRecorder {
       this.seq = 1;
       this.rowCount = 1;
       this.acceptedFileBytes = manifestBytes;
+      this.startupFileBytes = manifestBytes;
       console.log(`[automation-jsonl] Recording started: ${this.filePath}`);
       return true;
     } catch (err) {
@@ -1067,6 +1069,11 @@ class AutomationJsonlRecorder {
     };
   }
 
+  getProgress() {
+    if (this.closed || this.lastError || !this.stream) return null;
+    return { recordingSessionId: this.recordingSessionId, writtenBytes: this.startupFileBytes + this.stream.bytesWritten };
+  }
+
 }
 
 let activeFinalizationPromise: Promise<AutomationRecorderStats | null> | null = null;
@@ -1126,6 +1133,7 @@ function getStats(): AutomationRecorderStats | null {
 }
 
 module.exports = {
+  getProgress: () => activeRecorder?.getProgress() || null,
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_SYNC_INTERVAL_MS,
   DEFAULT_MAX_AUTOMATION_FILE_BYTES,

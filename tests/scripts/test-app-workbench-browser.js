@@ -17,6 +17,8 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function browser() {
   const { app, BrowserWindow } = require('electron');
+  const startedAt = Date.now();
+  const reportPhase = phase => console.log(`[workbench ${((Date.now() - startedAt) / 1000).toFixed(1)}s] ${phase}`);
   app.setPath('userData', path.join(OUTPUT, `user-data-${process.pid}`));
   app.disableHardwareAcceleration();
   for (const option of ['disable-gpu', 'disable-gpu-compositing', 'disable-gpu-sandbox']) app.commandLine.appendSwitch(option);
@@ -323,6 +325,13 @@ async function browser() {
     win.webContents.debugger.attach('1.3');
     for (let n = 0; n < 180; n++) { if (await evaluate('return Boolean(window.workbenchTest);')) break; await wait(50); }
     assert(await evaluate('return Boolean(window.workbenchTest);'), `fixture initialized: ${errors.join('\n')}`);
+    if (process.env.FF_ONBOARDING_ONLY === '1') {
+      await require('./onboarding-browser-checks')({ win, evaluate, capture, wait, fixtureUrl: process.env.FF_WORKBENCH_TEST_URL });
+      assert.deepEqual(errors, [], 'onboarding has no renderer errors');
+      console.log('Onboarding passed: desktop, phone, narrow phone and short landscape; mandatory step review and keyboard modal, saved/default preferences, failed writes, retries, reconnects, explicit toolbar installation or deferral, completed/unfinished relaunch and remote access boundaries.');
+      app.exit(0);
+      return;
+    }
     if (process.env.FF_VOICE_RECOVERY_ONLY === '1') {
       await checkVoiceRestartHint();
       assert.deepEqual(errors, [], 'voice recovery views have no renderer errors');
@@ -473,6 +482,8 @@ async function browser() {
     }
     async function checkRecordingPointer(name, touch) {
       await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled:true });
+      await evaluate(`workbenchTest.status.ingestMessage({type:'flightRecording',status:'recording',fileName:'telemetry.csv',sizeBytes:862208}); await workbenchTest.nextTick();`);
+      assert.equal(await evaluate("return document.getElementById('recording-size').textContent;"), '842 KB', `${name}: active flight size is visible`);
       const before = await evaluate('return window.recordingEndRequested;');
       await pointerActivate('#recording-details-btn', touch);
       assert.equal(await evaluate("return document.getElementById('recording-details-btn').getAttribute('aria-expanded');"), 'true', `${name}: pointer opens recording details`);
@@ -482,12 +493,16 @@ async function browser() {
       assert.equal(await evaluate('return window.recordingEndRequested;'), before + 1, `${name}: pointer invokes the manual recording action once`);
       assert.equal(await evaluate('return document.activeElement.id;'), 'end-flight-btn', `${name}: focus reaches the recording action without dismissing it`);
       await capture(`${name}-recording-action`);
+      await evaluate(`workbenchTest.status.ingestMessage({type:'flightRecording',status:'recording',fileName:'telemetry.csv',sizeBytes:1363149}); await workbenchTest.nextTick();`);
+      assert(await evaluate("return document.getElementById('recording-size').textContent==='1.3 MB' && document.getElementById('recording-details-btn').getAttribute('aria-expanded')==='true' && document.activeElement.id==='end-flight-btn';"), `${name}: byte updates preserve the open panel and keyboard focus`);
       await evaluate(`workbenchTest.status.ingestMessage({type:'flightRecording',status:'finalizing'}); await workbenchTest.nextTick();`);
       assert(await evaluate("const button=document.getElementById('end-flight-btn'); return button.disabled && button.textContent.includes('Saving flight');"), `${name}: saving disables the end-flight action with visible progress`);
       await pointerActivate('#end-flight-btn', touch);
       assert.equal(await evaluate('return window.recordingEndRequested;'), before + 1, `${name}: native input cannot send another request while saving`);
       await capture(`${name}-recording-saving`);
       await evaluate(`workbenchTest.status.ingestMessage({type:'flightRecording',status:'error',error:'Save failed'}); await workbenchTest.nextTick();`);
+      assert.equal(await evaluate("return Boolean(document.getElementById('recording-size'));"), false, `${name}: failures replace the active counter`);
+      await capture(`${name}-recording-failed`);
       assert.equal(await evaluate("return document.getElementById('end-flight-btn').disabled;"), false, `${name}: a failed save releases the finalizing guard`);
       await pointerActivate('#recording-details-btn', touch);
       assert.equal(await evaluate("return document.getElementById('recording-details-btn').getAttribute('aria-expanded');"), 'false', `${name}: clicking the trigger again dismisses recording details`);
@@ -501,6 +516,7 @@ async function browser() {
       assert.equal(await evaluate('return workbenchTest.shell.navigatorOpen;'), false, `${name}: closed recording details do not intercept another dialog's Escape`);
       await evaluate(`workbenchTest.status.ingestMessage({type:'flightRecording',status:'recording',fileName:'QFA437.csv'}); await workbenchTest.nextTick();`);
       assert.equal(await evaluate("return document.getElementById('recording-details-btn').getAttribute('aria-expanded');"), 'false', `${name}: a new recording does not reopen stale details`);
+      assert.equal(await evaluate("return Boolean(document.getElementById('recording-size'));"), false, `${name}: unknown size cannot reuse the previous flight's counter`);
       await pointerActivate('#recording-details-btn', touch);
       await win.webContents.capturePage(); await wait(100);
       await evaluate("window.recordingStatusBeforeDisconnect={...workbenchTest.status.$state}; workbenchTest.status.resetTelemetry('wsDisconnected'); await workbenchTest.nextTick();");
@@ -508,6 +524,12 @@ async function browser() {
       await evaluate("Object.assign(workbenchTest.status,recordingStatusBeforeDisconnect); await workbenchTest.nextTick();");
       await pointerActivate('#recording-details-btn', touch);
       await key('Escape');
+      await pointerActivate('#recording-details-btn', touch);
+      await pointerActivate('#recording-settings-btn', touch);
+      assert(await evaluate("return workbenchTest.tabs.activeTabId==='settings' && document.activeElement.id==='setting-recording-auto-start' && document.getElementById('recording-details-btn').getAttribute('aria-expanded')==='false';"), `${name}: recording settings link closes details and focuses the existing preference`);
+      await pointerActivate('#recording-details-btn', touch);
+      await pointerActivate('#recording-logbook-btn', touch);
+      assert(await evaluate("return workbenchTest.tabs.activeTabId==='timeline' && document.activeElement.id==='timeline-flight-search';"), `${name}: Logbook link opens searchable flight history`);
       await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled:false });
     }
     if (!process.env.FF_TOOLBAR_SETUP_ONLY) {
@@ -541,7 +563,9 @@ async function browser() {
     assert.equal(await evaluate('return document.activeElement.id;'), 'mobile-more-btn', 'cancelling More returns focus to its launcher');
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false });
     for (const [name, width, height, touch] of SIZES) {
+      reportPhase(`Layout: ${name}`);
       win.setContentSize(width, height);
+      await evaluate(`workbenchTest.status.ingestMessage({type:'flightRecording',status:'recording',fileName:'telemetry.csv',sizeBytes:862208}); await workbenchTest.nextTick();`);
       await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: touch, maxTouchPoints: touch ? 5 : 1 });
       await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
       await wait(150);
@@ -568,16 +592,22 @@ async function browser() {
         }
         const layout = await evaluate(`const rect = selector => { const el = document.querySelector(selector); if (!el || !el.getClientRects().length) return null; const r = el.getBoundingClientRect(); return { x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height }; };
           return { header: rect('#vue-header-root'), main: rect('#vue-main-root'), footer: rect('#vue-footer-root'),
+            recording: rect('#recording-details-btn'), recordingSize: rect('#recording-size'), aircraft: rect('#aircraft-name'),
             sidebar: rect('.app-sidebar'), mobile: rect('.mobile-tab-bar'), map: rect('#live-map'), readings: rect('.live-map-readings'),
             routeLabel: rect('#dest-progress-label'), routeProgress: rect('#dest-progress-text'),
             overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 1,
             selected: workbenchTest.tabs.activeTabId,
             takeoffUi: Boolean(document.querySelector('#vue-last-takeoff-root, #vue-takeoff-root, #logbook-takeoffs')),
             overflowing: [...document.querySelectorAll('#tab-${tab} *')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0 && r.right>innerWidth+2 && !el.closest('.leaflet-pane, .leaflet-control-container, .flight-scene-surface');}).slice(0,8).map(el=>({tag:el.tagName,id:el.id,cls:el.className})),
-            targets: [...document.querySelectorAll(innerWidth > 760 ? '.desktop-tab' : '.mobile-tab')].filter(el=>el.getClientRects().length).map(el=>({label:el.getAttribute('aria-label'),width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})),
+            targets: [...document.querySelectorAll(innerWidth > 760 ? '.desktop-tab, #recording-details-btn' : '.mobile-tab, #recording-details-btn')].filter(el=>el.getClientRects().length).map(el=>({label:el.getAttribute('aria-label'),width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})),
           };`);
         checks.push({ name, tab, ...layout });
         assert.equal(layout.overflow, false, `${name}/${tab}: page has no horizontal overflow`);
+        assert(layout.recording.x >= 0 && layout.recording.right <= width
+          && layout.recordingSize.x >= layout.recording.x && layout.recordingSize.right <= layout.recording.right,
+          `${name}/${tab}: the active size counter fits its header control`);
+        assert(layout.aircraft.right <= layout.recording.x || layout.aircraft.bottom <= layout.recording.y,
+          `${name}/${tab}: recording does not overlap aircraft identity`);
         assert.equal(layout.selected, tab, `${name}/${tab}: guarded navigation arrived`);
         assert(layout.header.bottom <= layout.main.y + 1, `${name}/${tab}: header does not overlap the working area`);
         if (width > 760) {
@@ -697,6 +727,13 @@ async function browser() {
         await checkAircraftCorrection(name, width, height, touch);
         await checkRecordingPointer(name, touch);
       }
+    }
+    if (process.env.FF_RECORDING_UX_ONLY === '1') {
+      assert.deepEqual(errors, [], 'recording and shell views have no renderer errors');
+      fs.writeFileSync(path.join(OUTPUT, 'recording-layout-results.json'), JSON.stringify(checks, null, 2));
+      console.log(`Recording UX passed: ${checks.length} populated views across ${SIZES.length} layouts; active size, keyboard/touch actions, saving/failure, reconnect resets, Settings/Logbook links and aircraft correction. Screenshots: ${OUTPUT}`);
+      app.exit(0);
+      return;
     }
     // Scenario text and progressive disclosure must remain understandable on
     // a desktop and a narrow phone, not just for the critical fixture above.
@@ -1162,6 +1199,7 @@ async function browser() {
     await evaluate('workbenchTest.voice.setBridgeAvailable(false);workbenchTest.voice.bindRuntime(null);await workbenchTest.nextTick();');
     assert.equal(await evaluate("return document.querySelectorAll('[data-voice-setup-trigger], #settings-voice-control').length;"), 0, 'remote browsers do not offer local microphone configuration');
     console.log('Voice settings passed: canonical Settings editor, guarded sidebar/search/Aircraft navigation, live settings actions, unsaved drafts, registration, dismissal and 390/320px More.');
+    reportPhase('Voice settings complete');
 
     if (process.env.FF_TOOLBAR_SETUP_ONLY) {
       assert.deepEqual(errors, [], 'no browser runtime or asset errors');
@@ -1174,6 +1212,7 @@ async function browser() {
       ['remote-expired', 'read-only', 'expired', false], ['remote-disconnected', 'read-only', 'expired', true],
     ];
     for (const [name, scope, pairing, disconnected] of remoteCases) {
+      reportPhase(`Remote state: ${name}`);
       win.setContentSize(390, 844);
       await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
       const origin = new URL(process.env.FF_WORKBENCH_TEST_URL).origin;
@@ -1229,11 +1268,16 @@ async function browser() {
     assert(await evaluate("return originalSettingsField===document.getElementById('setting-recording-auto-start') && originalSettingsField.matches(':disabled') && !originalSettingsField.getClientRects().length;"), 'revocation disables and hides the retained settings bindings');
     assert.equal(await evaluate("return workbenchTest.sent.some(message=>message.type==='saveAppSettings');"), false, 'revoked settings submit cannot send a save request');
     await capture('authorization-revoked-settings');
+    reportPhase('Desktop authorization recovery');
     await checkDesktopAuthorizationRecovery();
+    reportPhase('Cloud voice settings');
     await checkCloudVoiceSettings();
+    reportPhase('Voice restart guidance');
     await checkVoiceRestartHint();
+    reportPhase('Settings navigation');
     await checkSettingsNavigation();
     assert.deepEqual(errors, [], 'no browser runtime or asset errors');
+    reportPhase('All checks complete');
     fs.writeFileSync(path.join(OUTPUT, 'layout-results.json'), JSON.stringify(checks, null, 2));
     console.log(`App workbench passed: ${checks.length} populated views across ${SIZES.length} desktop, tablet and phone layouts; compact 3D replay, adaptive navigation, map, touch targets, view search, four remote states, muted telemetry and authorization grant/revocation. Screenshots: ${OUTPUT}`);
     app.exit(0);
@@ -1252,7 +1296,7 @@ async function main() {
   const profile = require(runtime('aircraft/aircraft-profile-loader.js')).loadProfile('bundled/msfs/pmdg-737');
   const { buildAircraftControlCapabilities } = require(runtime('aircraft/aircraft-control-service.js'));
   const capabilities = buildAircraftControlCapabilities(profile, { profileRevision: 1, capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } });
-  const integration = require(runtime('aircraft/aircraft-integrations/index.js')).defaultAircraftIntegrationRegistry.getById('pmdg-737');
+  const integration = require(runtime('aircraft/integration-engine/index.js')).defaultAircraftIntegrationRegistry.getById('pmdg-737');
   const values = Object.fromEntries(Object.values(integration.fields).map(field => {
     const decode = field.sources[0]?.decode;
     return [field.id, decode?.type === 'boolean' ? false : decode?.type === 'enum' ? Object.values(decode.values)[0] : 0];
@@ -1279,9 +1323,10 @@ async function main() {
     const env = { ...process.env, FF_WORKBENCH_TEST_URL: `http://127.0.0.1:${server.httpServer.address().port}/tests/fixtures/app-workbench-browser.html` };
     delete env.ELECTRON_RUN_AS_NODE;
     const child = require('node:child_process').spawn(require('../../electron/node_modules/electron'), [__filename], { env, cwd: ROOT, windowsHide: true, stdio: 'inherit' });
-    // Native input and lifecycle checks now run alongside all eight layouts.
-    // Leave headroom for a cold browser in the full pre-commit/CI suite.
-    const timeoutMs = 180000;
+    // Eight layouts plus native input, voice lifecycle, authorization recovery
+    // and Settings navigation run in one browser session. Allow cold-run
+    // headroom for the complete suite; individual operation bounds stay intact.
+    const timeoutMs = 360000;
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill(); }, timeoutMs);
     const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('exit', resolve); });

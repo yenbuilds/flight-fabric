@@ -3,11 +3,11 @@
   "version": 2,
   "_instructions": [
     "=== QUICK START PROFILE ===",
-    "1. Copy this into backend/aircraft/profiles/bundled/<simulator>/<aircraft-name>.json in the source tree.",
+    "1. Use this profile shape under profiles['bundled/<simulator>/<aircraft-name>'] in the matching backend/aircraft/aircraft-integrations/*.yaml document (schemaVersion: 1).",
     "2. Set simulator to 'msfs' or 'xplane' and keep namespace as 'bundled'.",
     "3. Change id and name.",
     "4. Put aircraft semantics under aircraft.* and simulator bindings under integration.*.",
-    "5. Run the profile validators and rebuild the backend runtime.",
+    "5. Add any new YAML filename to backend/aircraft/aircraft-definition-files.json, run the profile validators and rebuild the backend runtime.",
     "",
     "Delete these _instructions when done."
   ],

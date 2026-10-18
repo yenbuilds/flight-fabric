@@ -1,0 +1,78 @@
+<svg id="still" xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600" fill="none">
+  <defs>
+    <radialGradient id="halo"><stop stop-color="#23766B" stop-opacity=".4"/><stop offset="1" stop-color="#183A3C" stop-opacity="0"/></radialGradient>
+    <linearGradient id="cover" x1="167" y1="308" x2="419" y2="483" gradientUnits="userSpaceOnUse"><stop stop-color="#75DEBE"/><stop offset="1" stop-color="#21867F"/></linearGradient>
+    <linearGradient id="paper" x1="166" y1="310" x2="344" y2="407" gradientUnits="userSpaceOnUse"><stop stop-color="#FEF0D6"/><stop offset="1" stop-color="#C6D9CD"/></linearGradient>
+    <linearGradient id="paper-right" x1="325" y1="306" x2="432" y2="424" gradientUnits="userSpaceOnUse"><stop stop-color="#FFF5E3"/><stop offset="1" stop-color="#DAE1D2"/></linearGradient>
+    <linearGradient id="frame" x1="240" y1="151" x2="438" y2="347" gradientUnits="userSpaceOnUse"><stop stop-color="#7990A2"/><stop offset=".35" stop-color="#3B596E"/><stop offset="1" stop-color="#20384D"/></linearGradient>
+    <linearGradient id="map" x1="239" y1="143" x2="431" y2="335" gradientUnits="userSpaceOnUse"><stop stop-color="#234B5B"/><stop offset="1" stop-color="#102D40"/></linearGradient>
+    <linearGradient id="plane" x1="134" y1="199" x2="244" y2="255" gradientUnits="userSpaceOnUse"><stop stop-color="#F7F4DE"/><stop offset="1" stop-color="#9BBFD0"/></linearGradient>
+    <linearGradient id="badge" x1="411" y1="346" x2="462" y2="402" gradientUnits="userSpaceOnUse"><stop stop-color="#B6F5D7"/><stop offset="1" stop-color="#45C99D"/></linearGradient>
+    <linearGradient id="pen" x1="368" y1="400" x2="399" y2="478" gradientUnits="userSpaceOnUse"><stop stop-color="#709DDD"/><stop offset=".5" stop-color="#486FC1"/><stop offset="1" stop-color="#253E80"/></linearGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="175%" height="190%"><feDropShadow dx="0" dy="17" stdDeviation="12" flood-color="#07111E" flood-opacity=".3"/></filter>
+    <filter id="soft"><feGaussianBlur stdDeviation="10"/></filter>
+  </defs>
+  <style>
+    :root:target * { animation:none !important; }
+    .flight-track { stroke-dasharray:260; stroke-dashoffset:0; animation:trace 2.7s ease-in-out both; }
+    .saved { transform-box:fill-box; transform-origin:center; animation:arrive .45s ease-out 2.3s both; }
+    @keyframes trace { from { stroke-dashoffset:260; } to { stroke-dashoffset:0; } }
+    @keyframes arrive { from { transform:translateY(8px) scale(.92); opacity:0; } to { transform:none; opacity:1; } }
+    @media (prefers-reduced-motion:reduce) { .flight-track,.saved { animation:none; } }
+  </style>
+  <circle cx="304" cy="298" r="249" fill="url(#halo)"/>
+  <path d="M92 311C91 177 237 92 380 129C467 152 514 238 502 334" stroke="#99D7CD" stroke-opacity=".15"/>
+  <path d="M115 450C216 531 390 524 482 426" stroke="#99D7CD" stroke-opacity=".16"/>
+  <circle cx="379" cy="129" r="5" fill="#8DC8B3"/>
+  <ellipse cx="304" cy="511" rx="176" ry="21" fill="#061520" opacity=".4" filter="url(#soft)"/>
+  <!-- Floating map, with a drawn flight track. -->
+  <g transform="rotate(8 335 251)" filter="url(#shadow)">
+    <rect x="214" y="142" width="240" height="212" rx="24" fill="url(#frame)"/>
+    <rect x="217" y="137" width="240" height="212" rx="24" fill="url(#map)" stroke="#91B5BC" stroke-opacity=".6"/>
+    <path d="M240 138L255 170L244 182L270 203L267 225L239 245L248 272L229 298L219 300V161C219 146 228 138 240 138Z" fill="#48776E" opacity=".63"/>
+    <path d="M403 138L391 170L399 199L376 221L382 241L369 271L385 298L414 311L420 348H433C448 348 457 339 457 324V160C457 145 449 138 433 138Z" fill="#48776E" opacity=".56"/>
+    <path d="M251 147L274 173L266 190M432 177L413 207L422 246L402 278L429 321" stroke="#9EB69D" stroke-opacity=".25" stroke-width="1.5"/>
+    <path d="M219 193H457M219 246H457M219 299H457M276 138V349M334 138V349M392 138V349" stroke="#A1D2D2" stroke-opacity=".08"/>
+    <path class="flight-track" d="M254 258C285 208 315 300 346 255C366 224 370 187 407 182" stroke="#A3F0CB" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="254" cy="258" r="6" fill="#BEF7DD"/>
+    <circle cx="407" cy="182" r="5" fill="#EAD2A1"/>
+    <circle cx="407" cy="182" r="12" stroke="#EAD2A1" stroke-opacity=".32"/>
+    <rect x="243" y="319" width="44" height="5" rx="2.5" fill="#94B6BB" opacity=".55"/>
+    <rect x="298" y="319" width="23" height="5" rx="2.5" fill="#94B6BB" opacity=".3"/>
+  </g>
+  <!-- An open logbook: layered cover, page edges and a gentle centre fold. -->
+  <g filter="url(#shadow)">
+    <path d="M161 325C208 313 266 321 304 347C346 317 394 313 441 322L454 457C407 450 357 458 315 479C271 455 212 449 157 459L145 342Z" fill="url(#cover)"/>
+    <path d="M166 319C215 310 267 318 304 344C345 315 394 311 435 318L448 443C403 439 357 447 314 469C270 443 218 439 163 449Z" fill="#9CB9AF"/>
+    <path d="M166 311C215 302 267 309 304 336C345 307 392 303 435 311L447 435C402 431 357 439 313 461C269 435 215 431 162 441Z" fill="#D0DCCE"/>
+    <path d="M162 301C210 291 265 298 304 326L313 450C272 424 216 420 158 432Z" fill="url(#paper)"/>
+    <path d="M304 326C346 297 390 291 432 300L443 423C400 420 354 428 313 450Z" fill="url(#paper-right)"/>
+    <path d="M304 329L313 449" stroke="#859F99" stroke-opacity=".6" stroke-width="2"/>
+    <path d="M297 326L305 441" stroke="#FFF9EA" stroke-opacity=".5" stroke-width="3"/>
+    <path d="M181 328C219 324 259 331 284 345M180 347C219 343 259 350 285 363M179 366C219 362 259 369 286 381M179 386C220 381 260 389 287 402" stroke="#849E99" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/>
+    <path d="M202 327L201 397M247 332L249 403" stroke="#9BAFA6" stroke-opacity=".35" stroke-width="1.5"/>
+    <path d="M326 340C355 325 388 321 415 324M328 359C358 344 388 340 416 344M330 379C359 364 390 360 418 363M332 400C361 385 393 381 420 384" stroke="#849E99" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/>
+    <path d="M346 432L349 466L362 456L374 459L369 423" fill="#4E7BD0"/>
+    <path d="M346 432L369 423" stroke="#2B56A0" stroke-width="2"/>
+  </g>
+  <!-- Sculpted aircraft and a small saved check. -->
+  <g transform="translate(153 219) rotate(-26)" filter="url(#shadow)">
+    <path d="M0-63C6-63 9-52 9-41L11-15L66 18V29L10 12L8 50L26 66V74L0 62L-26 74V66L-8 50L-10 12L-66 29V18L-11-15L-9-41C-9-52-6-63 0-63Z" fill="url(#plane)"/>
+    <path d="M0-63V62L26 74V66L8 50L10 12L66 29V18L11-15L9-41C9-52 6-63 0-63Z" fill="#6793B0" opacity=".55"/>
+    <path d="M-6-40C-3-43 3-43 6-40L7-31H-7Z" fill="#35566D"/>
+    <path d="M-32 7V24M32 7V24" stroke="#E6EEE2" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <g class="saved">
+    <circle cx="449" cy="378" r="36" fill="#163C3E" filter="url(#shadow)"/>
+    <circle cx="449" cy="374" r="36" fill="url(#badge)" stroke="#C6F4D8" stroke-width="2"/>
+    <path d="M433 374L444 385L465 362" stroke="#1E635B" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="rotate(-25 400 450)">
+    <rect x="393" y="405" width="13" height="83" rx="6" fill="url(#pen)"/>
+    <path d="M393 474L400 495L406 474Z" fill="#E7D5AC"/>
+    <path d="M397 487L400 495L403 487Z" fill="#33495B"/>
+    <path d="M403 416V442" stroke="#BDCFDB" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <circle cx="109" cy="377" r="6" fill="#EBC58E"/>
+  <path d="M463 113V127M456 120H470" stroke="#83C5BD" stroke-width="2" stroke-linecap="round"/>
+</svg>

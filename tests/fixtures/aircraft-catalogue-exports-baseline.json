@@ -1,0 +1,461 @@
+{
+  "provenance": {
+    "description": "Compatibility names and values captured before wrapper removal; three iniBuilds A380 aliases were previously available only from its wrapper.",
+    "previousIndexSha256": "4bff83873846932246c961755c30a35b10000b86dd2d478d884b9b81927b6dc7"
+  },
+  "integrationOrder": [
+    "inibuilds-a380",
+    "headwind-a330",
+    "fenix-a32x",
+    "fbw-a32nx",
+    "fbw-a380x",
+    "ifly-737-max-8",
+    "inibuilds-a310",
+    "inibuilds-a330",
+    "inibuilds-a350",
+    "inibuilds-tristar",
+    "workingtitle-747-8",
+    "asobo-787",
+    "microsoft-737-max-8",
+    "microsoft-atr-72-600",
+    "microsoft-inibuilds-a32x",
+    "pmdg-737",
+    "pmdg-777",
+    "tfdi-md-11"
+  ],
+  "exportOrder": [
+    "FENIX_A32X_ADAPTER_ID",
+    "FENIX_A32X_INTEGRATION",
+    "FENIX_A319_PROFILE_KEY",
+    "FENIX_A320_PROFILE_KEY",
+    "FENIX_A321_PROFILE_KEY",
+    "FBW_A32NX_ADAPTER_ID",
+    "FBW_A32NX_INTEGRATION",
+    "FBW_A32NX_PROFILE_KEY",
+    "FBW_A380X_ADAPTER_ID",
+    "FBW_A380X_INTEGRATION",
+    "FBW_A380X_PROFILE_KEY",
+    "IFLY_737_MAX_8_ADAPTER_ID",
+    "IFLY_737_MAX_8_INTEGRATION",
+    "IFLY_737_MAX_8_PROFILE_KEY",
+    "MICROSOFT_747_8_ADAPTER_ID",
+    "MICROSOFT_747_8_INTEGRATION",
+    "MICROSOFT_747_8_PROFILE_KEY",
+    "MICROSOFT_787_10_ADAPTER_ID",
+    "MICROSOFT_787_10_INTEGRATION",
+    "MICROSOFT_787_10_PROFILE_KEY",
+    "INIBUILDS_A310_ADAPTER_ID",
+    "INIBUILDS_A310_INTEGRATION",
+    "INIBUILDS_A310_PROFILE_KEY",
+    "INIBUILDS_A330_ADAPTER_ID",
+    "INIBUILDS_A330_INTEGRATION",
+    "INIBUILDS_A330_PROFILE_KEY",
+    "INIBUILDS_A350_1000_PROFILE_KEY",
+    "INIBUILDS_A350_900_PROFILE_KEY",
+    "INIBUILDS_A350_ADAPTER_ID",
+    "INIBUILDS_A350_INTEGRATION",
+    "INIBUILDS_TRISTAR_ADAPTER_ID",
+    "INIBUILDS_TRISTAR_INTEGRATION",
+    "INIBUILDS_TRISTAR_PROFILE_KEY",
+    "MICROSOFT_737_MAX_8_ADAPTER_ID",
+    "MICROSOFT_737_MAX_8_INTEGRATION",
+    "MICROSOFT_737_MAX_8_PROFILE_KEY",
+    "MICROSOFT_ATR_72_600_ADAPTER_ID",
+    "MICROSOFT_ATR_72_600_INTEGRATION",
+    "MICROSOFT_ATR_72_600_PROFILE_KEY",
+    "INIBUILDS_A320NEO_V2_PROFILE_KEY",
+    "INIBUILDS_A321LR_PROFILE_KEY",
+    "MICROSOFT_INIBUILDS_A32X_ADAPTER_ID",
+    "MICROSOFT_INIBUILDS_A32X_INTEGRATION",
+    "PMDG_737_ADAPTER_ID",
+    "PMDG_737_INTEGRATION",
+    "PMDG_737_600_PROFILE_KEY",
+    "PMDG_737_700_PROFILE_KEY",
+    "PMDG_737_800_PROFILE_KEY",
+    "PMDG_737_900_PROFILE_KEY",
+    "PMDG_737_PROFILE_KEY",
+    "PMDG_777_ADAPTER_ID",
+    "PMDG_777_INTEGRATION",
+    "PMDG_777_300ER_PROFILE_KEY",
+    "PMDG_777_200ER_PROFILE_KEY",
+    "PMDG_777_200LR_PROFILE_KEY",
+    "PMDG_777F_PROFILE_KEY",
+    "TFDI_MD_11_ADAPTER_ID",
+    "TFDI_MD_11_INTEGRATION",
+    "TFDI_MD_11_PROFILE_KEY",
+    "INIBUILDS_A380_ADAPTER_ID",
+    "INIBUILDS_A380_PROFILE_KEY",
+    "INIBUILDS_A380_INTEGRATION",
+    "createAircraftIntegrationRegistry",
+    "defaultAircraftIntegrationRegistry",
+    "defineAircraftIntegration",
+    "normalizeAircraftIntegrationActionInput"
+  ],
+  "catalogues": {
+    "inibuilds-a380": {
+      "order": 0,
+      "legacyExports": {
+        "INIBUILDS_A380_ADAPTER_ID": {
+          "kind": "id",
+          "order": 59
+        },
+        "INIBUILDS_A380_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/inibuilds-a380-800-rr",
+          "order": 60
+        },
+        "INIBUILDS_A380_INTEGRATION": {
+          "kind": "integration",
+          "order": 61
+        }
+      }
+    },
+    "headwind-a330": {
+      "order": 1,
+      "legacyExports": {}
+    },
+    "fenix-a32x": {
+      "order": 2,
+      "legacyExports": {
+        "FENIX_A32X_ADAPTER_ID": {
+          "kind": "id",
+          "order": 0
+        },
+        "FENIX_A32X_INTEGRATION": {
+          "kind": "integration",
+          "order": 1
+        },
+        "FENIX_A319_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/fenix-a319",
+          "order": 2
+        },
+        "FENIX_A320_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/fenix-a320",
+          "order": 3
+        },
+        "FENIX_A321_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/fenix-a321",
+          "order": 4
+        }
+      }
+    },
+    "fbw-a32nx": {
+      "order": 3,
+      "legacyExports": {
+        "FBW_A32NX_ADAPTER_ID": {
+          "kind": "id",
+          "order": 5
+        },
+        "FBW_A32NX_INTEGRATION": {
+          "kind": "integration",
+          "order": 6
+        },
+        "FBW_A32NX_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/fbw-a32nx",
+          "order": 7
+        }
+      }
+    },
+    "fbw-a380x": {
+      "order": 4,
+      "legacyExports": {
+        "FBW_A380X_ADAPTER_ID": {
+          "kind": "id",
+          "order": 8
+        },
+        "FBW_A380X_INTEGRATION": {
+          "kind": "integration",
+          "order": 9
+        },
+        "FBW_A380X_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/fbw-a380x",
+          "order": 10
+        }
+      }
+    },
+    "ifly-737-max-8": {
+      "order": 5,
+      "legacyExports": {
+        "IFLY_737_MAX_8_ADAPTER_ID": {
+          "kind": "id",
+          "order": 11
+        },
+        "IFLY_737_MAX_8_INTEGRATION": {
+          "kind": "integration",
+          "order": 12
+        },
+        "IFLY_737_MAX_8_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/ifly-737-max-8",
+          "order": 13
+        }
+      }
+    },
+    "inibuilds-a310": {
+      "order": 6,
+      "legacyExports": {
+        "INIBUILDS_A310_ADAPTER_ID": {
+          "kind": "id",
+          "order": 20
+        },
+        "INIBUILDS_A310_INTEGRATION": {
+          "kind": "integration",
+          "order": 21
+        },
+        "INIBUILDS_A310_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/inibuilds-a310",
+          "order": 22
+        }
+      }
+    },
+    "inibuilds-a330": {
+      "order": 7,
+      "legacyExports": {
+        "INIBUILDS_A330_ADAPTER_ID": {
+          "kind": "id",
+          "order": 23
+        },
+        "INIBUILDS_A330_INTEGRATION": {
+          "kind": "integration",
+          "order": 24
+        },
+        "INIBUILDS_A330_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/inibuilds-a330",
+          "order": 25
+        }
+      }
+    },
+    "inibuilds-a350": {
+      "order": 8,
+      "legacyExports": {
+        "INIBUILDS_A350_1000_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/inibuilds-a350-1000",
+          "order": 26
+        },
+        "INIBUILDS_A350_900_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/inibuilds-a350-900",
+          "order": 27
+        },
+        "INIBUILDS_A350_ADAPTER_ID": {
+          "kind": "id",
+          "order": 28
+        },
+        "INIBUILDS_A350_INTEGRATION": {
+          "kind": "integration",
+          "order": 29
+        }
+      }
+    },
+    "inibuilds-tristar": {
+      "order": 9,
+      "legacyExports": {
+        "INIBUILDS_TRISTAR_ADAPTER_ID": {
+          "kind": "id",
+          "order": 30
+        },
+        "INIBUILDS_TRISTAR_INTEGRATION": {
+          "kind": "integration",
+          "order": 31
+        },
+        "INIBUILDS_TRISTAR_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/inibuilds-tristar",
+          "order": 32
+        }
+      }
+    },
+    "workingtitle-747-8": {
+      "order": 10,
+      "legacyExports": {
+        "MICROSOFT_747_8_ADAPTER_ID": {
+          "kind": "id",
+          "order": 14
+        },
+        "MICROSOFT_747_8_INTEGRATION": {
+          "kind": "integration",
+          "order": 15
+        },
+        "MICROSOFT_747_8_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/workingtitle-747-8",
+          "order": 16
+        }
+      }
+    },
+    "asobo-787": {
+      "order": 11,
+      "legacyExports": {
+        "MICROSOFT_787_10_ADAPTER_ID": {
+          "kind": "id",
+          "order": 17
+        },
+        "MICROSOFT_787_10_INTEGRATION": {
+          "kind": "integration",
+          "order": 18
+        },
+        "MICROSOFT_787_10_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/asobo-787",
+          "order": 19
+        }
+      }
+    },
+    "microsoft-737-max-8": {
+      "order": 12,
+      "legacyExports": {
+        "MICROSOFT_737_MAX_8_ADAPTER_ID": {
+          "kind": "id",
+          "order": 33
+        },
+        "MICROSOFT_737_MAX_8_INTEGRATION": {
+          "kind": "integration",
+          "order": 34
+        },
+        "MICROSOFT_737_MAX_8_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/microsoft-737-max-8",
+          "order": 35
+        }
+      }
+    },
+    "microsoft-atr-72-600": {
+      "order": 13,
+      "legacyExports": {
+        "MICROSOFT_ATR_72_600_ADAPTER_ID": {
+          "kind": "id",
+          "order": 36
+        },
+        "MICROSOFT_ATR_72_600_INTEGRATION": {
+          "kind": "integration",
+          "order": 37
+        },
+        "MICROSOFT_ATR_72_600_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/microsoft-atr-72-600",
+          "order": 38
+        }
+      }
+    },
+    "microsoft-inibuilds-a32x": {
+      "order": 14,
+      "legacyExports": {
+        "INIBUILDS_A320NEO_V2_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/inibuilds-a320neo-v2",
+          "order": 39
+        },
+        "INIBUILDS_A321LR_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/inibuilds-a321lr",
+          "order": 40
+        },
+        "MICROSOFT_INIBUILDS_A32X_ADAPTER_ID": {
+          "kind": "id",
+          "order": 41
+        },
+        "MICROSOFT_INIBUILDS_A32X_INTEGRATION": {
+          "kind": "integration",
+          "order": 42
+        }
+      }
+    },
+    "pmdg-737": {
+      "order": 15,
+      "legacyExports": {
+        "PMDG_737_ADAPTER_ID": {
+          "kind": "id",
+          "order": 43
+        },
+        "PMDG_737_INTEGRATION": {
+          "kind": "integration",
+          "order": 44
+        },
+        "PMDG_737_600_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-737-600",
+          "order": 45
+        },
+        "PMDG_737_700_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-737-700",
+          "order": 46
+        },
+        "PMDG_737_800_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-737",
+          "order": 47
+        },
+        "PMDG_737_900_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-737-900",
+          "order": 48
+        },
+        "PMDG_737_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-737",
+          "order": 49
+        }
+      }
+    },
+    "pmdg-777": {
+      "order": 16,
+      "legacyExports": {
+        "PMDG_777_ADAPTER_ID": {
+          "kind": "id",
+          "order": 50
+        },
+        "PMDG_777_INTEGRATION": {
+          "kind": "integration",
+          "order": 51
+        },
+        "PMDG_777_300ER_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-777",
+          "order": 52
+        },
+        "PMDG_777_200ER_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-777-200er",
+          "order": 53
+        },
+        "PMDG_777_200LR_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-777-200lr",
+          "order": 54
+        },
+        "PMDG_777F_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/pmdg-777f",
+          "order": 55
+        }
+      }
+    },
+    "tfdi-md-11": {
+      "order": 17,
+      "legacyExports": {
+        "TFDI_MD_11_ADAPTER_ID": {
+          "kind": "id",
+          "order": 56
+        },
+        "TFDI_MD_11_INTEGRATION": {
+          "kind": "integration",
+          "order": 57
+        },
+        "TFDI_MD_11_PROFILE_KEY": {
+          "kind": "profile",
+          "profileKey": "bundled/msfs/tfdi-md-11",
+          "order": 58
+        }
+      }
+    }
+  }
+}

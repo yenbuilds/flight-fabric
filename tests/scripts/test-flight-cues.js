@@ -121,23 +121,25 @@ for (const entry of loader.listProfiles()) {
       const expected = {
         PARKED: ['surfaces.parkingBrake.set', 'configuration.apu.start', 'surveillance.squawk.set', 'flightGuidance.altitude.set'],
         TAXI: ['configuration.lights.takeoff', 'surfaces.flaps.set', 'surfaces.autobrake.set'],
-        CLIMB: ['surfaces.flaps.set', 'flightGuidance.altitude.set'],
+        CLIMB: ['surfaces.gear.set', 'surfaces.flaps.set', 'flightGuidance.altitude.set'],
         CRUISE: ['query:what is selected altitude'],
         DESCENT: ['baro.both.qnhHpa', 'navigation.captain.ls', 'navigation.firstOfficer.ls', 'flightGuidance.altitude.set'],
-        APPROACH: ['surfaces.flaps.set', 'surfaces.spoilersArmed.set', 'surfaces.autobrake.set', 'configuration.lights.landing'],
+        APPROACH: ['surfaces.gear.set', 'surfaces.flaps.set', 'surfaces.spoilersArmed.set', 'surfaces.autobrake.set', 'configuration.lights.landing'],
         'TAXI-IN': ['configuration.lights.afterLanding', 'surfaces.flaps.set', 'configuration.apu.start'],
       };
       for (const [phase, ids] of Object.entries(expected)) {
         assert.deepEqual(cuesByPhase[phase].map(c => c.id), ids, `${entry.id}: useful ${phase} coverage`);
       }
       const cue = (phase, id) => cuesByPhase[phase].find(c => c.id === id);
+      assert.equal(cue('CLIMB', 'surfaces.gear.set').phrase, 'gear up');
+      assert.equal(cue('APPROACH', 'surfaces.gear.set').phrase, 'gear down');
       assert.equal(cue('TAXI', 'surfaces.autobrake.set').phrase, 'set autobrake max');
       assert.deepEqual(cue('TAXI', 'surfaces.flaps.set').valueChoices, ['1', '2', '3']);
       assert.deepEqual(cue('CLIMB', 'surfaces.flaps.set').valueChoices, ['up', '1', '2', '3']);
       assert.deepEqual(cue('APPROACH', 'surfaces.flaps.set').valueChoices, ['1', '2', '3', 'full']);
       assert.deepEqual(cue('APPROACH', 'surfaces.autobrake.set').valueChoices, ['off', 'low', 'medium']);
       assert.equal(cue('TAXI-IN', 'surfaces.flaps.set').phrase, 'set flaps up');
-      for (const id of ['surfaces.gear.set', 'radios.com1.setStandby', 'radios.nav1.setStandby', 'approach.captain.minimumsMode']) {
+      for (const id of ['radios.com1.setStandby', 'radios.nav1.setStandby', 'approach.captain.minimumsMode']) {
         assert.equal(Object.hasOwn(catalogue.commands, id), false, `do not claim unimplemented Fenix support: ${id}`);
       }
       const base = { catalogue, activeProfileKey: profileKey, activeProfileRevision: 7, aircraftSnapshot, available: true, live: true, now };

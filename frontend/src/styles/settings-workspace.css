@@ -20,6 +20,7 @@
 .settings-page .settings-option-row > input[type="checkbox"] { order: 2; flex: none; width: 1.125rem; height: 1.125rem; margin-left: auto; }
 .settings-page .settings-option-row > div { flex: 1; }
 .settings-page .settings-option-row.flex-col { align-items: stretch; }
+.settings-page #settings-show-intro { min-height: 2.75rem; }
 .settings-page .settings-runtime-connection { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 26rem); align-items: center; gap: 1rem; padding-block: .5rem 1rem; }
 .settings-page .settings-label-row { min-width: 0; }
 .settings-page #settings-cabin-audio > .mt-4 { max-width: 40rem; }

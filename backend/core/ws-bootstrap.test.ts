@@ -663,6 +663,17 @@ test('outbound projection scrubs relative simulator identities and lifecycle rea
   })?.aircraft, 'Embraer E170/175');
 });
 
+test('remote recording size remains available without exposing local paths', () => {
+  const projected = projectServerMessageForClient({}, {
+    type: 'flightRecording', status: 'recording', recordingSessionId: 'current', sizeBytes: 862208,
+    fileName: 'telemetry.csv', filePath: 'C:\\Users\\pilot\\Flights\\telemetry.csv', outputDir: 'C:\\Users\\pilot\\Flights',
+  });
+  assert.equal(projected?.sizeBytes, 862208);
+  assert.equal(projected?.filePath, undefined);
+  assert.equal(projected?.outputDir, undefined);
+  assert.equal(projectServerMessageForClient({}, { type: 'flightRecording', sizeBytes: -1 })?.sizeBytes, null);
+});
+
 test('outbound projection scrubs path values in generic, route, and flight-plan payloads', () => {
   const projectedGeneric = projectServerMessageForClient({}, {
     type: 'simState',

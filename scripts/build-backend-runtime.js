@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
+const { isDeepStrictEqual } = require('node:util');
 const { resolveCargo } = require('./rust-toolchain');
 const {
   getRepoScratchPath,
@@ -385,7 +386,26 @@ function copyRustSidecarBinary() {
   );
 }
 
+function normalizeAircraftDefinitionAssets(
+  source = path.join(BACKEND_SRC, 'aircraft/aircraft-integrations'),
+  destination = path.join(BACKEND_DIST, 'aircraft/aircraft-integrations'),
+) {
+  const { readAircraftDefinitionFiles } = require(path.join(BACKEND_DIST, 'aircraft/aircraft-definition-catalogue.js'));
+  const { loadYamlDocument, AIRCRAFT_DEFINITION_MAX_BYTES } = require(path.join(BACKEND_DIST, 'aircraft/integration-engine/definition-yaml.js'));
+  for (const file of readAircraftDefinitionFiles(source)) {
+    const data = loadYamlDocument(path.join(source, file), () => true, AIRCRAFT_DEFINITION_MAX_BYTES);
+    const canonical = JSON.stringify(data);
+    if (isDeepStrictEqual(data, JSON.parse(canonical))) {
+      fs.writeFileSync(path.join(destination, file), canonical, 'utf8');
+    }
+  }
+  log('Normalized aircraft definitions to canonical JSON-compatible YAML');
+}
+
 function main() {
+  // Reject malformed authored definitions before replacing a usable runtime.
+  const definitionValidator = path.join(ROOT, 'scripts', 'validate-aircraft-definitions.js');
+  execFileSync(process.execPath, [definitionValidator], { cwd: ROOT, stdio: 'inherit', windowsHide: true });
   ensureDir(DIST_ROOT);
 
   removeTarget(BACKEND_DIST);
@@ -397,12 +417,19 @@ function main() {
 
   buildTypeScriptRuntime();
   copyBackendRuntimeFiles();
+  normalizeAircraftDefinitionAssets();
   copyRustSidecarBinary();
   copyTopLevelRuntimeTree('shared runtime assets', SHARED_SRC, SHARED_DIST);
   copyTopLevelRuntimeTree('frontend runtime assets', FRONTEND_SRC, FRONTEND_DIST);
   copyDistPackageJson();
 
+  // Check the copied assets with the compiled engine too; source files must not
+  // mask a missing or invalid runtime definition.
+  execFileSync(process.execPath, [definitionValidator, '--dist'], { cwd: ROOT, stdio: 'inherit', windowsHide: true });
+
   log('Backend runtime build complete');
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { normalizeAircraftDefinitionAssets };

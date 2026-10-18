@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.12.4",
+  "version": "0.12.5",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -36,7 +36,9 @@
     "test:vue-stores": "node tests/scripts/test-vue-stores.js",
     "test:vue-components": "node tests/scripts/test-vue-components.js",
     "test:vue-interactions": "node tests/scripts/test-vue-interactions.js",
+    "test:connection-lifecycle": "node tests/scripts/test-ws-connection-bootstrap.js --lifecycle-only",
     "test:app-workbench-browser": "npm run build:backend:runtime && npm run frontend:build && node tests/scripts/test-app-workbench-browser.js",
+    "test:onboarding-browser": "npm run build:backend:runtime && npm run frontend:build && node tests/scripts/test-onboarding-browser.js",
     "test:app-navigator-browser": "node tests/scripts/test-app-navigator-browser.js",
     "test:logbook-workspace-browser": "npm run frontend:build && node tests/scripts/test-logbook-workspace-browser.js",
     "test:timeline-load-recovery": "node tests/scripts/test-timeline-load-recovery.js",
@@ -46,7 +48,7 @@
     "test:atc-families-browser": "node tests/scripts/test-atc-families-browser.js",
     "test:a32nx-approach-browser": "node tests/scripts/test-a32nx-approach-browser.js",
     "test:baro-controls-browser": "node tests/scripts/test-baro-controls-browser.js",
-    "test:minimums-controls": "node node_modules/typescript/bin/tsc -p tsconfig.backend.runtime.json && node --test dist/backend/aircraft/a32nx-atc-efis.test.js dist/backend/aircraft/aircraft-integrations/fbw-a32nx/minimums-control.test.js dist/backend/aircraft/minimums-execution-parity.test.js tests/scripts/test-a32nx-atc-voice.js",
+    "test:minimums-controls": "node node_modules/typescript/bin/tsc -p tsconfig.backend.runtime.json && node --test dist/backend/aircraft/a32nx-atc-efis.test.js dist/backend/aircraft/guarded-display-entry.test.js dist/backend/aircraft/guarded-display-entry-contract.test.js dist/backend/aircraft/minimums-execution-parity.test.js tests/scripts/test-a32nx-atc-voice.js",
     "test:baro-controls": "node node_modules/typescript/bin/tsc -p tsconfig.backend.runtime.json && node --test dist/backend/aircraft/baro.test.js dist/backend/aircraft/baro-standard.test.js dist/backend/aircraft/baro-execution-parity.test.js tests/scripts/test-baro-controls.js tests/scripts/test-fenix-baro-controls.js tests/scripts/test-aircraft-command-matrix.js",
     "test:approach-profile-renderer": "node tests/scripts/test-approach-profile-renderer.js",
     "test:browser-smoke": "npm run frontend:build && node tests/scripts/test-browser-smoke.js",
@@ -98,7 +100,7 @@
     "test:config": "npm run build:backend:runtime && node dist/backend/core/config.test.js",
     "test:lvar-sidecar-bridge": "npm run build:backend:runtime && node dist/backend/telemetry-provider/lvar-sidecar-bridge.test.js",
     "test:simbridge-mock": "npm run build:backend:runtime && node --test dist/tests/backend/simbridge-core.mock.test.js",
-    "test:backend:compiled-units": "node dist/backend/core/simbridge-core-utils.test.js && node --test dist/backend/core/debug.test.js && node --test dist/backend/core/ws-bootstrap.test.js && node --test dist/backend/core/http-server.test.js && node --test dist/backend/core/ws-broadcaster.test.js && node --test dist/backend/cabin-announcements/cabin-announcements.test.js && node --test dist/backend/cabin-announcements/cabin-announcements-controller.test.js && node --test dist/backend/events/broadcasters.test.js && node --test dist/backend/events/timeline-generation-worker.test.js && node --test dist/backend/aircraft/aircraft-timeline-projection-registry.test.js && node --test dist/backend/aircraft/aircraft-integrations/pmdg-777/flight-guidance-timeline.test.js && node dist/backend/flight-recording/automation-jsonl-recorder.test.js && node dist/backend/flight-recording/aircraft-specific-jsonl-recorder.test.js && node --test dist/backend/flight-recording/aircraft-specific-jsonl-reader.test.js && node --test dist/backend/flight-recording/aircraft-specific-jsonl-e2e.test.js && node --test dist/backend/flight-recording/recording-artifact-sync.e2e.test.js && node --test dist/backend/flight-recording/recording-bundle-integrity.test.js && node --test dist/backend/flight-recording/recording-bundle-status.test.js && node --test dist/backend/flight-recording/recording-bundle-lease.test.js && node --test dist/backend/flight-recording/csv-read-guard.test.js && node --test dist/backend/flight-recording/recording-disk-guard.test.js && node --test dist/backend/flight-recording/flight-csv-store.test.js && node dist/backend/stability/stability-runner.test.js && node --test dist/backend/stability/stability-debug-logger.test.js && node --test dist/backend/telemetry-provider/rust-simvar-bridge.test.js && node --test dist/backend/telemetry-provider/sdk-bridge.test.js && node --test dist/backend/telemetry-provider/sdk-registry.test.js && node --test dist/backend/telemetry-provider/sidecar-process-ownership.test.js && node --test dist/backend/telemetry-provider/sidecar-process-shutdown.test.js && node --test dist/backend/telemetry-provider/simconnect-sdk-source.test.js && node --test dist/backend/telemetry-provider/source-overlays.test.js && node --test dist/backend/telemetry-provider/xplane-telemetry-provider.test.js && node dist/backend/utils/csv.test.js && node --test dist/backend/utils/bounded-utf8-record-reader.test.js",
+    "test:backend:compiled-units": "node dist/backend/core/simbridge-core-utils.test.js && node --test dist/backend/core/debug.test.js && node --test dist/backend/core/ws-bootstrap.test.js && node --test dist/backend/core/http-server.test.js && node --test dist/backend/core/ws-broadcaster.test.js && node --test dist/backend/cabin-announcements/cabin-announcements.test.js && node --test dist/backend/cabin-announcements/cabin-announcements-controller.test.js && node --test dist/backend/events/broadcasters.test.js && node --test dist/backend/events/timeline-generation-worker.test.js && node --test dist/backend/aircraft/aircraft-timeline-projection-registry.test.js && node --test dist/backend/aircraft/integration-engine/pmdg-777/flight-guidance-timeline.test.js && node dist/backend/flight-recording/automation-jsonl-recorder.test.js && node dist/backend/flight-recording/aircraft-specific-jsonl-recorder.test.js && node --test dist/backend/flight-recording/aircraft-specific-jsonl-reader.test.js && node --test dist/backend/flight-recording/aircraft-specific-jsonl-e2e.test.js && node --test dist/backend/flight-recording/recording-artifact-sync.e2e.test.js && node --test dist/backend/flight-recording/recording-bundle-integrity.test.js && node --test dist/backend/flight-recording/recording-bundle-status.test.js && node --test dist/backend/flight-recording/recording-bundle-lease.test.js && node --test dist/backend/flight-recording/csv-read-guard.test.js && node --test dist/backend/flight-recording/recording-disk-guard.test.js && node --test dist/backend/flight-recording/flight-csv-store.test.js && node dist/backend/stability/stability-runner.test.js && node --test dist/backend/stability/stability-debug-logger.test.js && node --test dist/backend/telemetry-provider/rust-simvar-bridge.test.js && node --test dist/backend/telemetry-provider/sdk-bridge.test.js && node --test dist/backend/telemetry-provider/sdk-registry.test.js && node --test dist/backend/telemetry-provider/sidecar-process-ownership.test.js && node --test dist/backend/telemetry-provider/sidecar-process-shutdown.test.js && node --test dist/backend/telemetry-provider/simconnect-sdk-source.test.js && node --test dist/backend/telemetry-provider/source-overlays.test.js && node --test dist/backend/telemetry-provider/xplane-telemetry-provider.test.js && node dist/backend/utils/csv.test.js && node --test dist/backend/utils/bounded-utf8-record-reader.test.js",
     "test:provider-contract": "npm run build:backend:runtime && node dist/backend/telemetry-provider/simconnect-telemetry-provider.test.js",
     "test:rust-sidecar": "node scripts/run-rust-sidecar-tests.js",
     "replay:sim": "npm run build:backend:runtime && node scripts/run-dedicated-replay.js",
@@ -108,6 +110,7 @@
     "test:ws-surface": "node tests/scripts/test-ws-surface-message.js",
     "test:cabin-announcements": "npm run frontend:build && node tests/scripts/test-cabin-announcements.js",
     "test:surface-normalizer": "node tests/scripts/test-surface-normalizer.js",
+    "validate:aircraft-definitions": "node scripts/validate-aircraft-definitions.js",
     "validate:profiles": "node scripts/validate-aircraft-profiles.js",
     "validate:frame-contract": "node scripts/validate-frame-contract.js",
     "validate:simvar-units": "node scripts/validate-simvar-units.js",
@@ -175,7 +178,8 @@
     "husky": "^9.1.7",
     "knip": "^6.34.0",
     "tailwindcss": "^3.4.19",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "yaml": "2.9.0"
   },
   "overrides": {
     "minimatch": "10.2.6",

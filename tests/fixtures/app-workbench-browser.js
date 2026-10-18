@@ -5,7 +5,7 @@ import '../../frontend/ui-polish.css';
 import '../../frontend/src/maps/runtime.js';
 import AppShell from '../../frontend/src/vue/components/AppShell.vue';
 import { setAppServices } from '../../frontend/app-shared.js';
-import { emitAppSettings, emitWsMessage, emitWsMessageReceived } from '../../frontend/src/app/runtime-signals.js';
+import { emitAppSettings, emitAppSettingsSaved, emitWsClose, emitWsMessage, emitWsMessageReceived } from '../../frontend/src/app/runtime-signals.js';
 import { useAppSettingsStore } from '../../frontend/src/vue/stores/app-settings.js';
 import { useAircraftControlsStore } from '../../frontend/src/vue/stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../../frontend/src/vue/stores/aircraft-specific.js';
@@ -13,20 +13,24 @@ import { useFlightStore } from '../../frontend/src/vue/stores/flight.js';
 import { useTakeoffStore } from '../../frontend/src/vue/stores/takeoff.js';
 import { useSettingsEditorStore } from '../../frontend/src/vue/stores/settings-editor.js';
 import { useSettingsFormStore } from '../../frontend/src/vue/stores/settings-form.js';
+import { useSettingsUiStore } from '../../frontend/src/vue/stores/settings-ui.js';
 import { useSimbriefStore } from '../../frontend/src/vue/stores/simbrief.js';
 import { useStatusStore } from '../../frontend/src/vue/stores/status.js';
+import { useSystemHostStore } from '../../frontend/src/vue/stores/system-host.js';
 import { useTabsStore } from '../../frontend/src/vue/stores/tabs.js';
 import { useTimelineStore } from '../../frontend/src/vue/stores/timeline.js';
 import { useShellStore } from '../../frontend/src/vue/stores/shell.js';
 import { useProfilesStore } from '../../frontend/src/vue/stores/profiles.js';
 import { useToolbarPanelStore } from '../../frontend/src/vue/stores/toolbar-panel.js';
 import { useVoiceControlStore } from '../../frontend/src/vue/stores/voice-control.js';
+import { useWhatsNewStore } from '../../frontend/src/vue/stores/whats-new.js';
 
 const fixture = await (await fetch('/workbench-fixture')).json();
 const query = new URLSearchParams(location.search);
 let scope = query.get('scope') || 'full-control';
 const disconnected = query.get('disconnected') === '1';
-const toolbarFixture = { status: 'not_installed', reads: 0, writes: [] };
+const toolbarFixture = { status: query.get('toolbarStatus') || 'not_installed', found: query.get('noSimulator') !== '1',
+  reads: 0, writes: [], installOk: true, deferInstall: false, finishInstall: null, sourceError: '' };
 if (query.get('desktop') === '1') window.electronAPI = {
   getBackendBootstrap: async () => ({ ok: false, body: { ok: false } }),
 };
@@ -34,11 +38,33 @@ if (query.get('toolbar') === '1') window.electronAPI = {
   toolbarPanel: {
     async getStatus() {
       toolbarFixture.reads++;
-      return { ok: true, packageVersion: '0.10.2', installs: [{ installId: 'msfs2024-steam', label: 'MSFS 2024 — Steam', found: true,
-        status: toolbarFixture.status, canInstall: true, communityFolder: 'C:/MSFS/Packages/Community' }] };
+      return { ok: !toolbarFixture.sourceError, error: toolbarFixture.sourceError, packageVersion: '0.10.2',
+        installs: [{ installId: 'msfs2024-steam', label: 'MSFS 2024 — Steam', found: toolbarFixture.found,
+          status: toolbarFixture.status, canInstall: !toolbarFixture.sourceError, communityFolder: 'C:/MSFS/Packages/Community' }] };
     },
-    async install(id) { toolbarFixture.writes.push(['install', id]); toolbarFixture.status = 'installed'; return { ok: true, restartRequired: true }; },
+    async install(id) {
+      toolbarFixture.writes.push(['install', id]);
+      if (toolbarFixture.deferInstall) await new Promise(resolve => { toolbarFixture.finishInstall = resolve; });
+      if (!toolbarFixture.installOk) return { ok: false, error: 'The Community folder could not be written. Check folder permissions and try again.' };
+      toolbarFixture.status = 'installed';
+      return { ok: true, restartRequired: true };
+    },
     async uninstall(id) { toolbarFixture.writes.push(['uninstall', id]); toolbarFixture.status = 'not_installed'; return { ok: true, removed: true }; },
+  },
+};
+const serviceFixture = { status: query.get('service'), starts: 0, failStart: false, returnFalse: false, deferStart: false, finishStart: null, listeners: new Set() };
+if (serviceFixture.status) window.electronAPI = {
+  getBackendBootstrap: async () => ({ ok: false, body: { ok: false } }),
+  getBackendStatus: async () => ({ status: serviceFixture.status }),
+  onBackendStatus(listener) { serviceFixture.listeners.add(listener); return () => serviceFixture.listeners.delete(listener); },
+  async startBackend() {
+    serviceFixture.starts++;
+    if (serviceFixture.deferStart) await new Promise(resolve => { serviceFixture.finishStart = resolve; });
+    if (serviceFixture.failStart) throw new Error('The service could not start. Close the other app using its port and try again.');
+    if (serviceFixture.returnFalse) return false;
+    serviceFixture.status = 'running';
+    for (const listener of serviceFixture.listeners) listener({ status: 'running' });
+    return { status: 'running' };
   },
 };
 // Simulate upgrading a browser that previously chose a different navigation order.
@@ -51,7 +77,46 @@ setActivePinia(pinia);
 const tabs = useTabsStore(), status = useStatusStore(), flight = useFlightStore();
 const controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
 const settings = useAppSettingsStore(), timeline = useTimelineStore(), simbrief = useSimbriefStore();
-const settingsValue = window.FlightFabricAppSettings.normalizeAppSettings({ network: { onlineMapTiles: false }, cabinAnnouncements: { enabled: false } });
+const settingsValue = window.FlightFabricAppSettings.normalizeAppSettings({ onboarding: { completed: query.get('onboarding') !== '1' }, network: { onlineMapTiles: false }, cabinAnnouncements: { enabled: false } });
+const setupFixture = { requests: [], voiceWrites: [], voiceSaveOk: true, mutateVoiceOnFailure: false,
+  deferVoiceSave: false, finishVoiceSave: null, reconnects: 0, restarts: 0,
+  authorizationDelivered: query.get('delayAuthorization') !== '1' && !disconnected, settingsDelivered: false };
+function deliverAuthorization(nextScope = scope, pairing = 'not-requested') {
+  scope = nextScope;
+  setupFixture.authorizationDelivered = true;
+  useProfilesStore().setAuthorizationScope(scope, pairing);
+}
+if (query.get('completed') === '1') settingsValue.onboarding.completed = true;
+if (query.get('restart') === '1') window.electronAPI = {
+  ...window.electronAPI,
+  restartApp: async () => { setupFixture.restarts++; return { ok: true }; },
+};
+if (query.get('onboarding') === '1') {
+  localStorage.removeItem('ff_whats_new_seen_v1');
+  useSettingsUiStore().aboutVersion = '0.12.4';
+  const voice = useVoiceControlStore();
+  voice.setBridgeAvailable(query.get('voiceUnavailable') !== '1');
+  if (voice.bridgeAvailable) voice.applyRuntimeInfo({ enabled: query.get('voiceEnabled') === '1', available: false });
+  if (query.get('autoStart') === '0') settingsValue.recording.autoStart = false;
+  voice.bindRuntime({ async setRecognitionEnabled(value, options) {
+    setupFixture.voiceWrites.push({ value, options });
+    voice.recognitionChangeId++;
+    voice.recognitionChanging = true;
+    try {
+      if (setupFixture.deferVoiceSave) await new Promise(resolve => { setupFixture.finishVoiceSave = resolve; });
+      if (setupFixture.voiceSaveOk || setupFixture.mutateVoiceOnFailure) voice.applyRuntimeInfo({ enabled: value, available: false });
+      voice.recognitionSaveFailed = !setupFixture.voiceSaveOk;
+      return setupFixture.voiceSaveOk;
+    } finally {
+      voice.recognitionChanging = false;
+    }
+  } });
+  settings.bindRuntimeActions({ onSaveSettings(patch, { requestId }) {
+    if (scope !== 'full-control') return false;
+    setupFixture.requests.push({ patch, requestId });
+    return true;
+  } });
+}
 const plan = {
   origin: 'YSSY', originName: 'Sydney Kingsford Smith', destination: 'YMML', destinationName: 'Melbourne', alternate: 'YMAV',
   departureRunway: '16R', arrivalRunway: '16',
@@ -69,8 +134,16 @@ const plan = {
 simbrief.plan = plan;
 simbrief.username = 'FlightFabric';
 simbrief.status = 'OFP loaded successfully.';
-settings.apply({ settings: scope === 'full-control' ? settingsValue : { network: { onlineMapTiles: false } }, backendVersion: '0.9.9' });
-if (scope === 'full-control') useSettingsEditorStore().applySettings(settingsValue);
+function deliverSettings() {
+  setupFixture.settingsDelivered = true;
+  const current = scope === 'full-control' ? settingsValue : { network: { onlineMapTiles: false } };
+  settings.apply({ settings: current, backendVersion: '0.9.9' });
+  if (scope === 'full-control') {
+    useSettingsEditorStore().applySettings(settingsValue);
+    emitAppSettings({ settings: current, backendVersion: '0.9.9' });
+  }
+}
+if (query.get('delaySettings') !== '1') deliverSettings();
 const startedAt = Date.parse('2026-09-19T02:35:00Z');
 const flights = Array.from({ length: 12 }, (_, index) => ({
   filePath: `recorded-${index}.csv`, flightId: `FF-${index}`, route: index % 2 ? 'YMML-YSSY' : 'YSSY-YMML',
@@ -108,7 +181,9 @@ function send(message) {
   else return false;
   return true;
 }
-setAppServices({ getAuthorizationScope: () => scope, isAuthorizationAcknowledged: () => !disconnected, getAppSettings: () => scope === 'full-control' ? settingsValue : null,
+setAppServices({ getAuthorizationScope: () => setupFixture.authorizationDelivered ? scope : 'read-only', isAuthorizationAcknowledged: () => setupFixture.authorizationDelivered,
+  getAppSettings: () => scope === 'full-control' && setupFixture.settingsDelivered ? settingsValue : null,
+  reconnect: () => { setupFixture.reconnects++; status.setWebsocket('connecting'); },
   sendWs: send, getWs: () => ({ readyState: WebSocket.OPEN, send: text => send(JSON.parse(text)) }) });
 timeline.bindRequestActions({ onRequestList: send, onRequestTimeline: send });
 controls.applyControlCapabilities(fixture.capabilities);
@@ -122,7 +197,7 @@ status.ingestMessage({ type: 'simState', simconnectConnected: true, inMenu: fals
 status.ingestMessage({ type: 'aircraftProfile', profile: { id: 'pmdg-737', name: 'PMDG 737-800', aircraftTitle: 'Boeing 737-800', _profileKey: fixture.capabilities.aircraftCommands.profileKey } });
 status.ingestMessage({ type: 'phase', value: 'CRUISE' });
 status.ingestMessage({ type: 'flightTime', elapsedHms: '00:48:12' });
-status.ingestMessage({ type: 'flightRecording', status: 'recording', fileName: 'QFA437.csv' });
+status.ingestMessage({ type: 'flightRecording', status: 'recording', fileName: 'telemetry.csv', sizeBytes: 862208 });
 status.ingestMessage({ type: 'dataSources', primary: { name: 'SimConnect', connected: true } });
 status.bindHeaderActions({ onStartRecordingManual: () => false, onEndFlightManual: () => false });
 flight.setFlightState(disconnected ? 'disconnected' : 'live');
@@ -144,10 +219,11 @@ function publishTelemetry() {
     { type: 'environment', oatC: -45, cabinAltFt: 6200, cabinAltRateFpm: 0 },
   ]) { flight.ingestMessage(message); emitWsMessageReceived(message); emitWsMessage(message); }
 }
-createApp(AppShell).use(pinia).mount('#vue-app-root');
+const app = createApp(AppShell).use(pinia);
+app.mount('#vue-app-root');
 await nextTick();
-useProfilesStore().setAuthorizationScope(scope, query.get('pairing') || (scope === 'aircraft-control' ? 'accepted' : 'not-requested'));
-if (scope === 'full-control') emitAppSettings({ settings: settingsValue, backendVersion: '0.9.9' });
+if (query.get('delayAuthorization') !== '1') useProfilesStore().setAuthorizationScope(scope, query.get('pairing') || (scope === 'aircraft-control' ? 'accepted' : 'not-requested'));
+if (scope === 'full-control' && query.get('delaySettings') !== '1') emitAppSettings({ settings: settingsValue, backendVersion: '0.9.9' });
 publishTelemetry();
 // Exercise the actual map route/track renderer with deterministic offline data.
 emitWsMessage({ type: 'originTarget', target: { icao: 'YSSY', name: 'Sydney', lat: -33.9461, lon: 151.1772 } });
@@ -159,14 +235,34 @@ for (const point of (disconnected ? [] : track.slice(0, 30))) {
 }
 if (scope === 'full-control') timeline.ingestMessage({ type: 'timelineList', flights });
 else timeline.markListRestricted();
-setInterval(publishTelemetry, 800);
+const telemetryTimer = setInterval(publishTelemetry, 800);
 window.workbenchTest = { tabs, status, flight, controls, takeoff: useTakeoffStore(), profiles: useProfilesStore(), timeline, shell: useShellStore(), sent, nextTick,
+  settings, setupFixture, serviceFixture, deliverSettings, deliverAuthorization, emitAppSettingsSaved,
+  emitWsClose() {
+    // Match the connection owner: later telemetry must not restore the grant
+    // that was revoked before its close signal was published.
+    scope = 'read-only';
+    setupFixture.authorizationDelivered = false;
+    status.setWebsocket('disconnected');
+    emitWsClose();
+  },
+  systemHost: useSystemHostStore(),
+  async unmount() { clearInterval(telemetryTimer); app.unmount(); await nextTick(); },
+  settingsUi: useSettingsUiStore(), whatsNew: useWhatsNewStore(),
+  async completeSetupSave(ok = true, request = setupFixture.requests.at(-1)) {
+    if (ok) {
+      Object.assign(settingsValue, request.patch);
+      settings.apply({ settings: { ...settingsValue } });
+      emitAppSettings({ settings: { ...settingsValue } });
+    }
+    emitAppSettingsSaved({ requestId: request.requestId, ok, settings: ok ? settingsValue : undefined, error: ok ? undefined : 'Disk is full. Free some space and try again.' });
+    await nextTick();
+  },
   toolbar: useToolbarPanelStore(), toolbarFixture, voice: useVoiceControlStore(), settingsEditor: useSettingsEditorStore(), settingsForm: useSettingsFormStore(),
   async open(tab) { timeline.closeTimelineMobileViewer(); tabs.requestTabChange(tab); await nextTick(); },
   async review() { timeline.requestTimeline(flights[0].filePath, flights[0].flightId, { flightLabel: flights[0].route }); await nextTick(); },
   async authorize(nextScope, pairing = 'not-requested') {
-    scope = nextScope;
-    useProfilesStore().setAuthorizationScope(scope, pairing);
+    deliverAuthorization(nextScope, pairing);
     controls.setAvailability({ enabled: ['full-control', 'aircraft-control'].includes(scope) && !disconnected,
       reason: scope === 'read-only' ? 'Pair this device to enable aircraft controls.' : '' });
     if (scope === 'full-control') {

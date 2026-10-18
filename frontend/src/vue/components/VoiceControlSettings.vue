@@ -21,7 +21,7 @@ let shortcutEditRevision = 0;
 const shortcutUnchanged = ref(false);
 const shortcutSaving = ref(false);
 const shortcutError = ref('');
-const recognitionSaving = ref(false);
+const recognitionSaving = computed(() => voice.recognitionChanging);
 const recognitionError = ref('');
 const configurationOpen = ref(false);
 const microphonesBusy = ref(false);
@@ -66,7 +66,7 @@ watch(() => voice.runtime.shortcut, (value) => {
   shortcutUnchanged.value = false;
   shortcutError.value = '';
 });
-watch(() => voice.runtime.enabled, () => { recognitionError.value = ''; });
+watch(() => [voice.runtime.enabled, voice.recognitionChangeId], () => { recognitionError.value = ''; });
 
 async function beginShortcutRecording() {
   if (recognitionOff.value || captureLocked.value || shortcutSaving.value || shortcutPreparing.value) return;
@@ -191,15 +191,16 @@ async function backToAircraft() {
 async function toggleRecognition(event) {
   const target = event.currentTarget;
   const nextEnabled = target?.checked === true;
-  recognitionSaving.value = true;
   recognitionError.value = '';
-  const changed = await voice.setRecognitionEnabled(nextEnabled);
+  const pending = voice.setRecognitionEnabled(nextEnabled);
+  const changeId = voice.recognitionChangeId;
+  const changed = await pending;
+  if (changeId !== voice.recognitionChangeId) return;
   if (!changed) {
     if (target) target.checked = voice.runtime.enabled === true;
     recognitionError.value = voice.status === 'error' && voice.statusText
       ? voice.statusText : 'Voice control could not be updated. Try again.';
   }
-  recognitionSaving.value = false;
 }
 function selectMicrophone(event) { voice.selectInputDevice(event.currentTarget?.value || ''); }
 function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.currentTarget?.checked === true); }

@@ -1,0 +1,6025 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: pmdg-737/actions.ts
+# PMDG's ROTOR_BRAKE compatibility encoding uses compact mouse action IDs,
+# not the DWORD mouse flags used by the direct `#nnnnn` event route.
+# The four reviewed lighting groups form one parameterized preset and
+# execute serially. A zero cooldown lets adjacent groups share the same
+# exclusion key while the in-flight guard still rejects overlap.
+# Fixed landing-light readback is boolean, but its event uses OFF=0 and full
+# ON=2. Sending 1 leaves the switch at centre. See EXTERIOR-LIGHTS-VALIDATION.md.
+# A true boolean alone cannot prove full ON. Always send that fixed
+# target, including when correcting a previous centre-position write.
+# PMDG's installed NG3 connection sample sends direct 0/1 positions to the logo-light
+# event. Keep these two-state exterior lights distinct from controls such as the flight
+# directors, for which the same sample sends mouse press/release flags.
+# Keep the shared builder for the retained course, Mach and vertical-speed
+# recipes. Their wire encodings are unchanged by the three-action YAML pilot.
+# Preserve the existing catalogue order while the source is split across the
+# retained builders and YAML. Check the entire group so no extra entry is lost.
+# Live behavior currently uses 0 for ARM and 1 for OFF. The installed NG3
+# header publishes this event but does not document its parameter polarity,
+# so retain logical-state readback protection around this empirical mapping.
+# PMDG's installed NG3 connection sample operates the FD control with a
+# complete mouse click rather than direct 0/1 event parameters. Apply those FD
+# semantics to both crew-side counterparts. The provider reads the current
+# switch first, so each logical ON/OFF action is still deterministic: an
+# already-satisfied target is a no-op, otherwise one click is sent and the
+# requested boolean state must be confirmed.
+# The installed PMDG behavior drives this three-detent switch through
+# control 123. Values 12301 and 12302 move one detent toward the named
+# endpoint. Repeating an endpoint direction is bounded by the switch.
+# Strobe OFF selects STEADY when strobes are on. An already-OFF position
+# switch stays OFF, so this command cannot unnecessarily turn navigation on.
+# Cold-and-dark initial-power controls. These definitions are restricted to
+# stable selector positions published by the installed NG3 ClientData struct.
+# Spring-loaded source switches use reviewed ROTOR_BRAKE directions and must
+# confirm their electrical outcome on both transfer buses.
+# Installed 737-800 4.0.63 cockpit behavior: control 118, press=1/2 by click
+# half, release=4. The XML does not name the direction; community presets
+# against L:switch_118_73X (0 OFF, 50 ON, 100 START) show 11801 advances
+# toward START and 11802 retreats toward OFF. Allow each advance to settle
+# before the next input, then release at START. A transport ACK does not mean
+# the switch has moved.
+# The numeric #70087 DOWN payload was accepted without moving the lever live.
+# GEAR_DOWN/UP moved the handle in ~1.4 s, ahead of ~9 s gear travel. Keep
+# SDK handle confirmation and allow scheduling headroom, not a gear-travel wait.
+# See docs/PMDG-737-GEAR-VALIDATION.md. OFF is a separate, unverified SDK recipe.
+# PMDG NG3 publishes dedicated control-stand mouse targets for the DOWN and
+# ARM detents. Use those exact targets instead of moving the continuous lever,
+# and confirm the authoritative SPEEDBRAKE ARMED annunciator after each write.
+# THIRD_PARTY_EVENT_ID_MIN + 6791 (DOWN)
+# THIRD_PARTY_EVENT_ID_MIN + 6792 (ARM)
+# PMDG publishes dedicated mouse targets for every normal 737 flap detent.
+# The direct targets avoid long relative sequences. Confirm a fresh cockpit
+# lever selection without waiting for the surfaces to finish travelling.
+
+# Mapping source notes: pmdg-737/mcp-actions.yaml
+# Existing PMDG NG3 direct-set SDK events, with logical inputs in cockpit units.
+# See docs/PMDG-737-PROFILE-VALIDATION.md for the recorded 737-800BCF evidence.
+# The provider still owns input checks, dispatch, locks, no-op detection and
+# independent confirmation. These recipes neither retry nor enable a flight mode.
+# IAS and the retained Mach recipe share one physical selector and lock.
+# The normalized window is shared with Mach. Blank is unavailable;
+# transport acceptance alone must not report successful target selection.
+# Preserve the MCP's 100-foot increments; the read value is already feet.
+
+# Mapping source notes: pmdg-737/fields.ts
+# PMDG's installed 737 cockpit behavior uses a 0..300 position for
+# these dimmers. Keep the public contract in whole percentages.
+# PMDG's NG3 ClientData contract does not publish radio frequencies. These
+# standard MSFS readbacks are used only for the PMDG radio UI and for
+# confirming PMDG SDK knob/transfer events.
+# PMDG's cockpit lever animation reads NGXFlapLever. The standard handle
+# index lags selection while the surfaces travel; see PMDG-737-FLAPS-VALIDATION.md.
+# Exact detents keep unknown/intermediate values from confirming a selection.
+
+# Mapping source notes: pmdg-737/mcp-fields.yaml
+# PMDG 737 MCP readback only. These paths come from the existing NG3 ClientData
+# connector's normalized output, not raw SDK byte offsets or write recipes.
+# See docs/PMDG-737-PROFILE-VALIDATION.md for the exact live-evidence limits.
+# SDK IAS and Mach share one value. Preserve Mach decimals; the connector
+# supplies null when the speed window is blank. Never substitute zero for it.
+# The connector also guards a blank V/S window. A visible zero remains valid.
+# Captain and first-officer courses are independent selectors.
+
+# Shared source notes: pmdg-atc.ts
+# These helper notes retain their stated aircraft and verification scope.
+#  Shared simulator transponder state; PMDG's SDK does not publish the code.
+# The SDK exposes a button, not the duration of the transmitted IDENT.
+
+schemaVersion: 1
+integration:
+  id: pmdg-737
+  aircraft:
+    vendor: PMDG
+    family: "737"
+  trustedProfileKeys:
+    - bundled/msfs/pmdg-737
+    - bundled/msfs/pmdg-737-600
+    - bundled/msfs/pmdg-737-700
+    - bundled/msfs/pmdg-737-900
+  presentation:
+    templateId: pmdg-737
+    cockpitLightingGroups:
+      - actionId: lighting.cockpit.panels.set
+        label: Panel backlighting
+        fields:
+          - lighting.overheadCircuitBreakerPercent
+          - lighting.overheadPanelPercent
+          - lighting.mainPanelCaptainPercent
+          - lighting.mainPanelFirstOfficerPercent
+      - actionId: lighting.cockpit.ambient.set
+        label: Flood and background lighting
+        fields:
+          - lighting.backgroundPercent
+          - lighting.afdsFloodPercent
+          - lighting.pedestalFloodPercent
+          - lighting.pedestalPanelPercent
+      - actionId: lighting.cockpit.captainDisplays.set
+        label: Captain and upper displays
+        displays: true
+        fields:
+          - lighting.displayCaptainOutboardPercent
+          - lighting.displayCaptainInboardPercent
+          - lighting.displayCaptainMapPercent
+          - lighting.displayUpperPercent
+      - actionId: lighting.cockpit.firstOfficerDisplays.set
+        label: First officer and lower displays
+        displays: true
+        fields:
+          - lighting.displayFirstOfficerOutboardPercent
+          - lighting.displayFirstOfficerInboardPercent
+          - lighting.displayFirstOfficerMapPercent
+          - lighting.displayLowerPercent
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # aircraft
+    aircraft.model:
+      id: aircraft.model
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: aircraft.model
+          decode:
+            type: enum
+            values:
+              737-600: 737-600
+              737-700: 737-700
+              737-700 BW: 737-700 BW
+              737-700 SSW: 737-700 SSW
+              737-800: 737-800
+              737-800 BW: 737-800 BW
+              737-800 SSW: 737-800 SSW
+              737-900: 737-900
+              737-900 BW: 737-900 BW
+              737-900 SSW: 737-900 SSW
+              737-900ER BW: 737-900ER BW
+              737-900ER SSW: 737-900ER SSW
+              737-700 BDSF BW: 737-700 BDSF BW
+              737-700 BDSF SSW: 737-700 BDSF SSW
+              737-800 BDSF BW: 737-800 BDSF BW
+              737-800 BDSF SSW: 737-800 BDSF SSW
+              737-800 BCF BW: 737-800 BCF BW
+              737-800 BCF SSW: 737-800 BCF SSW
+              737-700 BBJ BW: 737-700 BBJ BW
+              737-700 BBJ SSW: 737-700 BBJ SSW
+              737-800 BBJ BW: 737-800 BBJ BW
+
+    # mcp
+    mcp.altitudeFt:
+      id: mcp.altitudeFt
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.selected.altitudeFt
+          decode:
+            type: number
+            precision: 0
+    mcp.headingDeg:
+      id: mcp.headingDeg
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.selected.headingDeg
+          decode:
+            type: number
+            precision: 0
+    mcp.speed:
+      id: mcp.speed
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.selected.iasMach
+          decode:
+            type: number
+            precision: 2
+    mcp.verticalSpeedFpm:
+      id: mcp.verticalSpeedFpm
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.selected.vsFpm
+          decode:
+            type: number
+            precision: 0
+    mcp.courseCaptainDeg:
+      id: mcp.courseCaptainDeg
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.selected.courseLeftDeg
+          decode:
+            type: number
+            precision: 0
+    mcp.courseFirstOfficerDeg:
+      id: mcp.courseFirstOfficerDeg
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.selected.courseRightDeg
+          decode:
+            type: number
+            precision: 0
+
+    # lighting
+    lighting.overheadCircuitBreakerPercent:
+      id: lighting.overheadCircuitBreakerPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:OH_CB_PANEL_LIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.overheadPanelPercent:
+      id: lighting.overheadPanelPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:OH_PANEL_LIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.mainPanelCaptainPercent:
+      id: lighting.mainPanelCaptainPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:CA_MAIN_PANEL_LIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.mainPanelFirstOfficerPercent:
+      id: lighting.mainPanelFirstOfficerPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:FO_MAIN_PANEL_LIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.backgroundPercent:
+      id: lighting.backgroundPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:CA_BACKGROUND_BRT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.afdsFloodPercent:
+      id: lighting.afdsFloodPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:CA_AFDS_FLOOD_LIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.pedestalFloodPercent:
+      id: lighting.pedestalFloodPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:PED_FLOOD_LIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.pedestalPanelPercent:
+      id: lighting.pedestalPanelPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:PED_PANEL_LIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.displayCaptainOutboardPercent:
+      id: lighting.displayCaptainOutboardPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:CA_OUTBD_DU_BRIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.displayCaptainInboardPercent:
+      id: lighting.displayCaptainInboardPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:CA_INBD_DU_BRIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.displayCaptainMapPercent:
+      id: lighting.displayCaptainMapPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:CA_INBD_DU_RDR_BRIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.displayUpperPercent:
+      id: lighting.displayUpperPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:CA_UPPER_DU_BRIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.displayLowerPercent:
+      id: lighting.displayLowerPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:CA_LOWER_DU_BRIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.displayFirstOfficerOutboardPercent:
+      id: lighting.displayFirstOfficerOutboardPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:FO_OUTBD_DU_BRIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.displayFirstOfficerInboardPercent:
+      id: lighting.displayFirstOfficerInboardPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:FO_INBD_DU_BRIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+    lighting.displayFirstOfficerMapPercent:
+      id: lighting.displayFirstOfficerMapPercent
+      sources:
+        - route:
+            type: lvar
+            name: L:FO_INBD_DU_RDR_BRIGHT_CONTROL
+            unit: Number
+          decode:
+            type: number
+            scale: 0.3333333333333333
+            precision: 0
+
+    # radios
+    radios.nav1ActiveMhz:
+      id: radios.nav1ActiveMhz
+      sources:
+        - route:
+            type: simvar
+            name: NAV ACTIVE FREQUENCY:1
+            unit: MHz
+          decode:
+            type: number
+            precision: 2
+    radios.nav1StandbyMhz:
+      id: radios.nav1StandbyMhz
+      sources:
+        - route:
+            type: simvar
+            name: NAV STANDBY FREQUENCY:1
+            unit: MHz
+          decode:
+            type: number
+            precision: 2
+    radios.nav2ActiveMhz:
+      id: radios.nav2ActiveMhz
+      sources:
+        - route:
+            type: simvar
+            name: NAV ACTIVE FREQUENCY:2
+            unit: MHz
+          decode:
+            type: number
+            precision: 2
+    radios.nav2StandbyMhz:
+      id: radios.nav2StandbyMhz
+      sources:
+        - route:
+            type: simvar
+            name: NAV STANDBY FREQUENCY:2
+            unit: MHz
+          decode:
+            type: number
+            precision: 2
+
+    # afds
+    afds.apEngaged:
+      id: afds.apEngaged
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.engaged
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.autothrottleActive:
+      id: afds.autothrottleActive
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.athr.active
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.altitudeHold:
+      id: afds.altitudeHold
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.alt
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.approach:
+      id: afds.approach
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.app
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.autothrottleArm:
+      id: afds.autothrottleArm
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.athr.armed
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.cmdA:
+      id: afds.cmdA
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.leftEngaged
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.cmdB:
+      id: afds.cmdB
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.rightEngaged
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.cwsA:
+      id: afds.cwsA
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.cwsLeft
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.cwsB:
+      id: afds.cwsB
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.cwsRight
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.flightDirectorCaptain:
+      id: afds.flightDirectorCaptain
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.flightDirector.left
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.flightDirectorFirstOfficer:
+      id: afds.flightDirectorFirstOfficer
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.flightDirector.right
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.headingSelect:
+      id: afds.headingSelect
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.hdg
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.lnav:
+      id: afds.lnav
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.lnav
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.levelChange:
+      id: afds.levelChange
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.flch
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.n1:
+      id: afds.n1
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.n1
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.speed:
+      id: afds.speed
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.speed
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.vnav:
+      id: afds.vnav
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.vnav
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.vorLoc:
+      id: afds.vorLoc
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.loc
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    afds.verticalSpeed:
+      id: afds.verticalSpeed
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: automation.ap.modes.vs
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+
+    # lights
+    lights.landingRetractableLeftMode:
+      id: lights.landingRetractableLeftMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.landing.retractableLeft
+          decode:
+            type: enum
+            values:
+              retract: retract
+              extend: extend
+              on: on
+    lights.landingRetractableRightMode:
+      id: lights.landingRetractableRightMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.landing.retractableRight
+          decode:
+            type: enum
+            values:
+              retract: retract
+              extend: extend
+              on: on
+    lights.landingLeft:
+      id: lights.landingLeft
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.landing.left
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.landingRight:
+      id: lights.landingRight
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.landing.right
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.turnoffLeft:
+      id: lights.turnoffLeft
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.turnoff.left
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.turnoffRight:
+      id: lights.turnoffRight
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.turnoff.right
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.taxi:
+      id: lights.taxi
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.taxi
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.logo:
+      id: lights.logo
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.logo
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.positionMode:
+      id: lights.positionMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.position
+          decode:
+            type: enum
+            values:
+              steady: steady
+              off: off
+              strobe-steady: strobe-steady
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.beacon
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.wing:
+      id: lights.wing
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.wing
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.wheelWell:
+      id: lights.wheelWell
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.wheelWell
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    lights.emergencyMode:
+      id: lights.emergencyMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: lights.emergency
+          decode:
+            type: enum
+            values:
+              off: off
+              armed: armed
+              on: on
+
+    # cabin
+    cabin.noSmokingMode:
+      id: cabin.noSmokingMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: cabin.signs.noSmoking
+          decode:
+            type: enum
+            values:
+              off: off
+              auto: auto
+              on: on
+    cabin.seatBeltsMode:
+      id: cabin.seatBeltsMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: cabin.signs.seatBelts
+          decode:
+            type: enum
+            values:
+              off: off
+              auto: auto
+              on: on
+
+    # visibility
+    visibility.wiperLeftMode:
+      id: visibility.wiperLeftMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: visibility.wipers.left
+          decode:
+            type: enum
+            values:
+              off: off
+              intermittent: intermittent
+              low: low
+              high: high
+    visibility.wiperRightMode:
+      id: visibility.wiperRightMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: visibility.wipers.right
+          decode:
+            type: enum
+            values:
+              off: off
+              intermittent: intermittent
+              low: low
+              high: high
+
+    # systems
+    systems.electrical.batteryMode:
+      id: systems.electrical.batteryMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.battery
+          decode:
+            type: enum
+            values:
+              off: off
+              bat: bat
+              on: on
+    systems.electrical.standbyPowerMode:
+      id: systems.electrical.standbyPowerMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.standbyPower
+          decode:
+            type: enum
+            values:
+              bat: bat
+              off: off
+              auto: auto
+    systems.electrical.groundPowerAvailable:
+      id: systems.electrical.groundPowerAvailable
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.groundPowerAvailable
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.electrical.groundConnectionAvailable:
+      id: systems.electrical.groundConnectionAvailable
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.groundConnectionAvailable
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.electrical.busTransferAuto:
+      id: systems.electrical.busTransferAuto
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.busTransferAuto
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.electrical.transferBus1Powered:
+      id: systems.electrical.transferBus1Powered
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.transferBus1Powered
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.electrical.transferBus2Powered:
+      id: systems.electrical.transferBus2Powered
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.transferBus2Powered
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.electrical.apuGeneratorOffBus:
+      id: systems.electrical.apuGeneratorOffBus
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.apuGeneratorOffBus
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.electrical.batteryDischarge:
+      id: systems.electrical.batteryDischarge
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.batteryDischarge
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.electrical.standbyPowerOff:
+      id: systems.electrical.standbyPowerOff
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.electrical.standbyPowerOff
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.irs.leftMode:
+      id: systems.irs.leftMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.irs.leftMode
+          decode:
+            type: enum
+            values:
+              off: off
+              align: align
+              nav: nav
+              att: att
+    systems.irs.rightMode:
+      id: systems.irs.rightMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.irs.rightMode
+          decode:
+            type: enum
+            values:
+              off: off
+              align: align
+              nav: nav
+              att: att
+    systems.irs.leftAlign:
+      id: systems.irs.leftAlign
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.irs.leftAlign
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.irs.rightAlign:
+      id: systems.irs.rightAlign
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.irs.rightAlign
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.irs.leftFault:
+      id: systems.irs.leftFault
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.irs.leftFault
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.irs.rightFault:
+      id: systems.irs.rightFault
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.irs.rightFault
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.wingAntiIce:
+      id: systems.wingAntiIce
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.ice.wing
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.engineAntiIceLeft:
+      id: systems.engineAntiIceLeft
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.ice.engineLeft
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.engineAntiIceRight:
+      id: systems.engineAntiIceRight
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.ice.engineRight
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.windowHeatCaptainForward:
+      id: systems.windowHeatCaptainForward
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.ice.windowHeatCaptainForward
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.windowHeatFirstOfficerForward:
+      id: systems.windowHeatFirstOfficerForward
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.ice.windowHeatFirstOfficerForward
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.windowHeatCaptainSide:
+      id: systems.windowHeatCaptainSide
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.ice.windowHeatCaptainSide
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.windowHeatFirstOfficerSide:
+      id: systems.windowHeatFirstOfficerSide
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.ice.windowHeatFirstOfficerSide
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.packLeftMode:
+      id: systems.packLeftMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.air.packLeft
+          decode:
+            type: enum
+            values:
+              off: off
+              auto: auto
+              high: high
+    systems.packRightMode:
+      id: systems.packRightMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.air.packRight
+          decode:
+            type: enum
+            values:
+              off: off
+              auto: auto
+              high: high
+    systems.engineBleedLeft:
+      id: systems.engineBleedLeft
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.air.engineBleedLeft
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.engineBleedRight:
+      id: systems.engineBleedRight
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.air.engineBleedRight
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.apuBleed:
+      id: systems.apuBleed
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.air.apuBleed
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.irsAligned:
+      id: systems.irsAligned
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.irsAligned
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.apuMode:
+      id: systems.apuMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.apu.selector
+          decode:
+            type: enum
+            values:
+              off: off
+              on: on
+              start: start
+    systems.apuEgt:
+      id: systems.apuEgt
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.apu.egt
+          decode:
+            type: number
+            precision: 0
+    systems.apuLowOilPressure:
+      id: systems.apuLowOilPressure
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.apu.lowOilPressure
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.apuFault:
+      id: systems.apuFault
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.apu.fault
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    systems.apuOverspeed:
+      id: systems.apuOverspeed
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: systems.apu.overspeed
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+
+    # warnings
+    warnings.masterWarning:
+      id: warnings.masterWarning
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: warnings.masterWarning
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    warnings.masterCaution:
+      id: warnings.masterCaution
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: warnings.masterCaution
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+
+    # flightControls
+    flightControls.flapNeedleLeft:
+      id: flightControls.flapNeedleLeft
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: flaps.needleLeft
+          decode:
+            type: number
+            precision: 1
+    flightControls.flapNeedleRight:
+      id: flightControls.flapNeedleRight
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: flaps.needleRight
+          decode:
+            type: number
+            precision: 1
+    flightControls.flapHandleIndex:
+      id: flightControls.flapHandleIndex
+      sources:
+        - route:
+            type: lvar
+            name: L:NGXFlapLever
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": 0
+              "10": 1
+              "20": 2
+              "30": 3
+              "40": 4
+              "50": 5
+              "60": 6
+              "70": 7
+              "80": 8
+    flightControls.leadingEdgeExtended:
+      id: flightControls.leadingEdgeExtended
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: flaps.leadingEdgeExtended
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    flightControls.leadingEdgeTransit:
+      id: flightControls.leadingEdgeTransit
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: flaps.leadingEdgeTransit
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    flightControls.speedbrakeArmed:
+      id: flightControls.speedbrakeArmed
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: spoilers.armed
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    flightControls.speedbrakePercent:
+      id: flightControls.speedbrakePercent
+      sources:
+        - route:
+            type: lvar
+            name: A:SPOILERS HANDLE POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    flightControls.speedbrakeDoNotArm:
+      id: flightControls.speedbrakeDoNotArm
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: spoilers.doNotArm
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    flightControls.speedbrakeExtended:
+      id: flightControls.speedbrakeExtended
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: spoilers.extended
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    flightControls.yawDamper:
+      id: flightControls.yawDamper
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: flightControls.yawDamper
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    flightControls.autoSlatFail:
+      id: flightControls.autoSlatFail
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: flightControls.autoSlatFail
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    flightControls.stabTrimMainElectricCutout:
+      id: flightControls.stabTrimMainElectricCutout
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: flightControls.stabTrimMainElectricCutout
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+
+    # gear
+    gear.noseUnsafe:
+      id: gear.noseUnsafe
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: gear.noseTransit
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    gear.noseSafe:
+      id: gear.noseSafe
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: gear.noseLocked
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    gear.leftUnsafe:
+      id: gear.leftUnsafe
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: gear.leftTransit
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    gear.rightUnsafe:
+      id: gear.rightUnsafe
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: gear.rightTransit
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    gear.leftSafe:
+      id: gear.leftSafe
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: gear.leftLocked
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    gear.rightSafe:
+      id: gear.rightSafe
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: gear.rightLocked
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    gear.handleMode:
+      id: gear.handleMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: gear.handle
+          decode:
+            type: enum
+            values:
+              up: up
+              off: off
+              down: down
+    gear.autobrakeMode:
+      id: gear.autobrakeMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: brakes.autobrake
+          decode:
+            type: enum
+            values:
+              "1": "1"
+              "2": "2"
+              "3": "3"
+              rto: rto
+              off: off
+              max: max
+    gear.autobrakeDisarm:
+      id: gear.autobrakeDisarm
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: brakes.autobrakeDisarm
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    gear.antiSkidInoperative:
+      id: gear.antiSkidInoperative
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: brakes.antiSkidInoperative
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+    gear.parkingBrake:
+      id: gear.parkingBrake
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: brakes.parking
+          decode:
+            type: boolean
+            trueValues:
+              - true
+            falseValues:
+              - false
+
+    # surveillance
+    surveillance.squawk:
+      id: surveillance.squawk
+      sources:
+        - route:
+            type: lvar
+            name: A:TRANSPONDER CODE:1
+            unit: Bco16
+          decode:
+            type: squawk-bco16
+    surveillance.powered:
+      id: surveillance.powered
+      sources:
+        - route:
+            type: lvar
+            name: A:TRANSPONDER STATE:1
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - 2
+              - 3
+              - 4
+              - 5
+            falseValues:
+              - 0
+    surveillance.transmitting:
+      id: surveillance.transmitting
+      sources:
+        - route:
+            type: lvar
+            name: A:TRANSPONDER STATE:1
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 3
+              - 4
+              - 5
+            falseValues:
+              - 0
+              - 1
+              - 2
+
+    # queries
+    queries.flapsHandle:
+      id: queries.flapsHandle
+      sources:
+        - route:
+            type: lvar
+            name: A:FLAPS HANDLE INDEX
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": up
+              "1": "1"
+              "2": "2"
+              "3": "5"
+              "4": "10"
+              "5": "15"
+              "6": "25"
+              "7": "30"
+              "8": "40"
+
+    # efis
+    efis.captain.rangeNm:
+      id: efis.captain.rangeNm
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: efis.captain.rangeNm
+          decode:
+            type: enum
+            values:
+              "5": "5"
+              "10": "10"
+              "20": "20"
+              "40": "40"
+              "80": "80"
+              "160": "160"
+              "320": "320"
+              "640": "640"
+    efis.captain.minimumsMode:
+      id: efis.captain.minimumsMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: efis.captain.minimumsMode
+          decode:
+            type: enum
+            values:
+              radio: radio
+              baro: baro
+    efis.firstOfficer.rangeNm:
+      id: efis.firstOfficer.rangeNm
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: efis.firstOfficer.rangeNm
+          decode:
+            type: enum
+            values:
+              "5": "5"
+              "10": "10"
+              "20": "20"
+              "40": "40"
+              "80": "80"
+              "160": "160"
+              "320": "320"
+              "640": "640"
+    efis.firstOfficer.minimumsMode:
+      id: efis.firstOfficer.minimumsMode
+      sources:
+        - route:
+            type: sdk
+            adapter: clientdata-manifest
+            path: efis.firstOfficer.minimumsMode
+          decode:
+            type: enum
+            values:
+              radio: radio
+              baro: baro
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+
+    # radios
+    radios.navBoth.setActive:
+      id: radios.navBoth.setActive
+      input:
+        type: number
+        min: 108
+        max: 117.95
+        step: 0.05
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.radios.navBoth
+        retry: never
+      routes:
+        - id: pmdg737.radios.navBoth.setActive.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: NAV1_RADIO_SET
+              inputValue:
+                source: input
+                encoding: frequency-bcd16
+            - type: event
+              name: NAV2_RADIO_SET
+              inputValue:
+                source: input
+                encoding: frequency-bcd16
+          readbacks:
+            - fieldId: radios.nav1ActiveMhz
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: radios.nav2ActiveMhz
+              expectedInput: true
+              timeoutMs: 2500
+      verification: untested
+
+    # mcp
+    mcp.courseBoth.set:
+      id: mcp.courseBoth.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.mcp.course
+        retry: never
+      routes:
+        - id: pmdg737.mcp.courseBoth.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: "#84132"
+              inputValue:
+                source: input
+                round: nearest
+            - type: event
+              name: "#84133"
+              inputValue:
+                source: input
+                round: nearest
+          readbacks:
+            - fieldId: mcp.courseCaptainDeg
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: mcp.courseFirstOfficerDeg
+              expectedInput: true
+              timeoutMs: 2500
+      verification: untested
+
+    # lighting
+    lighting.cockpit.panels.set:
+      id: lighting.cockpit.panels.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        cooldownMs: 0
+        groupId: pmdg737.lighting.cockpit
+        retry: never
+      routes:
+        - id: pmdg737.lighting.cockpit.panels.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:OH_CB_PANEL_LIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:OH_PANEL_LIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:CA_MAIN_PANEL_LIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:FO_MAIN_PANEL_LIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+          readbacks:
+            - fieldId: lighting.overheadCircuitBreakerPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.overheadPanelPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.mainPanelCaptainPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.mainPanelFirstOfficerPercent
+              expectedInput: true
+              timeoutMs: 2500
+      verification: untested
+    lighting.cockpit.ambient.set:
+      id: lighting.cockpit.ambient.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        cooldownMs: 0
+        groupId: pmdg737.lighting.cockpit
+        retry: never
+      routes:
+        - id: pmdg737.lighting.cockpit.ambient.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:CA_BACKGROUND_BRT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:CA_AFDS_FLOOD_LIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:PED_FLOOD_LIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:PED_PANEL_LIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+          readbacks:
+            - fieldId: lighting.backgroundPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.afdsFloodPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.pedestalFloodPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.pedestalPanelPercent
+              expectedInput: true
+              timeoutMs: 2500
+      verification: untested
+    lighting.cockpit.captainDisplays.set:
+      id: lighting.cockpit.captainDisplays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        cooldownMs: 0
+        groupId: pmdg737.lighting.cockpit
+        retry: never
+      routes:
+        - id: pmdg737.lighting.cockpit.captainDisplays.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:CA_OUTBD_DU_BRIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:CA_INBD_DU_BRIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:CA_INBD_DU_RDR_BRIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:CA_UPPER_DU_BRIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+          readbacks:
+            - fieldId: lighting.displayCaptainOutboardPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.displayCaptainInboardPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.displayCaptainMapPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.displayUpperPercent
+              expectedInput: true
+              timeoutMs: 2500
+      verification: untested
+    lighting.cockpit.firstOfficerDisplays.set:
+      id: lighting.cockpit.firstOfficerDisplays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        cooldownMs: 0
+        groupId: pmdg737.lighting.cockpit
+        retry: never
+      routes:
+        - id: pmdg737.lighting.cockpit.firstOfficerDisplays.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:FO_OUTBD_DU_BRIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:FO_INBD_DU_BRIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:FO_INBD_DU_RDR_BRIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+            - type: lvar
+              name: L:CA_LOWER_DU_BRIGHT_CONTROL
+              unit: Number
+              inputValue:
+                source: input
+                scale: 3
+                round: nearest
+          readbacks:
+            - fieldId: lighting.displayFirstOfficerOutboardPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.displayFirstOfficerInboardPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.displayFirstOfficerMapPercent
+              expectedInput: true
+              timeoutMs: 2500
+            - fieldId: lighting.displayLowerPercent
+              expectedInput: true
+              timeoutMs: 2500
+      verification: untested
+
+    # lights
+    lights.landingLeft.off:
+      id: lights.landingLeft.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingLeft
+        retry: never
+        skipIfSatisfied: true
+      routes:
+        - id: pmdg737.lights.landingLeft.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69745"
+          value: 0
+          readback:
+            fieldId: lights.landingLeft
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.landingLeft.on:
+      id: lights.landingLeft.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingLeft
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: pmdg737.lights.landingLeft.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69745"
+          value: 2
+          readback:
+            fieldId: lights.landingLeft
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    lights.landingRight.off:
+      id: lights.landingRight.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingRight
+        retry: never
+        skipIfSatisfied: true
+      routes:
+        - id: pmdg737.lights.landingRight.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69746"
+          value: 0
+          readback:
+            fieldId: lights.landingRight
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.landingRight.on:
+      id: lights.landingRight.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingRight
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: pmdg737.lights.landingRight.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69746"
+          value: 2
+          readback:
+            fieldId: lights.landingRight
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    lights.turnoffLeft.off:
+      id: lights.turnoffLeft.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.turnoffLeft
+        retry: never
+      routes:
+        - id: pmdg737.lights.turnoffLeft.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69747"
+          value: 0
+          readback:
+            fieldId: lights.turnoffLeft
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.turnoffLeft.on:
+      id: lights.turnoffLeft.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.turnoffLeft
+        retry: never
+      routes:
+        - id: pmdg737.lights.turnoffLeft.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69747"
+          value: 1
+          readback:
+            fieldId: lights.turnoffLeft
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    lights.turnoffRight.off:
+      id: lights.turnoffRight.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.turnoffRight
+        retry: never
+      routes:
+        - id: pmdg737.lights.turnoffRight.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69748"
+          value: 0
+          readback:
+            fieldId: lights.turnoffRight
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.turnoffRight.on:
+      id: lights.turnoffRight.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.turnoffRight
+        retry: never
+      routes:
+        - id: pmdg737.lights.turnoffRight.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69748"
+          value: 1
+          readback:
+            fieldId: lights.turnoffRight
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    lights.taxi.off:
+      id: lights.taxi.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.taxi
+        retry: never
+      routes:
+        - id: pmdg737.lights.taxi.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69749"
+          value: 0
+          readback:
+            fieldId: lights.taxi
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.taxi.on:
+      id: lights.taxi.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.taxi
+        retry: never
+      routes:
+        - id: pmdg737.lights.taxi.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69749"
+          value: 1
+          readback:
+            fieldId: lights.taxi
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    lights.logo.off:
+      id: lights.logo.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.logo
+        retry: never
+      routes:
+        - id: pmdg737.lights.logo.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69754"
+          value: 0
+          readback:
+            fieldId: lights.logo
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.logo.on:
+      id: lights.logo.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.logo
+        retry: never
+      routes:
+        - id: pmdg737.lights.logo.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69754"
+          value: 1
+          readback:
+            fieldId: lights.logo
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    lights.beacon.off:
+      id: lights.beacon.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.beacon
+        retry: never
+      routes:
+        - id: pmdg737.lights.beacon.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69756"
+          value: 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.beacon.on:
+      id: lights.beacon.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.beacon
+        retry: never
+      routes:
+        - id: pmdg737.lights.beacon.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69756"
+          value: 1
+          readback:
+            fieldId: lights.beacon
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    lights.wing.off:
+      id: lights.wing.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.wing
+        retry: never
+      routes:
+        - id: pmdg737.lights.wing.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69757"
+          value: 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.wing.on:
+      id: lights.wing.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.wing
+        retry: never
+      routes:
+        - id: pmdg737.lights.wing.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69757"
+          value: 1
+          readback:
+            fieldId: lights.wing
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    lights.wheelWell.off:
+      id: lights.wheelWell.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.wheelWell
+        retry: never
+      routes:
+        - id: pmdg737.lights.wheelWell.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69758"
+          value: 0
+          readback:
+            fieldId: lights.wheelWell
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    lights.wheelWell.on:
+      id: lights.wheelWell.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.wheelWell
+        retry: never
+      routes:
+        - id: pmdg737.lights.wheelWell.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69758"
+          value: 1
+          readback:
+            fieldId: lights.wheelWell
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+
+    # mcp
+    mcp.courseCaptain.set:
+      id: mcp.courseCaptain.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.mcp.course
+        retry: never
+      routes:
+        - id: pmdg737.mcp.courseCaptain.set.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#84132"
+          inputValue:
+            source: input
+            scale: 1
+            offset: 0
+            round: nearest
+          readback:
+            fieldId: mcp.courseCaptainDeg
+            expectedInput: true
+            timeoutMs: 1500
+      verification: untested
+    mcp.ias.set:
+      id: mcp.ias.set
+      input:
+        type: number
+        min: 100
+        max: 399
+        step: 1
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.mcp.speed
+        retry: never
+      routes:
+        - id: pmdg737.mcp.ias.set.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#84134"
+          inputValue:
+            source: input
+            scale: 1
+            offset: 0
+            round: nearest
+          readback:
+            fieldId: mcp.speed
+            expectedInput: true
+            timeoutMs: 1500
+      verification: untested
+    mcp.mach.set:
+      id: mcp.mach.set
+      input:
+        type: number
+        min: 0.4
+        max: 0.99
+        step: 0.01
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.mcp.speed
+        retry: never
+      routes:
+        - id: pmdg737.mcp.mach.set.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#84135"
+          inputValue:
+            source: input
+            scale: 100
+            offset: 0
+            round: nearest
+          readback:
+            fieldId: mcp.speed
+            expectedInput: true
+            timeoutMs: 1500
+      verification: untested
+    mcp.heading.set:
+      id: mcp.heading.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.mcp.heading
+        retry: never
+      routes:
+        - id: pmdg737.mcp.heading.set.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#84136"
+          inputValue:
+            source: input
+            scale: 1
+            offset: 0
+            round: nearest
+          readback:
+            fieldId: mcp.headingDeg
+            expectedInput: true
+            timeoutMs: 1500
+      verification: untested
+    mcp.altitude.set:
+      id: mcp.altitude.set
+      input:
+        type: number
+        min: 0
+        max: 50000
+        step: 100
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.mcp.altitude
+        retry: never
+      routes:
+        - id: pmdg737.mcp.altitude.set.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#84137"
+          inputValue:
+            source: input
+            scale: 1
+            offset: 0
+            round: nearest
+          readback:
+            fieldId: mcp.altitudeFt
+            expectedInput: true
+            timeoutMs: 1500
+      verification: untested
+    mcp.verticalSpeed.set:
+      id: mcp.verticalSpeed.set
+      input:
+        type: number
+        min: -7900
+        max: 6000
+        step: 100
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.mcp.verticalSpeed
+        retry: never
+      routes:
+        - id: pmdg737.mcp.verticalSpeed.set.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#84138"
+          inputValue:
+            source: input
+            scale: 1
+            offset: 10000
+            round: nearest
+          readback:
+            fieldId: mcp.verticalSpeedFpm
+            expectedInput: true
+            timeoutMs: 1500
+      verification: untested
+    mcp.courseFirstOfficer.set:
+      id: mcp.courseFirstOfficer.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.mcp.course
+        retry: never
+      routes:
+        - id: pmdg737.mcp.courseFirstOfficer.set.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#84133"
+          inputValue:
+            source: input
+            scale: 1
+            offset: 0
+            round: nearest
+          readback:
+            fieldId: mcp.courseFirstOfficerDeg
+            expectedInput: true
+            timeoutMs: 1500
+      verification: untested
+
+    # afds
+    afds.n1.engage:
+      id: afds.n1.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.n1
+        retry: never
+      routes:
+        - id: pmdg737.afds.n1.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70013"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.n1
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.speed.engage:
+      id: afds.speed.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.speed
+        retry: never
+      routes:
+        - id: pmdg737.afds.speed.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70014"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.speed
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.vnav.engage:
+      id: afds.vnav.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.vnav
+        retry: never
+      routes:
+        - id: pmdg737.afds.vnav.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70018"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.vnav
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.levelChange.engage:
+      id: afds.levelChange.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.levelChange
+        retry: never
+      routes:
+        - id: pmdg737.afds.levelChange.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70023"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.levelChange
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.headingSelect.engage:
+      id: afds.headingSelect.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.headingSelect
+        retry: never
+      routes:
+        - id: pmdg737.afds.headingSelect.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70024"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.headingSelect
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.approach.engage:
+      id: afds.approach.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.approach
+        retry: never
+      routes:
+        - id: pmdg737.afds.approach.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70025"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.approach
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.altitudeHold.engage:
+      id: afds.altitudeHold.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.altitudeHold
+        retry: never
+      routes:
+        - id: pmdg737.afds.altitudeHold.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70026"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.altitudeHold
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.verticalSpeed.engage:
+      id: afds.verticalSpeed.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.verticalSpeed
+        retry: never
+      routes:
+        - id: pmdg737.afds.verticalSpeed.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70027"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.verticalSpeed
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.vorLoc.engage:
+      id: afds.vorLoc.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.vorLoc
+        retry: never
+      routes:
+        - id: pmdg737.afds.vorLoc.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70028"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.vorLoc
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.lnav.engage:
+      id: afds.lnav.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.lnav
+        retry: never
+      routes:
+        - id: pmdg737.afds.lnav.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70029"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.lnav
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.cmdA.engage:
+      id: afds.cmdA.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.cmdA
+        retry: never
+      routes:
+        - id: pmdg737.afds.cmdA.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70034"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.cmdA
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.cmdB.engage:
+      id: afds.cmdB.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.cmdB
+        retry: never
+      routes:
+        - id: pmdg737.afds.cmdB.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70035"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.cmdB
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.cwsA.engage:
+      id: afds.cwsA.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.cwsA
+        retry: never
+      routes:
+        - id: pmdg737.afds.cwsA.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70036"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.cwsA
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.cwsB.engage:
+      id: afds.cwsB.engage
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.cwsB
+        retry: never
+      routes:
+        - id: pmdg737.afds.cwsB.engage.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70037"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.cwsB
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.autothrottleArm.off:
+      id: afds.autothrottleArm.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.autothrottleArm
+        retry: never
+      routes:
+        - id: pmdg737.afds.autothrottleArm.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70012"
+          value: 1
+          readback:
+            fieldId: afds.autothrottleArm
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    afds.autothrottleArm.on:
+      id: afds.autothrottleArm.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.autothrottleArm
+        retry: never
+      routes:
+        - id: pmdg737.afds.autothrottleArm.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70012"
+          value: 0
+          readback:
+            fieldId: afds.autothrottleArm
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.flightDirectorCaptain.off:
+      id: afds.flightDirectorCaptain.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.flightDirectorCaptain
+        retry: never
+      routes:
+        - id: pmdg737.afds.flightDirectorCaptain.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70010"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.flightDirectorCaptain
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    afds.flightDirectorCaptain.on:
+      id: afds.flightDirectorCaptain.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.flightDirectorCaptain
+        retry: never
+      routes:
+        - id: pmdg737.afds.flightDirectorCaptain.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70010"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.flightDirectorCaptain
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    afds.flightDirectorFirstOfficer.off:
+      id: afds.flightDirectorFirstOfficer.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.flightDirectorFirstOfficer
+        retry: never
+      routes:
+        - id: pmdg737.afds.flightDirectorFirstOfficer.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70039"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.flightDirectorFirstOfficer
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    afds.flightDirectorFirstOfficer.on:
+      id: afds.flightDirectorFirstOfficer.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.afds.flightDirectorFirstOfficer
+        retry: never
+      routes:
+        - id: pmdg737.afds.flightDirectorFirstOfficer.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70039"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: afds.flightDirectorFirstOfficer
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+
+    # nav1
+    nav1.transfer:
+      id: nav1.transfer
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.nav1
+        retry: never
+      routes:
+        - id: pmdg737.nav1.transfer.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 72901
+          readback:
+            fieldId: radios.nav1ActiveMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav1.transfer.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70361"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: radios.nav1ActiveMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+    nav1.inner.decrement:
+      id: nav1.inner.decrement
+      guard:
+        cooldownMs: 175
+        groupId: pmdg737.nav1
+        retry: never
+      routes:
+        - id: pmdg737.nav1.inner.decrement.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 73208
+          readback:
+            fieldId: radios.nav1StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav1.inner.decrement.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70364"
+          value: 8192
+          readback:
+            fieldId: radios.nav1StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+    nav1.inner.increment:
+      id: nav1.inner.increment
+      guard:
+        cooldownMs: 175
+        groupId: pmdg737.nav1
+        retry: never
+      routes:
+        - id: pmdg737.nav1.inner.increment.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 73207
+          readback:
+            fieldId: radios.nav1StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav1.inner.increment.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70364"
+          value: 16384
+          readback:
+            fieldId: radios.nav1StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+    nav1.outer.decrement:
+      id: nav1.outer.decrement
+      guard:
+        cooldownMs: 175
+        groupId: pmdg737.nav1
+        retry: never
+      routes:
+        - id: pmdg737.nav1.outer.decrement.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 73308
+          readback:
+            fieldId: radios.nav1StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav1.outer.decrement.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70365"
+          value: 8192
+          readback:
+            fieldId: radios.nav1StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+    nav1.outer.increment:
+      id: nav1.outer.increment
+      guard:
+        cooldownMs: 175
+        groupId: pmdg737.nav1
+        retry: never
+      routes:
+        - id: pmdg737.nav1.outer.increment.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 73307
+          readback:
+            fieldId: radios.nav1StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav1.outer.increment.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70365"
+          value: 16384
+          readback:
+            fieldId: radios.nav1StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+
+    # nav2
+    nav2.transfer:
+      id: nav2.transfer
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.nav2
+        retry: never
+      routes:
+        - id: pmdg737.nav2.transfer.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 84501
+          readback:
+            fieldId: radios.nav2ActiveMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav2.transfer.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70477"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: radios.nav2ActiveMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+    nav2.inner.decrement:
+      id: nav2.inner.decrement
+      guard:
+        cooldownMs: 175
+        groupId: pmdg737.nav2
+        retry: never
+      routes:
+        - id: pmdg737.nav2.inner.decrement.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 84908
+          readback:
+            fieldId: radios.nav2StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav2.inner.decrement.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70481"
+          value: 8192
+          readback:
+            fieldId: radios.nav2StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+    nav2.inner.increment:
+      id: nav2.inner.increment
+      guard:
+        cooldownMs: 175
+        groupId: pmdg737.nav2
+        retry: never
+      routes:
+        - id: pmdg737.nav2.inner.increment.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 84907
+          readback:
+            fieldId: radios.nav2StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav2.inner.increment.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70481"
+          value: 16384
+          readback:
+            fieldId: radios.nav2StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+    nav2.outer.decrement:
+      id: nav2.outer.decrement
+      guard:
+        cooldownMs: 175
+        groupId: pmdg737.nav2
+        retry: never
+      routes:
+        - id: pmdg737.nav2.outer.decrement.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 84808
+          readback:
+            fieldId: radios.nav2StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav2.outer.decrement.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70480"
+          value: 8192
+          readback:
+            fieldId: radios.nav2StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+    nav2.outer.increment:
+      id: nav2.outer.increment
+      guard:
+        cooldownMs: 175
+        groupId: pmdg737.nav2
+        retry: never
+      routes:
+        - id: pmdg737.nav2.outer.increment.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 84807
+          readback:
+            fieldId: radios.nav2StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+        - id: pmdg737.nav2.outer.increment.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70480"
+          value: 16384
+          readback:
+            fieldId: radios.nav2StandbyMhz
+            confirmation: changed
+            timeoutMs: 1500
+      verification: untested
+
+    # lights
+    lights.landingRetractableLeft.retract:
+      id: lights.landingRetractableLeft.retract
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingRetractableLeft
+        retry: never
+      routes:
+        - id: pmdg737.lights.landingRetractableLeft.retract.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69743"
+          value: 0
+          readback:
+            fieldId: lights.landingRetractableLeftMode
+            expectedValue: retract
+            timeoutMs: 1500
+      verification: untested
+    lights.landingRetractableLeft.extend:
+      id: lights.landingRetractableLeft.extend
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingRetractableLeft
+        retry: never
+      routes:
+        - id: pmdg737.lights.landingRetractableLeft.extend.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69743"
+          value: 1
+          readback:
+            fieldId: lights.landingRetractableLeftMode
+            expectedValue: extend
+            timeoutMs: 1500
+      verification: untested
+    lights.landingRetractableLeft.on:
+      id: lights.landingRetractableLeft.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingRetractableLeft
+        retry: never
+      routes:
+        - id: pmdg737.lights.landingRetractableLeft.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69743"
+          value: 2
+          readback:
+            fieldId: lights.landingRetractableLeftMode
+            expectedValue: on
+            timeoutMs: 1500
+      verification: untested
+    lights.landingRetractableRight.retract:
+      id: lights.landingRetractableRight.retract
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingRetractableRight
+        retry: never
+      routes:
+        - id: pmdg737.lights.landingRetractableRight.retract.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69744"
+          value: 0
+          readback:
+            fieldId: lights.landingRetractableRightMode
+            expectedValue: retract
+            timeoutMs: 1500
+      verification: untested
+    lights.landingRetractableRight.extend:
+      id: lights.landingRetractableRight.extend
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingRetractableRight
+        retry: never
+      routes:
+        - id: pmdg737.lights.landingRetractableRight.extend.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69744"
+          value: 1
+          readback:
+            fieldId: lights.landingRetractableRightMode
+            expectedValue: extend
+            timeoutMs: 1500
+      verification: untested
+    lights.landingRetractableRight.on:
+      id: lights.landingRetractableRight.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.landingRetractableRight
+        retry: never
+      routes:
+        - id: pmdg737.lights.landingRetractableRight.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69744"
+          value: 2
+          readback:
+            fieldId: lights.landingRetractableRightMode
+            expectedValue: on
+            timeoutMs: 1500
+      verification: untested
+    lights.position.steady:
+      id: lights.position.steady
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.position
+        retry: never
+      routes:
+        - id: pmdg737.lights.position.steady.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12301
+            - type: delay
+              milliseconds: 100
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12301
+          readback:
+            fieldId: lights.positionMode
+            expectedValue: steady
+            timeoutMs: 1500
+        - id: pmdg737.lights.position.steady.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69755"
+          value: 0
+          readback:
+            fieldId: lights.positionMode
+            expectedValue: steady
+            timeoutMs: 1500
+      verification: untested
+    lights.position.off:
+      id: lights.position.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.position
+        retry: never
+      routes:
+        - id: pmdg737.lights.position.off.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12301
+            - type: delay
+              milliseconds: 100
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12301
+            - type: delay
+              milliseconds: 100
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12302
+          readback:
+            fieldId: lights.positionMode
+            expectedValue: off
+            timeoutMs: 1500
+        - id: pmdg737.lights.position.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69755"
+          value: 1
+          readback:
+            fieldId: lights.positionMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    lights.position.strobeSteady:
+      id: lights.position.strobeSteady
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.position
+        retry: never
+      routes:
+        - id: pmdg737.lights.position.strobeSteady.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12302
+            - type: delay
+              milliseconds: 100
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12302
+          readback:
+            fieldId: lights.positionMode
+            expectedValue: strobe-steady
+            timeoutMs: 1500
+        - id: pmdg737.lights.position.strobeSteady.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69755"
+          value: 2
+          readback:
+            fieldId: lights.positionMode
+            expectedValue: strobe-steady
+            timeoutMs: 1500
+      verification: untested
+    lights.strobe.off:
+      id: lights.strobe.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.position
+        retry: never
+        skipWhen:
+          - fieldId: lights.positionMode
+            expectedValue: off
+      routes:
+        - id: pmdg737.lights.strobe.off.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12301
+            - type: delay
+              milliseconds: 100
+            - type: event
+              name: ROTOR_BRAKE
+              value: 12301
+          readback:
+            fieldId: lights.positionMode
+            expectedValue: steady
+            timeoutMs: 1500
+        - id: pmdg737.lights.strobe.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69755"
+          value: 0
+          readback:
+            fieldId: lights.positionMode
+            expectedValue: steady
+            timeoutMs: 1500
+      verification: untested
+    lights.emergency.off:
+      id: lights.emergency.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.emergency
+        retry: never
+      routes:
+        - id: pmdg737.lights.emergency.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69732"
+          value: 0
+          readback:
+            fieldId: lights.emergencyMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    lights.emergency.armed:
+      id: lights.emergency.armed
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.emergency
+        retry: never
+      routes:
+        - id: pmdg737.lights.emergency.armed.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69732"
+          value: 1
+          readback:
+            fieldId: lights.emergencyMode
+            expectedValue: armed
+            timeoutMs: 1500
+      verification: untested
+    lights.emergency.on:
+      id: lights.emergency.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.lights.emergency
+        retry: never
+      routes:
+        - id: pmdg737.lights.emergency.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69732"
+          value: 2
+          readback:
+            fieldId: lights.emergencyMode
+            expectedValue: on
+            timeoutMs: 1500
+      verification: untested
+
+    # cabin
+    cabin.noSmoking.off:
+      id: cabin.noSmoking.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.cabin.noSmoking
+        retry: never
+      routes:
+        - id: pmdg737.cabin.noSmoking.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69735"
+          value: 0
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    cabin.noSmoking.auto:
+      id: cabin.noSmoking.auto
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.cabin.noSmoking
+        retry: never
+      routes:
+        - id: pmdg737.cabin.noSmoking.auto.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69735"
+          value: 1
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: auto
+            timeoutMs: 1500
+      verification: untested
+    cabin.noSmoking.on:
+      id: cabin.noSmoking.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.cabin.noSmoking
+        retry: never
+      routes:
+        - id: pmdg737.cabin.noSmoking.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69735"
+          value: 2
+          readback:
+            fieldId: cabin.noSmokingMode
+            expectedValue: on
+            timeoutMs: 1500
+      verification: untested
+    cabin.seatBelts.off:
+      id: cabin.seatBelts.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.cabin.seatBelts
+        retry: never
+      routes:
+        - id: pmdg737.cabin.seatBelts.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69736"
+          value: 0
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    cabin.seatBelts.auto:
+      id: cabin.seatBelts.auto
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.cabin.seatBelts
+        retry: never
+      routes:
+        - id: pmdg737.cabin.seatBelts.auto.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69736"
+          value: 1
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: auto
+            timeoutMs: 1500
+      verification: untested
+    cabin.seatBelts.on:
+      id: cabin.seatBelts.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.cabin.seatBelts
+        retry: never
+      routes:
+        - id: pmdg737.cabin.seatBelts.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69736"
+          value: 2
+          readback:
+            fieldId: cabin.seatBeltsMode
+            expectedValue: on
+            timeoutMs: 1500
+      verification: untested
+
+    # visibility
+    visibility.wiperLeft.off:
+      id: visibility.wiperLeft.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.visibility.wiperLeft
+        retry: never
+      routes:
+        - id: pmdg737.visibility.wiperLeft.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69668"
+          value: 0
+          readback:
+            fieldId: visibility.wiperLeftMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    visibility.wiperLeft.intermittent:
+      id: visibility.wiperLeft.intermittent
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.visibility.wiperLeft
+        retry: never
+      routes:
+        - id: pmdg737.visibility.wiperLeft.intermittent.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69668"
+          value: 1
+          readback:
+            fieldId: visibility.wiperLeftMode
+            expectedValue: intermittent
+            timeoutMs: 1500
+      verification: untested
+    visibility.wiperLeft.low:
+      id: visibility.wiperLeft.low
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.visibility.wiperLeft
+        retry: never
+      routes:
+        - id: pmdg737.visibility.wiperLeft.low.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69668"
+          value: 2
+          readback:
+            fieldId: visibility.wiperLeftMode
+            expectedValue: low
+            timeoutMs: 1500
+      verification: untested
+    visibility.wiperLeft.high:
+      id: visibility.wiperLeft.high
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.visibility.wiperLeft
+        retry: never
+      routes:
+        - id: pmdg737.visibility.wiperLeft.high.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69668"
+          value: 3
+          readback:
+            fieldId: visibility.wiperLeftMode
+            expectedValue: high
+            timeoutMs: 1500
+      verification: untested
+    visibility.wiperRight.off:
+      id: visibility.wiperRight.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.visibility.wiperRight
+        retry: never
+      routes:
+        - id: pmdg737.visibility.wiperRight.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69741"
+          value: 0
+          readback:
+            fieldId: visibility.wiperRightMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    visibility.wiperRight.intermittent:
+      id: visibility.wiperRight.intermittent
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.visibility.wiperRight
+        retry: never
+      routes:
+        - id: pmdg737.visibility.wiperRight.intermittent.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69741"
+          value: 1
+          readback:
+            fieldId: visibility.wiperRightMode
+            expectedValue: intermittent
+            timeoutMs: 1500
+      verification: untested
+    visibility.wiperRight.low:
+      id: visibility.wiperRight.low
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.visibility.wiperRight
+        retry: never
+      routes:
+        - id: pmdg737.visibility.wiperRight.low.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69741"
+          value: 2
+          readback:
+            fieldId: visibility.wiperRightMode
+            expectedValue: low
+            timeoutMs: 1500
+      verification: untested
+    visibility.wiperRight.high:
+      id: visibility.wiperRight.high
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.visibility.wiperRight
+        retry: never
+      routes:
+        - id: pmdg737.visibility.wiperRight.high.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69741"
+          value: 3
+          readback:
+            fieldId: visibility.wiperRightMode
+            expectedValue: high
+            timeoutMs: 1500
+      verification: untested
+
+    # systems
+    systems.electrical.battery.off:
+      id: systems.electrical.battery.off
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.battery
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.battery.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69633"
+          value: 0
+          readback:
+            fieldId: systems.electrical.batteryMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    systems.electrical.battery.bat:
+      id: systems.electrical.battery.bat
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.battery
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.battery.bat.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69633"
+          value: 1
+          readback:
+            fieldId: systems.electrical.batteryMode
+            expectedValue: bat
+            timeoutMs: 1500
+      verification: untested
+    systems.electrical.battery.on:
+      id: systems.electrical.battery.on
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.battery
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.battery.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69633"
+          value: 2
+          readback:
+            fieldId: systems.electrical.batteryMode
+            expectedValue: on
+            timeoutMs: 1500
+      verification: untested
+    systems.electrical.standbyPower.bat:
+      id: systems.electrical.standbyPower.bat
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.standbyPower
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.standbyPower.bat.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69642"
+          value: 0
+          readback:
+            fieldId: systems.electrical.standbyPowerMode
+            expectedValue: bat
+            timeoutMs: 1500
+      verification: untested
+    systems.electrical.standbyPower.off:
+      id: systems.electrical.standbyPower.off
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.standbyPower
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.standbyPower.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69642"
+          value: 1
+          readback:
+            fieldId: systems.electrical.standbyPowerMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    systems.electrical.standbyPower.auto:
+      id: systems.electrical.standbyPower.auto
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.standbyPower
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.standbyPower.auto.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69642"
+          value: 2
+          readback:
+            fieldId: systems.electrical.standbyPowerMode
+            expectedValue: auto
+            timeoutMs: 1500
+      verification: untested
+    systems.electrical.busTransfer.off:
+      id: systems.electrical.busTransfer.off
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.busTransfer
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.busTransfer.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69650"
+          value: 0
+          readback:
+            fieldId: systems.electrical.busTransferAuto
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.electrical.busTransfer.on:
+      id: systems.electrical.busTransfer.on
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.busTransfer
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.busTransfer.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69650"
+          value: 1
+          readback:
+            fieldId: systems.electrical.busTransferAuto
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.irs.left.off:
+      id: systems.irs.left.off
+      guard:
+        cooldownMs: 450
+        groupId: systems.irs.left
+        retry: never
+      routes:
+        - id: pmdg737.systems.irs.left.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69887"
+          value: 0
+          readback:
+            fieldId: systems.irs.leftMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    systems.irs.left.align:
+      id: systems.irs.left.align
+      guard:
+        cooldownMs: 450
+        groupId: systems.irs.left
+        retry: never
+      routes:
+        - id: pmdg737.systems.irs.left.align.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69887"
+          value: 1
+          readback:
+            fieldId: systems.irs.leftMode
+            expectedValue: align
+            timeoutMs: 1500
+      verification: untested
+    systems.irs.left.nav:
+      id: systems.irs.left.nav
+      guard:
+        cooldownMs: 450
+        groupId: systems.irs.left
+        retry: never
+      routes:
+        - id: pmdg737.systems.irs.left.nav.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69887"
+          value: 2
+          readback:
+            fieldId: systems.irs.leftMode
+            expectedValue: nav
+            timeoutMs: 1500
+      verification: untested
+    systems.irs.left.att:
+      id: systems.irs.left.att
+      guard:
+        cooldownMs: 450
+        groupId: systems.irs.left
+        retry: never
+      routes:
+        - id: pmdg737.systems.irs.left.att.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69887"
+          value: 3
+          readback:
+            fieldId: systems.irs.leftMode
+            expectedValue: att
+            timeoutMs: 1500
+      verification: untested
+    systems.irs.right.off:
+      id: systems.irs.right.off
+      guard:
+        cooldownMs: 450
+        groupId: systems.irs.right
+        retry: never
+      routes:
+        - id: pmdg737.systems.irs.right.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69888"
+          value: 0
+          readback:
+            fieldId: systems.irs.rightMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    systems.irs.right.align:
+      id: systems.irs.right.align
+      guard:
+        cooldownMs: 450
+        groupId: systems.irs.right
+        retry: never
+      routes:
+        - id: pmdg737.systems.irs.right.align.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69888"
+          value: 1
+          readback:
+            fieldId: systems.irs.rightMode
+            expectedValue: align
+            timeoutMs: 1500
+      verification: untested
+    systems.irs.right.nav:
+      id: systems.irs.right.nav
+      guard:
+        cooldownMs: 450
+        groupId: systems.irs.right
+        retry: never
+      routes:
+        - id: pmdg737.systems.irs.right.nav.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69888"
+          value: 2
+          readback:
+            fieldId: systems.irs.rightMode
+            expectedValue: nav
+            timeoutMs: 1500
+      verification: untested
+    systems.irs.right.att:
+      id: systems.irs.right.att
+      guard:
+        cooldownMs: 450
+        groupId: systems.irs.right
+        retry: never
+      routes:
+        - id: pmdg737.systems.irs.right.att.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69888"
+          value: 3
+          readback:
+            fieldId: systems.irs.rightMode
+            expectedValue: att
+            timeoutMs: 1500
+      verification: untested
+    systems.windowHeatCaptainForward.off:
+      id: systems.windowHeatCaptainForward.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.windowHeatCaptainForward
+        retry: never
+      routes:
+        - id: pmdg737.systems.windowHeatCaptainForward.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69767"
+          value: 0
+          readback:
+            fieldId: systems.windowHeatCaptainForward
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.windowHeatCaptainForward.on:
+      id: systems.windowHeatCaptainForward.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.windowHeatCaptainForward
+        retry: never
+      routes:
+        - id: pmdg737.systems.windowHeatCaptainForward.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69767"
+          value: 1
+          readback:
+            fieldId: systems.windowHeatCaptainForward
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.windowHeatFirstOfficerForward.off:
+      id: systems.windowHeatFirstOfficerForward.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.windowHeatFirstOfficerForward
+        retry: never
+      routes:
+        - id: pmdg737.systems.windowHeatFirstOfficerForward.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69768"
+          value: 0
+          readback:
+            fieldId: systems.windowHeatFirstOfficerForward
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.windowHeatFirstOfficerForward.on:
+      id: systems.windowHeatFirstOfficerForward.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.windowHeatFirstOfficerForward
+        retry: never
+      routes:
+        - id: pmdg737.systems.windowHeatFirstOfficerForward.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69768"
+          value: 1
+          readback:
+            fieldId: systems.windowHeatFirstOfficerForward
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.windowHeatCaptainSide.off:
+      id: systems.windowHeatCaptainSide.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.windowHeatCaptainSide
+        retry: never
+      routes:
+        - id: pmdg737.systems.windowHeatCaptainSide.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69770"
+          value: 0
+          readback:
+            fieldId: systems.windowHeatCaptainSide
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.windowHeatCaptainSide.on:
+      id: systems.windowHeatCaptainSide.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.windowHeatCaptainSide
+        retry: never
+      routes:
+        - id: pmdg737.systems.windowHeatCaptainSide.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69770"
+          value: 1
+          readback:
+            fieldId: systems.windowHeatCaptainSide
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.windowHeatFirstOfficerSide.off:
+      id: systems.windowHeatFirstOfficerSide.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.windowHeatFirstOfficerSide
+        retry: never
+      routes:
+        - id: pmdg737.systems.windowHeatFirstOfficerSide.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69771"
+          value: 0
+          readback:
+            fieldId: systems.windowHeatFirstOfficerSide
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.windowHeatFirstOfficerSide.on:
+      id: systems.windowHeatFirstOfficerSide.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.windowHeatFirstOfficerSide
+        retry: never
+      routes:
+        - id: pmdg737.systems.windowHeatFirstOfficerSide.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69771"
+          value: 1
+          readback:
+            fieldId: systems.windowHeatFirstOfficerSide
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+
+    # flightControls
+    flightControls.yawDamper.off:
+      id: flightControls.yawDamper.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.yawDamper
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.yawDamper.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69695"
+          value: 0
+          readback:
+            fieldId: flightControls.yawDamper
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    flightControls.yawDamper.on:
+      id: flightControls.yawDamper.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.yawDamper
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.yawDamper.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69695"
+          value: 1
+          readback:
+            fieldId: flightControls.yawDamper
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+
+    # systems
+    systems.apu.off:
+      id: systems.apu.off
+      guard:
+        cooldownMs: 450
+        groupId: systems.apu
+        retry: never
+      routes:
+        - id: pmdg737.systems.apu.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69750"
+          value: 0
+          readback:
+            fieldId: systems.apuMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    systems.apu.on:
+      id: systems.apu.on
+      guard:
+        cooldownMs: 450
+        groupId: systems.apu
+        retry: never
+      routes:
+        - id: pmdg737.systems.apu.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69750"
+          value: 1
+          readback:
+            fieldId: systems.apuMode
+            expectedValue: on
+            timeoutMs: 1500
+      verification: untested
+    systems.apu.start:
+      id: systems.apu.start
+      guard:
+        groupId: systems.apu
+        cooldownMs: 3000
+        retry: never
+        skipWhen:
+          - fieldId: systems.apuMode
+            expectedValue: start
+      routes:
+        - id: pmdg737.systems.apu.start.rotorBrake
+          transport: simconnect-sequence
+          requiredSdkAdapter: clientdata-manifest
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 11801
+            - type: delay
+              milliseconds: 500
+            - type: event
+              name: ROTOR_BRAKE
+              value: 11801
+            - type: delay
+              milliseconds: 500
+            - type: event
+              name: ROTOR_BRAKE
+              value: 11804
+          confirmation: transport-acknowledged
+      verification: untested
+    systems.electrical.groundPower.connect:
+      id: systems.electrical.groundPower.connect
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.powerSource
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.groundPower.connect.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 1702
+            - type: event
+              name: ROTOR_BRAKE
+              value: 1704
+          readbacks:
+            - fieldId: systems.electrical.transferBus1Powered
+              expectedValue: true
+              timeoutMs: 4000
+            - fieldId: systems.electrical.transferBus2Powered
+              expectedValue: true
+              timeoutMs: 4000
+      verification: untested
+    systems.electrical.groundPower.disconnect:
+      id: systems.electrical.groundPower.disconnect
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.powerSource
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.groundPower.disconnect.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 1701
+            - type: event
+              name: ROTOR_BRAKE
+              value: 1704
+          readbacks:
+            - fieldId: systems.electrical.transferBus1Powered
+              expectedValue: false
+              timeoutMs: 4000
+            - fieldId: systems.electrical.transferBus2Powered
+              expectedValue: false
+              timeoutMs: 4000
+      verification: untested
+    systems.electrical.apuGenerators.connect:
+      id: systems.electrical.apuGenerators.connect
+      guard:
+        cooldownMs: 450
+        groupId: systems.electrical.powerSource
+        retry: never
+      routes:
+        - id: pmdg737.systems.electrical.apuGenerators.connect.rotorBrake
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 2802
+            - type: event
+              name: ROTOR_BRAKE
+              value: 2804
+            - type: event
+              name: ROTOR_BRAKE
+              value: 2902
+            - type: event
+              name: ROTOR_BRAKE
+              value: 2904
+          readbacks:
+            - fieldId: systems.electrical.transferBus1Powered
+              expectedValue: true
+              timeoutMs: 4000
+            - fieldId: systems.electrical.transferBus2Powered
+              expectedValue: true
+              timeoutMs: 4000
+      verification: untested
+
+    # gear
+    gear.handle.up:
+      id: gear.handle.up
+      verification: untested
+      guard:
+        groupId: pmdg737.gear.handle
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.gear.handle.up.simconnectSequence
+          transport: simconnect-sequence
+          requiredSdkAdapter: clientdata-manifest
+          operations:
+            - type: event
+              name: GEAR_UP
+              value: 0
+          readback:
+            fieldId: gear.handleMode
+            expectedValue: up
+            timeoutMs: 2500
+    gear.handle.down:
+      id: gear.handle.down
+      verification: untested
+      guard:
+        groupId: pmdg737.gear.handle
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.gear.handle.down.simconnectSequence
+          transport: simconnect-sequence
+          requiredSdkAdapter: clientdata-manifest
+          operations:
+            - type: event
+              name: GEAR_DOWN
+              value: 0
+          readback:
+            fieldId: gear.handleMode
+            expectedValue: down
+            timeoutMs: 2500
+    gear.handle.off:
+      id: gear.handle.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.handle
+        retry: never
+      routes:
+        - id: pmdg737.gear.handle.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70087"
+          value: 1
+          readback:
+            fieldId: gear.handleMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    gear.autobrake.rto:
+      id: gear.autobrake.rto
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.autobrake
+        retry: never
+      routes:
+        - id: pmdg737.gear.autobrake.rto.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70092"
+          value: 0
+          readback:
+            fieldId: gear.autobrakeMode
+            expectedValue: rto
+            timeoutMs: 1500
+      verification: untested
+    gear.autobrake.off:
+      id: gear.autobrake.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.autobrake
+        retry: never
+      routes:
+        - id: pmdg737.gear.autobrake.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70092"
+          value: 1
+          readback:
+            fieldId: gear.autobrakeMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    gear.autobrake.level1:
+      id: gear.autobrake.level1
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.autobrake
+        retry: never
+      routes:
+        - id: pmdg737.gear.autobrake.level1.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70092"
+          value: 2
+          readback:
+            fieldId: gear.autobrakeMode
+            expectedValue: "1"
+            timeoutMs: 1500
+      verification: untested
+    gear.autobrake.level2:
+      id: gear.autobrake.level2
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.autobrake
+        retry: never
+      routes:
+        - id: pmdg737.gear.autobrake.level2.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70092"
+          value: 3
+          readback:
+            fieldId: gear.autobrakeMode
+            expectedValue: "2"
+            timeoutMs: 1500
+      verification: untested
+    gear.autobrake.level3:
+      id: gear.autobrake.level3
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.autobrake
+        retry: never
+      routes:
+        - id: pmdg737.gear.autobrake.level3.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70092"
+          value: 4
+          readback:
+            fieldId: gear.autobrakeMode
+            expectedValue: "3"
+            timeoutMs: 1500
+      verification: untested
+    gear.autobrake.max:
+      id: gear.autobrake.max
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.autobrake
+        retry: never
+      routes:
+        - id: pmdg737.gear.autobrake.max.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70092"
+          value: 5
+          readback:
+            fieldId: gear.autobrakeMode
+            expectedValue: max
+            timeoutMs: 1500
+      verification: untested
+    gear.parkingBrake.released:
+      id: gear.parkingBrake.released
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.parkingBrake
+        retry: never
+      routes:
+        - id: pmdg737.gear.parkingBrake.released.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70325"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: gear.parkingBrake
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    gear.parkingBrake.set:
+      id: gear.parkingBrake.set
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.gear.parkingBrake
+        retry: never
+      routes:
+        - id: pmdg737.gear.parkingBrake.set.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70325"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: gear.parkingBrake
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+
+    # flightControls
+    flightControls.speedbrake.disarm:
+      id: flightControls.speedbrake.disarm
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.speedbrake
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.speedbrake.disarm.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76423"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.speedbrakeArmed
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    flightControls.speedbrake.arm:
+      id: flightControls.speedbrake.arm
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.speedbrake
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.speedbrake.arm.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76424"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.speedbrakeArmed
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    flightControls.speedbrake.retracted:
+      id: flightControls.speedbrake.retracted
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.speedbrake
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.speedbrake.retracted.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76423"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.speedbrakePercent
+            expectedValue: 0
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.speedbrake.half:
+      id: flightControls.speedbrake.half
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.speedbrake
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.speedbrake.half.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76425"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.speedbrakePercent
+            expectedValue: 50
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.speedbrake.full:
+      id: flightControls.speedbrake.full
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.speedbrake
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.speedbrake.full.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76427"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.speedbrakePercent
+            expectedValue: 100
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.up:
+      id: flightControls.flaps.up
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.up.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76773"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 0
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.detent1:
+      id: flightControls.flaps.detent1
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.detent1.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76774"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 1
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.detent2:
+      id: flightControls.flaps.detent2
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.detent2.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76775"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 2
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.detent5:
+      id: flightControls.flaps.detent5
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.detent5.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76776"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 3
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.detent10:
+      id: flightControls.flaps.detent10
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.detent10.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76777"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 4
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.detent15:
+      id: flightControls.flaps.detent15
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.detent15.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76778"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 5
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.detent25:
+      id: flightControls.flaps.detent25
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.detent25.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76779"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 6
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.detent30:
+      id: flightControls.flaps.detent30
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.detent30.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76780"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 7
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+    flightControls.flaps.detent40:
+      id: flightControls.flaps.detent40
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.flaps
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.flaps.detent40.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#76781"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.flapHandleIndex
+            expectedValue: 8
+            timeoutMs: 1500
+            freshness: field
+      verification: untested
+
+    # systems
+    systems.air.packLeft.off:
+      id: systems.air.packLeft.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.packLeft
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.packLeft.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69832"
+          value: 0
+          readback:
+            fieldId: systems.packLeftMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    systems.air.packLeft.auto:
+      id: systems.air.packLeft.auto
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.packLeft
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.packLeft.auto.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69832"
+          value: 1
+          readback:
+            fieldId: systems.packLeftMode
+            expectedValue: auto
+            timeoutMs: 1500
+      verification: untested
+    systems.air.packLeft.high:
+      id: systems.air.packLeft.high
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.packLeft
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.packLeft.high.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69832"
+          value: 2
+          readback:
+            fieldId: systems.packLeftMode
+            expectedValue: high
+            timeoutMs: 1500
+      verification: untested
+    systems.air.packRight.off:
+      id: systems.air.packRight.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.packRight
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.packRight.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69833"
+          value: 0
+          readback:
+            fieldId: systems.packRightMode
+            expectedValue: off
+            timeoutMs: 1500
+      verification: untested
+    systems.air.packRight.auto:
+      id: systems.air.packRight.auto
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.packRight
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.packRight.auto.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69833"
+          value: 1
+          readback:
+            fieldId: systems.packRightMode
+            expectedValue: auto
+            timeoutMs: 1500
+      verification: untested
+    systems.air.packRight.high:
+      id: systems.air.packRight.high
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.packRight
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.packRight.high.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69833"
+          value: 2
+          readback:
+            fieldId: systems.packRightMode
+            expectedValue: high
+            timeoutMs: 1500
+      verification: untested
+    systems.air.engineBleedLeft.off:
+      id: systems.air.engineBleedLeft.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.engineBleedLeft
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.engineBleedLeft.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69842"
+          value: 0
+          readback:
+            fieldId: systems.engineBleedLeft
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.air.engineBleedLeft.on:
+      id: systems.air.engineBleedLeft.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.engineBleedLeft
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.engineBleedLeft.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69842"
+          value: 1
+          readback:
+            fieldId: systems.engineBleedLeft
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.air.apuBleed.off:
+      id: systems.air.apuBleed.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.apuBleed
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.apuBleed.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69843"
+          value: 0
+          readback:
+            fieldId: systems.apuBleed
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.air.apuBleed.on:
+      id: systems.air.apuBleed.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.apuBleed
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.apuBleed.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69843"
+          value: 1
+          readback:
+            fieldId: systems.apuBleed
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.air.engineBleedRight.off:
+      id: systems.air.engineBleedRight.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.engineBleedRight
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.engineBleedRight.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69844"
+          value: 0
+          readback:
+            fieldId: systems.engineBleedRight
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.air.engineBleedRight.on:
+      id: systems.air.engineBleedRight.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.air.engineBleedRight
+        retry: never
+      routes:
+        - id: pmdg737.systems.air.engineBleedRight.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69844"
+          value: 1
+          readback:
+            fieldId: systems.engineBleedRight
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.ice.wing.off:
+      id: systems.ice.wing.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.ice.wing
+        retry: never
+      routes:
+        - id: pmdg737.systems.ice.wing.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69788"
+          value: 0
+          readback:
+            fieldId: systems.wingAntiIce
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.ice.wing.on:
+      id: systems.ice.wing.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.ice.wing
+        retry: never
+      routes:
+        - id: pmdg737.systems.ice.wing.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69788"
+          value: 1
+          readback:
+            fieldId: systems.wingAntiIce
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.ice.engineLeft.off:
+      id: systems.ice.engineLeft.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.ice.engineLeft
+        retry: never
+      routes:
+        - id: pmdg737.systems.ice.engineLeft.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69789"
+          value: 0
+          readback:
+            fieldId: systems.engineAntiIceLeft
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.ice.engineLeft.on:
+      id: systems.ice.engineLeft.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.ice.engineLeft
+        retry: never
+      routes:
+        - id: pmdg737.systems.ice.engineLeft.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69789"
+          value: 1
+          readback:
+            fieldId: systems.engineAntiIceLeft
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+    systems.ice.engineRight.off:
+      id: systems.ice.engineRight.off
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.ice.engineRight
+        retry: never
+      routes:
+        - id: pmdg737.systems.ice.engineRight.off.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69790"
+          value: 0
+          readback:
+            fieldId: systems.engineAntiIceRight
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    systems.ice.engineRight.on:
+      id: systems.ice.engineRight.on
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.systems.ice.engineRight
+        retry: never
+      routes:
+        - id: pmdg737.systems.ice.engineRight.on.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69790"
+          value: 1
+          readback:
+            fieldId: systems.engineAntiIceRight
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+
+    # flightControls
+    flightControls.stabTrimMainElectric.normal:
+      id: flightControls.stabTrimMainElectric.normal
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.stabTrimMainElectric
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.stabTrimMainElectric.normal.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70341"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.stabTrimMainElectricCutout
+            expectedValue: false
+            timeoutMs: 1500
+      verification: untested
+    flightControls.stabTrimMainElectric.cutout:
+      id: flightControls.stabTrimMainElectric.cutout
+      guard:
+        cooldownMs: 450
+        groupId: pmdg737.flightControls.stabTrimMainElectric
+        retry: never
+      routes:
+        - id: pmdg737.flightControls.stabTrimMainElectric.cutout.sdk
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70341"
+          values:
+            - 536870912
+            - 131072
+          readback:
+            fieldId: flightControls.stabTrimMainElectricCutout
+            expectedValue: true
+            timeoutMs: 1500
+      verification: untested
+
+    # surveillance
+    surveillance.squawk.set:
+      id: surveillance.squawk.set
+      input:
+        type: number
+        min: 0
+        max: 7777
+        step: 1
+      guard:
+        groupId: pmdg737.surveillance.squawk
+        cooldownMs: 1000
+        retry: never
+      verification: untested
+      routes:
+        - id: pmdg737.surveillance.squawk.set
+          transport: simconnect-sequence
+          precondition:
+            fieldId: surveillance.powered
+            expectedValue: true
+            freshness: field
+          operations:
+            - type: event
+              name: XPNDR_SET
+              inputValue:
+                source: input
+                encoding: squawk-bco16
+          readback:
+            fieldId: surveillance.squawk
+            expectedInput: true
+            timeoutMs: 2500
+            freshness: field
+    surveillance.ident.activate:
+      id: surveillance.ident.activate
+      guard:
+        groupId: pmdg737.surveillance.ident
+        cooldownMs: 1000
+        retry: never
+      verification: untested
+      routes:
+        - id: pmdg737.surveillance.ident.activate
+          transport: simconnect-sequence
+          precondition:
+            fieldId: surveillance.transmitting
+            expectedValue: true
+            freshness: field
+          operations:
+            - type: event
+              name: ROTOR_BRAKE
+              value: 80601
+            - type: event
+              name: ROTOR_BRAKE
+              value: 80604
+          confirmation: transport-acknowledged
+
+    # efis
+    efis.captain.range.nm5:
+      id: efis.captain.range.nm5
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.range.nm5
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69993"
+          value: 0
+          readback:
+            fieldId: efis.captain.rangeNm
+            expectedValue: "5"
+            timeoutMs: 2500
+    efis.captain.range.nm10:
+      id: efis.captain.range.nm10
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.range.nm10
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69993"
+          value: 1
+          readback:
+            fieldId: efis.captain.rangeNm
+            expectedValue: "10"
+            timeoutMs: 2500
+    efis.captain.range.nm20:
+      id: efis.captain.range.nm20
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.range.nm20
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69993"
+          value: 2
+          readback:
+            fieldId: efis.captain.rangeNm
+            expectedValue: "20"
+            timeoutMs: 2500
+    efis.captain.range.nm40:
+      id: efis.captain.range.nm40
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.range.nm40
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69993"
+          value: 3
+          readback:
+            fieldId: efis.captain.rangeNm
+            expectedValue: "40"
+            timeoutMs: 2500
+    efis.captain.range.nm80:
+      id: efis.captain.range.nm80
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.range.nm80
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69993"
+          value: 4
+          readback:
+            fieldId: efis.captain.rangeNm
+            expectedValue: "80"
+            timeoutMs: 2500
+    efis.captain.range.nm160:
+      id: efis.captain.range.nm160
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.range.nm160
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69993"
+          value: 5
+          readback:
+            fieldId: efis.captain.rangeNm
+            expectedValue: "160"
+            timeoutMs: 2500
+    efis.captain.range.nm320:
+      id: efis.captain.range.nm320
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.range.nm320
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69993"
+          value: 6
+          readback:
+            fieldId: efis.captain.rangeNm
+            expectedValue: "320"
+            timeoutMs: 2500
+    efis.captain.range.nm640:
+      id: efis.captain.range.nm640
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.range.nm640
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69993"
+          value: 7
+          readback:
+            fieldId: efis.captain.rangeNm
+            expectedValue: "640"
+            timeoutMs: 2500
+    efis.captain.minimums.radio:
+      id: efis.captain.minimums.radio
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.minimums
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.minimums.radio
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69988"
+          value: 0
+          readback:
+            fieldId: efis.captain.minimumsMode
+            expectedValue: radio
+            timeoutMs: 2500
+    efis.captain.minimums.baro:
+      id: efis.captain.minimums.baro
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.captain.minimums
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.captain.minimums.baro
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#69988"
+          value: 1
+          readback:
+            fieldId: efis.captain.minimumsMode
+            expectedValue: baro
+            timeoutMs: 2500
+    efis.firstOfficer.range.nm5:
+      id: efis.firstOfficer.range.nm5
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.range.nm5
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70049"
+          value: 0
+          readback:
+            fieldId: efis.firstOfficer.rangeNm
+            expectedValue: "5"
+            timeoutMs: 2500
+    efis.firstOfficer.range.nm10:
+      id: efis.firstOfficer.range.nm10
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.range.nm10
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70049"
+          value: 1
+          readback:
+            fieldId: efis.firstOfficer.rangeNm
+            expectedValue: "10"
+            timeoutMs: 2500
+    efis.firstOfficer.range.nm20:
+      id: efis.firstOfficer.range.nm20
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.range.nm20
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70049"
+          value: 2
+          readback:
+            fieldId: efis.firstOfficer.rangeNm
+            expectedValue: "20"
+            timeoutMs: 2500
+    efis.firstOfficer.range.nm40:
+      id: efis.firstOfficer.range.nm40
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.range.nm40
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70049"
+          value: 3
+          readback:
+            fieldId: efis.firstOfficer.rangeNm
+            expectedValue: "40"
+            timeoutMs: 2500
+    efis.firstOfficer.range.nm80:
+      id: efis.firstOfficer.range.nm80
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.range.nm80
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70049"
+          value: 4
+          readback:
+            fieldId: efis.firstOfficer.rangeNm
+            expectedValue: "80"
+            timeoutMs: 2500
+    efis.firstOfficer.range.nm160:
+      id: efis.firstOfficer.range.nm160
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.range.nm160
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70049"
+          value: 5
+          readback:
+            fieldId: efis.firstOfficer.rangeNm
+            expectedValue: "160"
+            timeoutMs: 2500
+    efis.firstOfficer.range.nm320:
+      id: efis.firstOfficer.range.nm320
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.range.nm320
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70049"
+          value: 6
+          readback:
+            fieldId: efis.firstOfficer.rangeNm
+            expectedValue: "320"
+            timeoutMs: 2500
+    efis.firstOfficer.range.nm640:
+      id: efis.firstOfficer.range.nm640
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.range
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.range.nm640
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70049"
+          value: 7
+          readback:
+            fieldId: efis.firstOfficer.rangeNm
+            expectedValue: "640"
+            timeoutMs: 2500
+    efis.firstOfficer.minimums.radio:
+      id: efis.firstOfficer.minimums.radio
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.minimums
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.minimums.radio
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70044"
+          value: 0
+          readback:
+            fieldId: efis.firstOfficer.minimumsMode
+            expectedValue: radio
+            timeoutMs: 2500
+    efis.firstOfficer.minimums.baro:
+      id: efis.firstOfficer.minimums.baro
+      verification: untested
+      guard:
+        groupId: pmdg737.efis.firstOfficer.minimums
+        cooldownMs: 450
+        retry: never
+      routes:
+        - id: pmdg737.efis.firstOfficer.minimums.baro
+          transport: sdk
+          adapter: clientdata-manifest
+          command: "#70044"
+          value: 1
+          readback:
+            fieldId: efis.firstOfficer.minimumsMode
+            expectedValue: baro
+            timeoutMs: 2500
+  catalogue:
+    order: 15
+    legacyExports:
+      PMDG_737_ADAPTER_ID:
+        kind: id
+        order: 43
+      PMDG_737_INTEGRATION:
+        kind: integration
+        order: 44
+      PMDG_737_600_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/pmdg-737-600
+        order: 45
+      PMDG_737_700_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/pmdg-737-700
+        order: 46
+      PMDG_737_800_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/pmdg-737
+        order: 47
+      PMDG_737_900_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/pmdg-737-900
+        order: 48
+      PMDG_737_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/pmdg-737
+        order: 49
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/pmdg-737:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: pmdg-737
+    name: PMDG Boeing 737-800
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2025-01-03T00:00:00Z
+    updatedAt: 2026-08-24T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/boeing-base
+    abstract: false
+    aircraft:
+      category: D
+      flaps:
+        notches:
+          - value: 0
+            label: UP
+          - value: 1
+            label: "1"
+          - value: 2
+            label: "2"
+          - value: 5
+            label: "5"
+          - value: 10
+            label: "10"
+          - value: 15
+            label: "15"
+          - value: 25
+            label: "25"
+          - value: 30
+            label: "30"
+          - value: 40
+            label: "40"
+        landingNotches:
+          - 30
+          - 40
+      stability:
+        speedBand:
+          belowVrefKts: 5
+          aboveVrefKts: 15
+        vsLimits:
+          downFpm: 1000
+          upFpm: 200
+        thrustMinPct: 25
+        pitch:
+          minDeg: -5
+          maxDeg: 12
+      landing:
+        grades:
+          perfectMinFpm: -150
+          goodMinFpm: -300
+          firmMinFpm: -500
+          hardMinFpm: -600
+          _comment: "737: <150 fpm butter, 150-300 excellent, 300-500 firm/normal, 500-600 heavy (pre-inspection), >600
+            hard landing inspection per Boeing AMM"
+      throttle:
+        type: servo
+      engines:
+        count: 2
+        type: jet
+        _comment: Exact CFM56 idle and limit N1 percentages are intentionally omitted until a public
+          Boeing/engine-source reference is checked in.
+    integration:
+      aircraftSpecific:
+        adapter: pmdg-737
+      matching:
+        priority: 100
+        titleContains:
+          - PMDG 737-800
+          - PMDG Boeing 737-800
+          - PMDG B738
+        titleRegex: pmdg.*(737[- ]?800|b738)|(737[- ]?800|b738).*pmdg
+        configPathContains:
+          - pmdg-aircraft-738
+          - pmdg-737-800
+          - pmdg_737_800
+        configPathRegex: pmdg.*(737[-_ ]?800|738|b738)|(737[-_ ]?800|738|b738).*pmdg
+      telemetry:
+        preferred: sdk
+        sdk:
+          adapter: clientdata-manifest
+          connector: pmdg-737-ng3-clientdata
+          target:
+            channel: pmdg-737-ng3-clientdata
+        autopilot:
+          simVarReliable: false
+        spoilers:
+          _comment: The official SDK supplies authoritative speedbrake annunciators but no continuous handle position.
+            Core spoiler position therefore remains on the standard SimConnect percent path.
+          scale: percent
+        lights:
+          simVarReliable: false
+      controls:
+        backend: pmdg
+        genericFallback: false
+        standardSurfaceFallback: false
+        _comment: PMDG 737 writes use the shared adapter, official SDK routes, and the exact 0..300 dimmer LVars
+          defined by the installed PMDG cockpit behavior. Generic AP, flap key-event, and unrelated LVar write
+          paths are intentionally absent. Gear UP/DOWN uses reviewed standard events within the shared
+          adapter, with exact PMDG SDK handle confirmation.
+      signalReliability:
+        stabilityScore: authoritative
+      presentation:
+        visualSupport: full
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - turnoff
+            - logo
+            - wing
+          labels:
+            beacon: ANTI
+            nav: POS
+            strobe: STRB
+            landing: LND
+            taxi: TAXI
+            turnoff: RWY TO
+            logo: LOGO
+            wing: WING
+    meta:
+      developer: PMDG
+      platforms:
+        - msfs2020
+        - msfs2024
+      contributor: YenBuilds
+      updated: 2026-08-24
+      status: partial
+      notes: PMDG 737-800 family profile using the official NG3 SDK and guarded backend-owned event routes. SDK data
+        requires EnableDataBroadcast=1; writes require matching live ClientData and the SDK event writer.
+    provenance:
+      sources:
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: MSFS radio events and transponder state
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Radio_Navigation_Events.htm
+          retrievedAt: 2026-09-07
+          notes: Defines XPNDR_SET BCO16 encoding and TRANSPONDER CODE:1 / TRANSPONDER STATE:1 state. Aircraft
+            compatibility is reviewed separately against the original integrations cited in
+            docs/ATC-EFIS-AIRCRAFT-COVERAGE.md. Squawk writes require fresh powered state and a newer
+            selected-code readback. IDENT uses the aircraft button, not a generic IDENT event.
+        - type: community
+          authority: community
+          access: public
+          supportsActiveMappings: false
+          name: PMDG 737 original squawk integration report
+          url: https://forum.pmdg.com/forum/main-forum/cockpit-builders/385351-pmdg_ng3_sdk-h-%E2%80%93-no-event-for-setting-transponder-code
+          retrievedAt: 2026-09-07
+          notes: The original developer reports using XPNDR_SET on the PMDG 737-800. This is a first-hand integration
+            report, not a PMDG staff endorsement. Family compatibility remains untested locally.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: PMDG 737 MSFS SDK and installed aircraft behavior definitions
+          url: https://manuals.pmdg.com/737/PMDG_737_MSFS_Introduction.pdf
+          retrievedAt: 2026-09-06
+          notes: "The installed PMDG 737 SDK manual, PMDG_NG3_SDK.h, connection sample, and 73X_Cockpit_Behavior.xml
+            define the 916-byte NG3 ClientData contract, direct-position control events, data-broadcast
+            requirement and model variants. The installed header publishes battery, standby-power,
+            transfer-bus, IRS, window-heat, APU, ground-power, bus-powered, gear-handle, autobrake,
+            parking-brake, pack, bleed, anti-ice, yaw-damper, and stabilizer-trim readbacks. The installed
+            behavior defines direct targets for all nine normal flap-handle detents; FlightFabric confirms
+            them against the cockpit lever L:NGXFlapLever using exact raw values 0/10/20/30/40/50/60/70/80,
+            independently observed for UP/1/2/5/10/15/25/30/40 on the 737-800 SSW on 2026-10-06. The installed
+            cockpit animation reads this lever; standard FLAPS HANDLE INDEX lags selection during surface
+            travel, while ClientData publishes flap needles rather than the handle. Confirmation requires
+            fresh per-field lever readback. See docs/PMDG-737-FLAPS-VALIDATION.md; other variants require live
+            qualification. It also defines 0..300 LVar positions for 16 continuously dimmable controls:
+            OH_CB_PANEL_LIGHT_CONTROL, OH_PANEL_LIGHT_CONTROL, CA_MAIN_PANEL_LIGHT_CONTROL,
+            FO_MAIN_PANEL_LIGHT_CONTROL, CA_BACKGROUND_BRT_CONTROL, CA_AFDS_FLOOD_LIGHT_CONTROL,
+            PED_FLOOD_LIGHT_CONTROL, PED_PANEL_LIGHT_CONTROL, CA_OUTBD_DU_BRIGHT_CONTROL,
+            CA_INBD_DU_BRIGHT_CONTROL, CA_INBD_DU_RDR_BRIGHT_CONTROL, CA_UPPER_DU_BRIGHT_CONTROL,
+            CA_LOWER_DU_BRIGHT_CONTROL, FO_OUTBD_DU_BRIGHT_CONTROL, FO_INBD_DU_BRIGHT_CONTROL, and
+            FO_INBD_DU_RDR_BRIGHT_CONTROL. The cockpit-lighting preset writes those exact positions in four
+            guarded groups and confirms every LVar as a whole percentage. Discrete dome/spot lights, chart/map
+            mechanisms, EFB buttons, CDU internals, and the explicitly inoperative lower-DU inner knob are
+            excluded. Spring-loaded ground-power and APU-generator controls use reviewed ROTOR_BRAKE
+            direction/release sequences. Gear UP/DOWN uses GEAR_UP/GEAR_DOWN with value zero and newer exact
+            SDK handle readback within 2.5 seconds. The numeric #70087 DOWN payload was accepted without
+            moving the handle live; the standard-event replacement passed both directions through the
+            canonical command service on 737-800 SSW on 2026-10-06. The shared 737-600/700/800/900 route
+            retains SDK/profile checks, cooldown and no retry or fallback. OFF and transitions starting at OFF
+            remain unverified and unchanged. See docs/PMDG-737-GEAR-VALIDATION.md. Other stable selectors use
+            matching direct SDK event IDs and exact logical readback. Existing NAV1 controls 729/732/733, NAV2
+            controls 845/848/849, and position-light control 123 retain their reviewed ROTOR_BRAKE
+            compatibility encodings. The installed PMDG SDK assigns direct course-set events #84132 to the
+            captain window and #84133 to the first-officer window. FlightFabric maps that contract through the
+            clientdata-manifest adapter and checked-in pmdg-737-ng3-clientdata connector. The public source
+            includes FlightFabric's independently written SDK interoperability mappings but not PMDG headers,
+            manuals, samples, binaries, or other vendor files. APU START correction reviewed 2026-09-10 after
+            a reported voice-start failure, installed PMDG 737-800 4.0.63: 73X_Cockpit_Behavior.xml component
+            ngx_switch_118_a defines control 118 with press action 1 or 2 chosen by mouse click half and
+            release action 4. Direction correction 2026-09-17 after a clickable-preset no-effect report:
+            locally installed community presets stepping L:switch_118_73X (0 OFF, 50 ON, 100 START) show 11801
+            advances toward START and 11802 retreats toward OFF, so the earlier 11802 recipe was moving the
+            selector the wrong way. Timing correction 2026-09-14: START sends ROTOR_BRAKE 11801, pauses 500
+            ms, sends 11801, pauses 500 ms, then sends 11804. These bounded interaction pauses allow the
+            switch to reach START before release; they are not an APU availability wait. This replaces the
+            ineffective direct SDK event 69750 payload 2; the NG3 SDK OFF=0, ON=1, START=2 values describe
+            selector readback. The sequence retains matching SDK connectivity, exact-profile routing, cooldown
+            and no retry, and acknowledges only after all three interactions are accepted. Selector ON, EGT
+            and low-oil indication are not treated as proof of running. No spool-up delay is added; live
+            retesting is pending. See docs/APU-START-VALIDATION.md. ATC/EFIS review 2026-09-07: installed
+            SDK/header and cockpit XML define EFIS_RangeSel, EFIS_MinsSelBARO and the IDENT mouse interaction
+            through ROTOR_BRAKE (press switch*100+1, release switch*100+4). 737 switch 806, SDK range offsets
+            414/415 and minimums reference 404/405 in the 916-byte native layout. Approach-control review
+            2026-09-07 against installed PMDG_NG3_SDK.h (4.0.63): DOWN/50PCT/UP speedbrake targets use events
+            76423/76425/76427, each one left press/release. Independently sampled SPOILERS HANDLE POSITION
+            Percent must confirm 0/50/100; agreement requires live verification. Existing autobrake detents
+            now share canonical UI/voice. See docs/APPROACH-CONTROLS-AIRCRAFT-COVERAGE.md."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator Aircraft Radio Navigation Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Radio_Navigation_Events.htm
+          retrievedAt: 2026-08-24
+          notes: NAV1_RADIO_SET and NAV2_RADIO_SET accept Frequency BCD16 payloads and directly set their respective
+            active NAV frequencies. FlightFabric sends both events in one guarded PMDG command and
+            independently confirms both active-frequency SimVars.
+      verification:
+        status: partial
+        lastVerified: 2026-07-31
+        knownIssues:
+          - The 737-800 is the first live-validation target; the 600, 700, and 900 family profiles require
+            in-aircraft testing.
+          - SDK readback requires EnableDataBroadcast=1.
+          - The direct NAV and position-light routes are guarded and remain unverified until simulator
+            confirmation.
+          - The paired NAV 1 + NAV 2 active-frequency command uses documented standard simulator events but
+            remains unverified in a live PMDG 737 cockpit.
+          - The paired captain + first-officer MCP course command uses the installed SDK direct-set events but
+            remains unverified in a live PMDG 737 cockpit.
+          - The 16-dimmer cockpit-lighting percentage preset follows the installed 737-800 behavior
+            definitions but remains unverified end to end in the simulator and requires family-variant
+            confirmation.
+          - Initial-power, speedbrake, gear OFF, brake, pack, bleed, anti-ice, and stabilizer-trim writes
+            remain unverified until end-to-end simulator passes are completed. Flap selection and gear UP/DOWN
+            have live 737-800 SSW evidence; gear transitions starting at OFF, other variants and
+            microphone-to-cockpit end-to-end use still require validation. See
+            docs/PMDG-737-FLAPS-VALIDATION.md and docs/PMDG-737-GEAR-VALIDATION.md.
+          - MCP mode and selector actions remain untested until IAS/Mach, VS, and button behavior are
+            confirmed in the aircraft.
+          - The official SDK exposes speedbrake annunciators but not a continuous handle position; spoiler
+            state stays on standard SimConnect percent telemetry.
+          - Start APU UI and voice preset is source-backed and covered by automated transport tests; live
+            start, electrical prerequisites, selector release and aircraft variant/build coverage remain
+            untested. See docs/APU-START-VALIDATION.md.
+  bundled/msfs/pmdg-737-600:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: pmdg-737-600
+    name: PMDG Boeing 737-600
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-07-14T00:00:00Z
+    updatedAt: 2026-07-14T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/pmdg-737
+    abstract: false
+    integration:
+      matching:
+        priority: 140
+        titleContains:
+          - PMDG 737-600
+          - PMDG Boeing 737-600
+          - PMDG B736
+        titleRegex: pmdg.*(737[- ]?600|b736)|(737[- ]?600|b736).*pmdg
+        configPathContains:
+          - pmdg-aircraft-736
+          - pmdg-737-600
+        configPathRegex: pmdg.*(737[-_ ]?600|736|b736)|(737[-_ ]?600|736|b736).*pmdg
+    meta:
+      developer: PMDG
+      platforms:
+        - msfs2020
+        - msfs2024
+      contributor: YenBuilds
+      updated: 2026-07-14
+      status: partial
+      notes: PMDG 737-600 variant using the shared official-SDK adapter and aircraft page.
+  bundled/msfs/pmdg-737-700:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: pmdg-737-700
+    name: PMDG Boeing 737-700
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-07-14T00:00:00Z
+    updatedAt: 2026-07-14T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/pmdg-737
+    abstract: false
+    integration:
+      matching:
+        priority: 140
+        titleContains:
+          - PMDG 737-700
+          - PMDG Boeing 737-700
+          - PMDG B737
+        titleRegex: pmdg.*(737[- ]?700|b737)|(737[- ]?700|b737).*pmdg
+        configPathContains:
+          - pmdg-aircraft-737
+          - pmdg-737-700
+        configPathRegex: pmdg.*(737[-_ ]?700|b737)|(737[-_ ]?700|b737).*pmdg
+    meta:
+      developer: PMDG
+      platforms:
+        - msfs2020
+        - msfs2024
+      contributor: YenBuilds
+      updated: 2026-07-14
+      status: partial
+      notes: PMDG 737-700, BBJ, and converted-freighter variants using the shared official-SDK adapter and aircraft
+        page.
+  bundled/msfs/pmdg-737-900:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: pmdg-737-900
+    name: PMDG Boeing 737-900/900ER
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-07-14T00:00:00Z
+    updatedAt: 2026-07-14T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/pmdg-737
+    abstract: false
+    integration:
+      matching:
+        priority: 140
+        titleContains:
+          - PMDG 737-900
+          - PMDG 737-900ER
+          - PMDG Boeing 737-900
+          - PMDG B739
+        titleRegex: pmdg.*(737[- ]?900(?:er)?|b739)|(737[- ]?900(?:er)?|b739).*pmdg
+        configPathContains:
+          - pmdg-aircraft-739
+          - pmdg-737-900
+          - pmdg-737-900er
+        configPathRegex: pmdg.*(737[-_ ]?900(?:er)?|739|b739)|(737[-_ ]?900(?:er)?|739|b739).*pmdg
+    meta:
+      developer: PMDG
+      platforms:
+        - msfs2020
+        - msfs2024
+      contributor: YenBuilds
+      updated: 2026-07-14
+      status: partial
+      notes: PMDG 737-900 and 737-900ER variants using the shared official-SDK adapter and aircraft page.

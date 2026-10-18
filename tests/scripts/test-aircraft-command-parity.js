@@ -4,7 +4,7 @@ const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths'
 const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
 const { buildAircraftControlCapabilities, resolveAircraftCommand, executeAircraftCommand } = require(runtime('aircraft/aircraft-control-service.js'));
 const { aircraftParityBindings } = require(runtime('aircraft/aircraft-command-parity.js'));
-const { defaultAircraftIntegrationRegistry: registry } = require(runtime('aircraft/aircraft-integrations/index.js'));
+const { defaultAircraftIntegrationRegistry: registry } = require(runtime('aircraft/integration-engine/index.js'));
 const capabilities = { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar', 'simvar'],
   integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'simbridge-mcdu', 'input-event'] };
 const hotwords = new Set(require('node:fs').readFileSync(require('node:path').join(__dirname, '../../electron/resources/voice/hotwords.txt'), 'utf8')

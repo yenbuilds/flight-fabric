@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
       @focusout="handleFocusOut"
       @keydown="handleKeydown"
     >
-      <slot name="content">{{ content }}</slot>
+      <slot name="content" :close="hide">{{ content }}</slot>
     </div>
   </Teleport>
 </template>

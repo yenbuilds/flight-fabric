@@ -1,0 +1,2945 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: fbw-a380x/baro.ts
+# A380X Flight Deck API and vendor FlyByWireInterface::updateEfisSync:
+# PUSH selects STD; PULL returns to local pressure. The A320 is the reverse.
+# CP_ACTIVE and DISPLAY_BARO_IS_STD belong to each independent EFIS panel.
+
+# Mapping source notes: fbw-a380x/actions.ts
+# The A380X exposes AP1 and A/THR state directly. The vendor AP1, LOC and APPR
+# inputs are toggle events, so explicit targets depend on a fresh logical
+# readback and skip an already-satisfied request before dispatch.
+# A380X uses the same published calibrated mapping contract across four
+# independent axes. All four windows are validated before any event is sent,
+# and every TLA must confirm the requested forward detent.
+# A380X Flight Deck API, reviewed against installed Stable 2026-09-06.
+
+# Mapping source notes: fbw-a380x/fields.ts
+# FlyByWire publishes the A380X flight-deck state used here for external
+# hardware/software integrations. Raw A32NX-prefixed names stay confined to
+# this adapter; the prefix is part of the documented A380X interface.
+
+# Shared source notes:
+# These helper notes retain their stated aircraft and verification scope.
+#  Existing supported barometer command domains, shared by the opted-in adapters.
+
+# Shared source notes: fbw-a32nx/baro.ts
+# These helper notes retain their stated aircraft and verification scope.
+# This manifest enumerates every allowed write. The confirmed executor selects
+# the necessary mode/unit writes from fresh observations; it never blindly pushes.
+
+# Shared source notes: cockpit-lighting.ts
+# These helper notes retain their stated aircraft and verification scope.
+# Explicit aircraft contracts, not generic MSFS potentiometer guesses. FBW
+# indices come from each aircraft's Flight Deck API. Headwind was separately
+# checked against its installed A330_NEO_INTERIOR.xml. Fenix names and 0..1
+# bounds come from the shipped Cockpit_Behavior.xml and knob templates.
+# iniBuilds A350 1.2.6 A350_Interior.behavior.xml: knob setters clamp
+# these LVARs to 0..100; display BRT buttons write 35/37/39/41 in that
+# same range. The adjacent even indices control contrast, not brightness.
+# See docs/COCKPIT-LIGHTING-VALIDATION.md for source and live evidence.
+# Headwind 10/11 are discrete ceiling/map lamps, unlike the FBW table knobs.
+# Indexed pots are read through the sidecar's A: variable reader;
+# they are not part of the generic telemetry SimVar subscription.
+# LIGHT_POTENTIOMETER_SET takes index first, brightness second.
+
+# Shared source notes: indexed-exterior-lights.ts
+# These helper notes retain their stated aircraft and verification scope.
+#  Explicit indices from each installed aircraft's cockpit XML and systems.cfg.
+# A380's wing landing lamps share index 2. Headwind has separate 2/3 lamps.
+# Both use taxi index 1 for the nose and taxi indices 2/3 for runway turnoffs.
+
+# Shared source notes: apu-start.ts
+# These helper notes retain their stated aircraft and verification scope.
+#  FBW's installed aircraft_preset_procedures.xml uses 3000 ms after master ON.
+#  Only for vendor-documented fixed START=1 controls (not Fenix counters).
+
+# Shared source notes: fbw-throttle-detents.ts
+# These helper notes retain their stated aircraft and verification scope.
+# `spN`/`lN` are documented MSFS calculator-code registers. Loading each
+# bound once keeps the fail-closed four-lever expression inside MobiFlight's
+# fixed Command ClientData envelope without splitting it into partial writes.
+
+schemaVersion: 1
+integration:
+  id: fbw-a380x
+  aircraft:
+    vendor: FlyByWire Simulations
+    family: A380
+  trustedProfileKeys:
+    - bundled/msfs/fbw-a380x
+  presentation:
+    templateId: fbw-a380x
+    cockpitLightingGroups:
+      - actionId: lighting.preset.panels.set
+        label: Panel backlighting
+        fields:
+          - lighting.glareshieldPercent
+          - lighting.glareshieldLcdPercent
+          - lighting.mainAndPedestalPercent
+          - lighting.overheadPercent
+      - actionId: lighting.preset.flood.set
+        label: Flood and table lights
+        fields:
+          - lighting.mainFloodPercent
+          - lighting.pedestalFloodPercent
+          - lighting.captainTablePercent
+          - lighting.firstOfficerTablePercent
+      - actionId: lighting.preset.captainDisplays.set
+        label: Captain displays
+        displays: true
+        fields:
+          - lighting.captainPfdPercent
+          - lighting.captainNdPercent
+          - lighting.captainWeatherPercent
+          - lighting.captainMfdPercent
+      - actionId: lighting.preset.firstOfficerDisplays.set
+        label: First officer displays
+        displays: true
+        fields:
+          - lighting.firstOfficerPfdPercent
+          - lighting.firstOfficerNdPercent
+          - lighting.firstOfficerWeatherPercent
+          - lighting.firstOfficerMfdPercent
+      - actionId: lighting.preset.engineDisplays.set
+        label: Engine and system displays
+        displays: true
+        fields:
+          - lighting.upperDisplayPercent
+          - lighting.lowerDisplayPercent
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # baro
+    baro.captain.active:
+      id: baro.captain.active
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_EFIS_L_CP_ACTIVE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    baro.captain.std:
+      id: baro.captain.std
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_EFIS_L_DISPLAY_BARO_IS_STD
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    baro.firstOfficer.active:
+      id: baro.firstOfficer.active
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_EFIS_R_CP_ACTIVE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    baro.firstOfficer.std:
+      id: baro.firstOfficer.std
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_EFIS_R_DISPLAY_BARO_IS_STD
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+
+    # systems
+    systems.apuMaster:
+      id: systems.apuMaster
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_OVHD_APU_MASTER_SW_PB_IS_ON
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.apuMasterFault:
+      id: systems.apuMasterFault
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_OVHD_APU_MASTER_SW_PB_HAS_FAULT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.apuStart:
+      id: systems.apuStart
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_OVHD_APU_START_PB_IS_ON
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    systems.apuAvailable:
+      id: systems.apuAvailable
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_OVHD_APU_START_PB_IS_AVAILABLE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+
+    # propulsion
+    propulsion.throttleLever1Angle:
+      id: propulsion.throttleLever1Angle
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_AUTOTHRUST_TLA:1
+            unit: Number
+          decode:
+            type: number
+            precision: 2
+    propulsion.throttleLever2Angle:
+      id: propulsion.throttleLever2Angle
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_AUTOTHRUST_TLA:2
+            unit: Number
+          decode:
+            type: number
+            precision: 2
+    propulsion.throttleLever3Angle:
+      id: propulsion.throttleLever3Angle
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_AUTOTHRUST_TLA:3
+            unit: Number
+          decode:
+            type: number
+            precision: 2
+    propulsion.throttleLever4Angle:
+      id: propulsion.throttleLever4Angle
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_AUTOTHRUST_TLA:4
+            unit: Number
+          decode:
+            type: number
+            precision: 2
+
+    # flightGuidance
+    flightGuidance.speedValue:
+      id: flightGuidance.speedValue
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_AFS_DISPLAY_SPD_MACH_VALUE
+            unit: Number
+          decode:
+            type: number
+            precision: 2
+    flightGuidance.headingDeg:
+      id: flightGuidance.headingDeg
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_AFS_DISPLAY_HDG_TRK_VALUE
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.altitudeFt:
+      id: flightGuidance.altitudeFt
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_AFS_DISPLAY_ALT_VALUE
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    flightGuidance.verticalValue:
+      id: flightGuidance.verticalValue
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_AFS_DISPLAY_VS_FPA_VALUE
+            unit: Number
+          decode:
+            type: number
+            precision: 1
+    flightGuidance.machMode:
+      id: flightGuidance.machMode
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_AFS_DISPLAY_MACH_MODE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.trkFpaMode:
+      id: flightGuidance.trkFpaMode
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_AFS_DISPLAY_TRK_FPA_MODE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.ap1:
+      id: flightGuidance.ap1
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_AUTOPILOT_1_ACTIVE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.ap2:
+      id: flightGuidance.ap2
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_AUTOPILOT_2_ACTIVE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.autothrust:
+      id: flightGuidance.autothrust
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_AUTOTHRUST_STATUS
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - 2
+            falseValues:
+              - 0
+    flightGuidance.autothrustStatus:
+      id: flightGuidance.autothrustStatus
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_AUTOTHRUST_STATUS
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": disengaged
+              "1": armed
+              "2": active
+    flightGuidance.localizer:
+      id: flightGuidance.localizer
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_LOC_MODE_ACTIVE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    flightGuidance.approach:
+      id: flightGuidance.approach
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FCU_APPR_MODE_ACTIVE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+
+    # lights
+    lights.strobe:
+      id: lights.strobe
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT STROBE
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT BEACON
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.nav:
+      id: lights.nav
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT NAV
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.logo:
+      id: lights.logo
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LOGO
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.wing:
+      id: lights.wing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT WING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.landing:
+      id: lights.landing
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT LANDING
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.taxi:
+      id: lights.taxi
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.runwayTurnoff:
+      id: lights.runwayTurnoff
+      sources:
+        - route:
+            type: simvar
+            name: LIGHT TAXI:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # controls
+    controls.flapsIndex:
+      id: controls.flapsIndex
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_FLAPS_HANDLE_INDEX
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    controls.spoilersHandle:
+      id: controls.spoilersHandle
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_SPOILERS_HANDLE_POSITION
+            unit: Number
+          decode:
+            type: number
+            precision: 2
+    controls.spoilersArmed:
+      id: controls.spoilersArmed
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_SPOILERS_ARMED
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    controls.parkingBrake:
+      id: controls.parkingBrake
+      sources:
+        - route:
+            type: lvar
+            name: L:A32NX_PARK_BRAKE_LEVER_POS
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    controls.gearHandleDown:
+      id: controls.gearHandleDown
+      sources:
+        - route:
+            type: simvar
+            name: GEAR HANDLE POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearNosePct:
+      id: controls.gearNosePct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR CENTER POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearLeftPct:
+      id: controls.gearLeftPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR LEFT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearRightPct:
+      id: controls.gearRightPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR RIGHT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+
+    # systems
+    systems.engine1N1:
+      id: systems.engine1N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:1
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine2N1:
+      id: systems.engine2N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:2
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine3N1:
+      id: systems.engine3N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:3
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine4N1:
+      id: systems.engine4N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:4
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine1Running:
+      id: systems.engine1Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine2Running:
+      id: systems.engine2Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine3Running:
+      id: systems.engine3Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:3
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine4Running:
+      id: systems.engine4Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:4
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.fuelTotalPct:
+      id: systems.fuelTotalPct
+      sources:
+        - route:
+            type: simvar
+            name: FUEL SELECTED QUANTITY PERCENT:99
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.fuelTotalWeightLbs:
+      id: systems.fuelTotalWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: FUEL TOTAL QUANTITY WEIGHT EX1
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.grossWeightLbs:
+      id: systems.grossWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: TOTAL WEIGHT
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.cabinAltitudeFt:
+      id: systems.cabinAltitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    systems.cabinVerticalSpeedFpm:
+      id: systems.cabinVerticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE RATE
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+    systems.cabinDeltaPressurePsi:
+      id: systems.cabinDeltaPressurePsi
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION PRESSURE DIFFERENTIAL
+            unit: PSI
+          decode:
+            type: number
+            precision: 2
+    systems.outsideAirTemperatureC:
+      id: systems.outsideAirTemperatureC
+      sources:
+        - route:
+            type: simvar
+            name: AMBIENT TEMPERATURE
+            unit: Celsius
+          decode:
+            type: number
+            precision: 1
+    systems.mach:
+      id: systems.mach
+      sources:
+        - route:
+            type: simvar
+            name: AIRSPEED MACH
+            unit: Mach
+          decode:
+            type: number
+            precision: 3
+
+    # lighting
+    lighting.glareshieldPercent:
+      id: lighting.glareshieldPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:84
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.glareshieldLcdPercent:
+      id: lighting.glareshieldLcdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:87
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.mainAndPedestalPercent:
+      id: lighting.mainAndPedestalPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:85
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.overheadPercent:
+      id: lighting.overheadPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:86
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.mainFloodPercent:
+      id: lighting.mainFloodPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:83
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.pedestalFloodPercent:
+      id: lighting.pedestalFloodPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:76
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.captainTablePercent:
+      id: lighting.captainTablePercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:10
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerTablePercent:
+      id: lighting.firstOfficerTablePercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:11
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.captainPfdPercent:
+      id: lighting.captainPfdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:88
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.captainNdPercent:
+      id: lighting.captainNdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:89
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.captainWeatherPercent:
+      id: lighting.captainWeatherPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:94
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.captainMfdPercent:
+      id: lighting.captainMfdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:98
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerPfdPercent:
+      id: lighting.firstOfficerPfdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:90
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerNdPercent:
+      id: lighting.firstOfficerNdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:91
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerWeatherPercent:
+      id: lighting.firstOfficerWeatherPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:95
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.firstOfficerMfdPercent:
+      id: lighting.firstOfficerMfdPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:99
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.upperDisplayPercent:
+      id: lighting.upperDisplayPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:92
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    lighting.lowerDisplayPercent:
+      id: lighting.lowerDisplayPercent
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT POTENTIOMETER:93
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+
+    # lights
+    lights.individual.landing2:
+      id: lights.individual.landing2
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT LANDING:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+    lights.individual.taxi1:
+      id: lights.individual.taxi1
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT TAXI:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+    lights.individual.runwayTurnoff2:
+      id: lights.individual.runwayTurnoff2
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT TAXI:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+    lights.individual.runwayTurnoff3:
+      id: lights.individual.runwayTurnoff3
+      sources:
+        - route:
+            type: lvar
+            name: A:LIGHT TAXI:3
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+              - true
+            falseValues:
+              - 0
+              - false
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+
+    # baro
+    # A380X Flight Deck API and vendor FlyByWireInterface::updateEfisSync:
+    # PUSH selects STD; PULL returns to local pressure. The A320 is the reverse.
+    # CP_ACTIVE and DISPLAY_BARO_IS_STD belong to each independent EFIS panel.
+    baro.captain.std:
+      id: baro.captain.std
+      verification: untested
+      guard:
+        groupId: fbwA380x.baro
+        cooldownMs: 750
+        retry: never
+      routes:
+        - id: fbwA380x.baro.captain.std
+          transport: simconnect-sequence
+          baro:
+            target: captain
+            operation: std
+          conditionalWrites:
+            freshnessMs: 2000
+            targets:
+              - id: captain
+                operationIndex: 0
+                prerequisiteFieldIds:
+                  - baro.captain.active
+                readbackFieldId: baro.captain.std
+          operations:
+            - type: event
+              name: A32NX.FCU_EFIS_L_BARO_PUSH
+              value: 0
+          readbacks:
+            - fieldId: baro.captain.active
+              expectedValue: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: baro.captain.std
+              expectedValue: true
+              timeoutMs: 2500
+              freshness: field
+    baro.firstOfficer.std:
+      id: baro.firstOfficer.std
+      verification: untested
+      guard:
+        groupId: fbwA380x.baro
+        cooldownMs: 750
+        retry: never
+      routes:
+        - id: fbwA380x.baro.firstOfficer.std
+          transport: simconnect-sequence
+          baro:
+            target: firstOfficer
+            operation: std
+          conditionalWrites:
+            freshnessMs: 2000
+            targets:
+              - id: firstOfficer
+                operationIndex: 0
+                prerequisiteFieldIds:
+                  - baro.firstOfficer.active
+                readbackFieldId: baro.firstOfficer.std
+          operations:
+            - type: event
+              name: A32NX.FCU_EFIS_R_BARO_PUSH
+              value: 0
+          readbacks:
+            - fieldId: baro.firstOfficer.active
+              expectedValue: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: baro.firstOfficer.std
+              expectedValue: true
+              timeoutMs: 2500
+              freshness: field
+    baro.both.std:
+      id: baro.both.std
+      verification: untested
+      guard:
+        groupId: fbwA380x.baro
+        cooldownMs: 750
+        retry: never
+      routes:
+        - id: fbwA380x.baro.both.std
+          transport: simconnect-sequence
+          baro:
+            target: both
+            operation: std
+          # Each active EFIS panel selects STD only when needed. Confirm its
+          # newer STD observation; a transport acknowledgement is not readback.
+          conditionalWrites:
+            freshnessMs: 2000
+            targets:
+              - id: captain
+                operationIndex: 0
+                prerequisiteFieldIds:
+                  - baro.captain.active
+                readbackFieldId: baro.captain.std
+              - id: firstOfficer
+                operationIndex: 1
+                prerequisiteFieldIds:
+                  - baro.firstOfficer.active
+                readbackFieldId: baro.firstOfficer.std
+          operations:
+            - type: event
+              name: A32NX.FCU_EFIS_L_BARO_PUSH
+              value: 0
+            - type: event
+              name: A32NX.FCU_EFIS_R_BARO_PUSH
+              value: 0
+          readbacks:
+            - fieldId: baro.captain.active
+              expectedValue: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: baro.captain.std
+              expectedValue: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: baro.firstOfficer.active
+              expectedValue: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: baro.firstOfficer.std
+              expectedValue: true
+              timeoutMs: 2500
+              freshness: field
+
+    # flightGuidance
+    flightGuidance.ap1.off:
+      id: flightGuidance.ap1.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.flightGuidance.ap1
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.ap1.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: A32NX.FCU_AP_1_PUSH
+              value: 0
+          readback:
+            fieldId: flightGuidance.ap1
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.ap1.on:
+      id: flightGuidance.ap1.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.flightGuidance.ap1
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.ap1.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: A32NX.FCU_AP_1_PUSH
+              value: 0
+          readback:
+            fieldId: flightGuidance.ap1
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.autothrust.off:
+      id: flightGuidance.autothrust.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.flightGuidance.autothrust
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.autothrust.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AUTO_THROTTLE_DISCONNECT
+              value: 0
+          readback:
+            fieldId: flightGuidance.autothrust
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.autothrust.on:
+      id: flightGuidance.autothrust.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.flightGuidance.autothrust
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.autothrust.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AUTO_THROTTLE_ARM
+              value: 0
+          readback:
+            fieldId: flightGuidance.autothrust
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.localizer.off:
+      id: flightGuidance.localizer.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.flightGuidance.localizer
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.localizer.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_LOC_HOLD
+              value: 0
+          readback:
+            fieldId: flightGuidance.localizer
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.localizer.on:
+      id: flightGuidance.localizer.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.flightGuidance.localizer
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.localizer.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_LOC_HOLD
+              value: 0
+          readback:
+            fieldId: flightGuidance.localizer
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.approach.off:
+      id: flightGuidance.approach.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.flightGuidance.approach
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.approach.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_APR_HOLD
+              value: 0
+          readback:
+            fieldId: flightGuidance.approach
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.approach.on:
+      id: flightGuidance.approach.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.flightGuidance.approach
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.approach.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: AP_APR_HOLD
+              value: 0
+          readback:
+            fieldId: flightGuidance.approach
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.speed.set:
+      id: flightGuidance.speed.set
+      input:
+        type: number
+        min: 100
+        max: 399
+        step: 1
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.flightGuidance.speed
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.speed.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: A32NX.FCU_SPD_SET
+              inputValue:
+                source: input
+                scale: 1
+                round: nearest
+          precondition:
+            fieldId: flightGuidance.machMode
+            expectedValue: false
+          readback:
+            fieldId: flightGuidance.speedValue
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.mach.set:
+      id: flightGuidance.mach.set
+      input:
+        type: number
+        min: 0.4
+        max: 0.99
+        step: 0.01
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.flightGuidance.speed
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.mach.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: A32NX.FCU_SPD_SET
+              inputValue:
+                source: input
+                scale: 100
+                round: nearest
+          precondition:
+            fieldId: flightGuidance.machMode
+            expectedValue: true
+          readback:
+            fieldId: flightGuidance.speedValue
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.heading.set:
+      id: flightGuidance.heading.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.flightGuidance.heading
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.heading.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: A32NX.FCU_HDG_SET
+              inputValue:
+                source: input
+                scale: 1
+                round: nearest
+          precondition:
+            fieldId: flightGuidance.trkFpaMode
+            expectedValue: false
+          readback:
+            fieldId: flightGuidance.headingDeg
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.altitude.set:
+      id: flightGuidance.altitude.set
+      input:
+        type: number
+        min: 100
+        max: 49000
+        step: 100
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.flightGuidance.altitude
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.altitude.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: A32NX.FCU_ALT_SET
+              inputValue:
+                source: input
+                scale: 1
+                round: nearest
+          readback:
+            fieldId: flightGuidance.altitudeFt
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.verticalSpeed.set:
+      id: flightGuidance.verticalSpeed.set
+      input:
+        type: number
+        min: -6000
+        max: 6000
+        step: 100
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.flightGuidance.verticalSpeed
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.verticalSpeed.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: A32NX.FCU_VS_SET
+              inputValue:
+                source: input
+                scale: 1
+                round: nearest
+          precondition:
+            fieldId: flightGuidance.trkFpaMode
+            expectedValue: false
+          readback:
+            fieldId: flightGuidance.verticalValue
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    flightGuidance.flightPathAngle.set:
+      id: flightGuidance.flightPathAngle.set
+      input:
+        type: number
+        min: -9.9
+        max: 9.9
+        step: 0.1
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.flightGuidance.verticalSpeed
+        retry: never
+      routes:
+        - id: fbwA380x.flightGuidance.flightPathAngle.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: A32NX.FCU_VS_SET
+              inputValue:
+                source: input
+                scale: 10
+                round: nearest
+          precondition:
+            fieldId: flightGuidance.trkFpaMode
+            expectedValue: true
+          readback:
+            fieldId: flightGuidance.verticalValue
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+
+    # propulsion
+    propulsion.throttle.idle:
+      id: propulsion.throttle.idle
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.propulsion.throttle
+        retry: never
+      routes:
+        - id: fbwA380x.propulsion.throttle.idle.calibratedCalculator
+          transport: mobiflight-calculator
+          mode: single
+          code: (L:A32NX_THROTTLE_MAPPING_IDLE_LOW:1,Number) sp0 (L:A32NX_THROTTLE_MAPPING_IDLE_HIGH:1,Number) sp1 l0 -1
+            >= l1 1 <= and l0 l1 < and (L:A32NX_THROTTLE_MAPPING_IDLE_LOW:2,Number) sp2
+            (L:A32NX_THROTTLE_MAPPING_IDLE_HIGH:2,Number) sp3 l2 -1 >= l3 1 <= and l2 l3 < and
+            (L:A32NX_THROTTLE_MAPPING_IDLE_LOW:3,Number) sp4 (L:A32NX_THROTTLE_MAPPING_IDLE_HIGH:3,Number) sp5
+            l4 -1 >= l5 1 <= and l4 l5 < and (L:A32NX_THROTTLE_MAPPING_IDLE_LOW:4,Number) sp6
+            (L:A32NX_THROTTLE_MAPPING_IDLE_HIGH:4,Number) sp7 l6 -1 >= l7 1 <= and l6 l7 < and and and and if{
+            l0 l1 + 8192 * (>K:THROTTLE1_AXIS_SET_EX1) l2 l3 + 8192 * (>K:THROTTLE2_AXIS_SET_EX1) l4 l5 + 8192
+            * (>K:THROTTLE3_AXIS_SET_EX1) l6 l7 + 8192 * (>K:THROTTLE4_AXIS_SET_EX1) }
+          readbacks:
+            - fieldId: propulsion.throttleLever1Angle
+              expectedValue: 0
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever2Angle
+              expectedValue: 0
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever3Angle
+              expectedValue: 0
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever4Angle
+              expectedValue: 0
+              timeoutMs: 3000
+      verification: untested
+    propulsion.throttle.climb:
+      id: propulsion.throttle.climb
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.propulsion.throttle
+        retry: never
+      routes:
+        - id: fbwA380x.propulsion.throttle.climb.calibratedCalculator
+          transport: mobiflight-calculator
+          mode: single
+          code: (L:A32NX_THROTTLE_MAPPING_CLIMB_LOW:1,Number) sp0 (L:A32NX_THROTTLE_MAPPING_CLIMB_HIGH:1,Number) sp1 l0
+            -1 >= l1 1 <= and l0 l1 < and (L:A32NX_THROTTLE_MAPPING_CLIMB_LOW:2,Number) sp2
+            (L:A32NX_THROTTLE_MAPPING_CLIMB_HIGH:2,Number) sp3 l2 -1 >= l3 1 <= and l2 l3 < and
+            (L:A32NX_THROTTLE_MAPPING_CLIMB_LOW:3,Number) sp4 (L:A32NX_THROTTLE_MAPPING_CLIMB_HIGH:3,Number)
+            sp5 l4 -1 >= l5 1 <= and l4 l5 < and (L:A32NX_THROTTLE_MAPPING_CLIMB_LOW:4,Number) sp6
+            (L:A32NX_THROTTLE_MAPPING_CLIMB_HIGH:4,Number) sp7 l6 -1 >= l7 1 <= and l6 l7 < and and and and
+            if{ l0 l1 + 8192 * (>K:THROTTLE1_AXIS_SET_EX1) l2 l3 + 8192 * (>K:THROTTLE2_AXIS_SET_EX1) l4 l5 +
+            8192 * (>K:THROTTLE3_AXIS_SET_EX1) l6 l7 + 8192 * (>K:THROTTLE4_AXIS_SET_EX1) }
+          readbacks:
+            - fieldId: propulsion.throttleLever1Angle
+              expectedValue: 25
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever2Angle
+              expectedValue: 25
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever3Angle
+              expectedValue: 25
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever4Angle
+              expectedValue: 25
+              timeoutMs: 3000
+      verification: untested
+    propulsion.throttle.flexMct:
+      id: propulsion.throttle.flexMct
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.propulsion.throttle
+        retry: never
+      routes:
+        - id: fbwA380x.propulsion.throttle.flexMct.calibratedCalculator
+          transport: mobiflight-calculator
+          mode: single
+          code: (L:A32NX_THROTTLE_MAPPING_FLEXMCT_LOW:1,Number) sp0 (L:A32NX_THROTTLE_MAPPING_FLEXMCT_HIGH:1,Number) sp1
+            l0 -1 >= l1 1 <= and l0 l1 < and (L:A32NX_THROTTLE_MAPPING_FLEXMCT_LOW:2,Number) sp2
+            (L:A32NX_THROTTLE_MAPPING_FLEXMCT_HIGH:2,Number) sp3 l2 -1 >= l3 1 <= and l2 l3 < and
+            (L:A32NX_THROTTLE_MAPPING_FLEXMCT_LOW:3,Number) sp4
+            (L:A32NX_THROTTLE_MAPPING_FLEXMCT_HIGH:3,Number) sp5 l4 -1 >= l5 1 <= and l4 l5 < and
+            (L:A32NX_THROTTLE_MAPPING_FLEXMCT_LOW:4,Number) sp6
+            (L:A32NX_THROTTLE_MAPPING_FLEXMCT_HIGH:4,Number) sp7 l6 -1 >= l7 1 <= and l6 l7 < and and and and
+            if{ l0 l1 + 8192 * (>K:THROTTLE1_AXIS_SET_EX1) l2 l3 + 8192 * (>K:THROTTLE2_AXIS_SET_EX1) l4 l5 +
+            8192 * (>K:THROTTLE3_AXIS_SET_EX1) l6 l7 + 8192 * (>K:THROTTLE4_AXIS_SET_EX1) }
+          readbacks:
+            - fieldId: propulsion.throttleLever1Angle
+              expectedValue: 35
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever2Angle
+              expectedValue: 35
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever3Angle
+              expectedValue: 35
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever4Angle
+              expectedValue: 35
+              timeoutMs: 3000
+      verification: untested
+    propulsion.throttle.toga:
+      id: propulsion.throttle.toga
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.propulsion.throttle
+        retry: never
+      routes:
+        - id: fbwA380x.propulsion.throttle.toga.calibratedCalculator
+          transport: mobiflight-calculator
+          mode: single
+          code: (L:A32NX_THROTTLE_MAPPING_TOGA_LOW:1,Number) sp0 (L:A32NX_THROTTLE_MAPPING_TOGA_HIGH:1,Number) sp1 l0 -1
+            >= l1 1 <= and l0 l1 < and (L:A32NX_THROTTLE_MAPPING_TOGA_LOW:2,Number) sp2
+            (L:A32NX_THROTTLE_MAPPING_TOGA_HIGH:2,Number) sp3 l2 -1 >= l3 1 <= and l2 l3 < and
+            (L:A32NX_THROTTLE_MAPPING_TOGA_LOW:3,Number) sp4 (L:A32NX_THROTTLE_MAPPING_TOGA_HIGH:3,Number) sp5
+            l4 -1 >= l5 1 <= and l4 l5 < and (L:A32NX_THROTTLE_MAPPING_TOGA_LOW:4,Number) sp6
+            (L:A32NX_THROTTLE_MAPPING_TOGA_HIGH:4,Number) sp7 l6 -1 >= l7 1 <= and l6 l7 < and and and and if{
+            l0 l1 + 8192 * (>K:THROTTLE1_AXIS_SET_EX1) l2 l3 + 8192 * (>K:THROTTLE2_AXIS_SET_EX1) l4 l5 + 8192
+            * (>K:THROTTLE3_AXIS_SET_EX1) l6 l7 + 8192 * (>K:THROTTLE4_AXIS_SET_EX1) }
+          readbacks:
+            - fieldId: propulsion.throttleLever1Angle
+              expectedValue: 45
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever2Angle
+              expectedValue: 45
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever3Angle
+              expectedValue: 45
+              timeoutMs: 3000
+            - fieldId: propulsion.throttleLever4Angle
+              expectedValue: 45
+              timeoutMs: 3000
+      verification: untested
+
+    # lights
+    lights.strobe.off:
+      id: lights.strobe.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.strobe
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.strobe.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: STROBES_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.strobe
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.strobe.on:
+      id: lights.strobe.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.strobe
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.strobe.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: STROBES_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.strobe
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.beacon.off:
+      id: lights.beacon.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.beacon
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.beacon.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: BEACON_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.beacon.on:
+      id: lights.beacon.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.beacon
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.beacon.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: BEACON_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.beacon
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.off:
+      id: lights.nav.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.nav
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.nav.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: NAV_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.nav
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.nav.on:
+      id: lights.nav.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.nav
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.nav.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: NAV_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.nav
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.off:
+      id: lights.logo.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.logo
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.logo.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LOGO_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.logo
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.logo.on:
+      id: lights.logo.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.logo
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.logo.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LOGO_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.logo
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.wing.off:
+      id: lights.wing.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.wing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.wing.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: WING_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.wing.on:
+      id: lights.wing.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.wing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.wing.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: WING_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.wing
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.landing.off:
+      id: lights.landing.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.landing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.landing.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.landing
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.landing.on:
+      id: lights.landing.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.landing
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.landing.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.landing
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    lights.taxi.off:
+      id: lights.taxi.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.taxi
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.taxi.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 0
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.taxi
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    lights.taxi.on:
+      id: lights.taxi.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.lights.taxi
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.lights.taxi.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 1
+              parameters:
+                - 0
+          readback:
+            fieldId: lights.taxi
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+
+    # controls
+    controls.parkingBrake.released:
+      id: controls.parkingBrake.released
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.controls.parkingBrake
+        retry: never
+      routes:
+        - id: fbwA380x.controls.parkingBrake.released.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: PARKING_BRAKE_SET
+              value: 0
+          readback:
+            fieldId: controls.parkingBrake
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    controls.parkingBrake.set:
+      id: controls.parkingBrake.set
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.controls.parkingBrake
+        retry: never
+      routes:
+        - id: fbwA380x.controls.parkingBrake.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: PARKING_BRAKE_SET
+              value: 1
+          readback:
+            fieldId: controls.parkingBrake
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    controls.spoilersArmed.off:
+      id: controls.spoilersArmed.off
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.controls.spoilersArmed
+        retry: never
+      routes:
+        - id: fbwA380x.controls.spoilersArmed.off.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: SPOILERS_ARM_OFF
+              value: 0
+          readback:
+            fieldId: controls.spoilersArmed
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    controls.spoilersArmed.on:
+      id: controls.spoilersArmed.on
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.controls.spoilersArmed
+        retry: never
+      routes:
+        - id: fbwA380x.controls.spoilersArmed.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: SPOILERS_ARM_ON
+              value: 0
+          readback:
+            fieldId: controls.spoilersArmed
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    controls.spoilers.set:
+      id: controls.spoilers.set
+      input:
+        type: number
+        min: 0
+        max: 1
+        step: 0.25
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.controls.spoilers
+        retry: never
+      routes:
+        - id: fbwA380x.controls.spoilers.set.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: SPOILERS_SET
+              inputValue:
+                source: input
+                scale: 16383
+                round: nearest
+          readback:
+            fieldId: controls.spoilersHandle
+            expectedInput: true
+            timeoutMs: 3000
+      verification: untested
+    controls.flaps.decrease:
+      id: controls.flaps.decrease
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.controls.flaps
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.controls.flaps.decrease.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: FLAPS_DECR
+              value: 0
+          readback:
+            fieldId: controls.flapsIndex
+            confirmation: changed
+            timeoutMs: 3000
+      verification: untested
+    controls.flaps.increase:
+      id: controls.flaps.increase
+      guard:
+        cooldownMs: 300
+        groupId: fbwA380x.controls.flaps
+        retry: never
+        skipIfSatisfied: false
+      routes:
+        - id: fbwA380x.controls.flaps.increase.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: FLAPS_INCR
+              value: 0
+          readback:
+            fieldId: controls.flapsIndex
+            confirmation: changed
+            timeoutMs: 3000
+      verification: untested
+    controls.gear.up:
+      id: controls.gear.up
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.controls.gear
+        retry: never
+      routes:
+        - id: fbwA380x.controls.gear.up.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: GEAR_UP
+              value: 0
+          readback:
+            fieldId: controls.gearHandleDown
+            expectedValue: false
+            timeoutMs: 3000
+      verification: untested
+    controls.gear.down:
+      id: controls.gear.down
+      guard:
+        cooldownMs: 750
+        groupId: fbwA380x.controls.gear
+        retry: never
+      routes:
+        - id: fbwA380x.controls.gear.down.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: GEAR_DOWN
+              value: 0
+          readback:
+            fieldId: controls.gearHandleDown
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+
+    # systems
+    systems.apuMaster.on:
+      id: systems.apuMaster.on
+      guard:
+        groupId: fbwA380x.systems.apuMaster
+        cooldownMs: 750
+        retry: never
+      routes:
+        - id: fbwA380x.systems.apuMaster.on.simconnectSequence
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:A32NX_OVHD_APU_MASTER_SW_PB_IS_ON
+              unit: Number
+              value: 1
+            - type: delay
+              milliseconds: 3000
+          readback:
+            fieldId: systems.apuMaster
+            expectedValue: true
+            timeoutMs: 3000
+      verification: untested
+    systems.apuStart.start:
+      id: systems.apuStart.start
+      guard:
+        groupId: fbwA380x.systems.apuStart
+        cooldownMs: 3000
+        retry: never
+        skipWhen:
+          - fieldId: systems.apuAvailable
+            expectedValue: true
+          - fieldId: systems.apuStart
+            expectedValue: true
+      routes:
+        - id: fbwA380x.systems.apuStart.start.simconnectSequence
+          transport: simconnect-sequence
+          confirmation: transport-acknowledged
+          operations:
+            - type: lvar
+              name: L:A32NX_OVHD_APU_START_PB_IS_ON
+              unit: Number
+              value: 1
+      verification: untested
+
+    # lighting
+    lighting.preset.panels.set:
+      id: lighting.preset.panels.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: fbw-a380x.lighting.preset.panels.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 84
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 87
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 85
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 86
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.glareshieldPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.glareshieldLcdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.mainAndPedestalPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.overheadPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.flood.set:
+      id: lighting.preset.flood.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: fbw-a380x.lighting.preset.flood.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 83
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 76
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 10
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 11
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.mainFloodPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.pedestalFloodPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.captainTablePercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerTablePercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.captainDisplays.set:
+      id: lighting.preset.captainDisplays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: fbw-a380x.lighting.preset.captainDisplays.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 88
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 89
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 94
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 98
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.captainPfdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.captainNdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.captainWeatherPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.captainMfdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.firstOfficerDisplays.set:
+      id: lighting.preset.firstOfficerDisplays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: fbw-a380x.lighting.preset.firstOfficerDisplays.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 90
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 91
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 95
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 99
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.firstOfficerPfdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerNdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerWeatherPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.firstOfficerMfdPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+    lighting.preset.engineDisplays.set:
+      id: lighting.preset.engineDisplays.set
+      input:
+        type: number
+        min: 0
+        max: 100
+        step: 1
+      guard:
+        groupId: lighting.cockpit
+        cooldownMs: 0
+        retry: never
+      routes:
+        - id: fbw-a380x.lighting.preset.engineDisplays.set
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 92
+              parameters:
+                - source: input
+                  round: nearest
+            - type: event
+              name: LIGHT_POTENTIOMETER_SET
+              value: 93
+              parameters:
+                - source: input
+                  round: nearest
+          readbacks:
+            - fieldId: lighting.upperDisplayPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+            - fieldId: lighting.lowerDisplayPercent
+              expectedInput: true
+              timeoutMs: 2500
+              freshness: field
+      verification: untested
+
+    # lights
+    lights.individual.landing.off:
+      id: lights.individual.landing.off
+      guard:
+        groupId: fbwA380x.lights.landing
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: fbw-a380x.lights.individual.landing.off
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 0
+              parameters:
+                - 2
+          readback:
+            fieldId: lights.individual.landing2
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: untested
+    lights.individual.landing.on:
+      id: lights.individual.landing.on
+      guard:
+        groupId: fbwA380x.lights.landing
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: fbw-a380x.lights.individual.landing.on
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: LANDING_LIGHTS_SET
+              value: 1
+              parameters:
+                - 2
+          readback:
+            fieldId: lights.individual.landing2
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: untested
+    lights.individual.taxi.off:
+      id: lights.individual.taxi.off
+      guard:
+        groupId: fbwA380x.lights.taxi
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: fbw-a380x.lights.individual.taxi.off
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 0
+              parameters:
+                - 1
+          readback:
+            fieldId: lights.individual.taxi1
+            expectedValue: false
+            timeoutMs: 3000
+            freshness: field
+      verification: untested
+    lights.individual.taxi.on:
+      id: lights.individual.taxi.on
+      guard:
+        groupId: fbwA380x.lights.taxi
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: fbw-a380x.lights.individual.taxi.on
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 1
+              parameters:
+                - 1
+          readback:
+            fieldId: lights.individual.taxi1
+            expectedValue: true
+            timeoutMs: 3000
+            freshness: field
+      verification: untested
+    lights.individual.runwayTurnoff.off:
+      id: lights.individual.runwayTurnoff.off
+      guard:
+        groupId: fbwA380x.lights.runwayTurnoff
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: fbw-a380x.lights.individual.runwayTurnoff.off
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 0
+              parameters:
+                - 2
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 0
+              parameters:
+                - 3
+          readbacks:
+            - fieldId: lights.individual.runwayTurnoff2
+              expectedValue: false
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: lights.individual.runwayTurnoff3
+              expectedValue: false
+              timeoutMs: 3000
+              freshness: field
+      verification: untested
+    lights.individual.runwayTurnoff.on:
+      id: lights.individual.runwayTurnoff.on
+      guard:
+        groupId: fbwA380x.lights.runwayTurnoff
+        cooldownMs: 300
+        retry: never
+      routes:
+        - id: fbw-a380x.lights.individual.runwayTurnoff.on
+          transport: simconnect-sequence
+          operations:
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 1
+              parameters:
+                - 2
+            - type: event
+              name: TAXI_LIGHTS_SET
+              value: 1
+              parameters:
+                - 3
+          readbacks:
+            - fieldId: lights.individual.runwayTurnoff2
+              expectedValue: true
+              timeoutMs: 3000
+              freshness: field
+            - fieldId: lights.individual.runwayTurnoff3
+              expectedValue: true
+              timeoutMs: 3000
+              freshness: field
+      verification: untested
+  catalogue:
+    order: 4
+    legacyExports:
+      FBW_A380X_ADAPTER_ID:
+        kind: id
+        order: 8
+      FBW_A380X_INTEGRATION:
+        kind: integration
+        order: 9
+      FBW_A380X_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/fbw-a380x
+        order: 10
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/fbw-a380x:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: fbw-a380x
+    name: FlyByWire A380X
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-05-15T00:00:00Z
+    updatedAt: 2026-08-15T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/airbus-base
+    abstract: false
+    aircraft:
+      category: D
+      flaps:
+        _comment: "A380 has five lever positions: 0, 1, 2, 3, FULL. Config 1+F extends automatically from Config 1 at
+          low speed; there is no dedicated lever notch. Speed values are based on public FlyByWire material
+          and remain pending in-sim verification."
+        notches:
+          - value: 0
+            label: "0"
+          - value: 1
+            label: "1"
+          - value: 2
+            label: "2"
+          - value: 3
+            label: "3"
+          - value: 4
+            label: FULL
+        landingNotches:
+          - 3
+          - 4
+      stability:
+        speedBand:
+          belowVrefKts: 5
+          aboveVrefKts: 15
+        vsLimits:
+          downFpm: 1000
+          upFpm: 200
+        thrustMinPct: 20
+        pitch:
+          minDeg: -3
+          maxDeg: 10
+        stabilizedGates:
+          imcRaFt: 1000
+          vmcRaFt: 500
+      landing:
+        grades:
+          perfectMinFpm: -100
+          goodMinFpm: -200
+          firmMinFpm: -350
+          hardMinFpm: -500
+          _comment: Provisional A380 landing-rate bands pending aircraft-specific source verification.
+      throttle:
+        type: detent
+      engines:
+        count: 4
+        type: jet
+    integration:
+      aircraftSpecific:
+        adapter: fbw-a380x
+      matching:
+        priority: 90
+        titleRegex: ^(?:flybywire|fbw)[\s_/-]*(?:airbus[\s_/-]*)?a380(?:x|[\s_-]*842)(?:[\s_/-]*\([\s_-]*a380[\s_-]*842(?:r[\s_-]*rr)?[\s_-]*\))?(?:[\s_/-]+no[\s_-]*cabin)?$
+        titleExcludes:
+          - headwind
+          - inibuilds
+          - fenix
+          - latinvfr
+          - fsltl
+          - passiveaircraft
+        configPathContains:
+          - flybywire-aircraft-a380-842
+          - flybywire-aircraft-a380x
+          - fbw-a380x
+        configPathRegex: (?:^|[/\\])(?:flybywire-aircraft-a380(?:-842|x)|fbw-a380x|flybywire_a380(?:x|_842(?:_no_?cabin)?))(?:[/\\]|$)
+        configPathExcludes:
+          - headwind
+          - inibuilds
+          - fenix
+          - latinvfr
+          - fsltl
+          - passiveaircraft
+      telemetry:
+        preferred: simconnect
+        lvars:
+          _comment: A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX,
+            A32NX_PARK_BRAKE_LEVER_POS, A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, and the FCU
+            selected-value LVARs below are documented for the A380X in the FlyByWire A380X Flight Deck API.
+            The A32NX_ prefix is expected on this aircraft.
+          autopilot: A32NX_AUTOPILOT_1_ACTIVE
+          autothrottle: A32NX_AUTOTHRUST_STATUS
+          flaps: A32NX_FLAPS_HANDLE_INDEX
+          _commentFlaps: A32NX_FLAPS_HANDLE_INDEX is documented for A380X as a read-only custom LVAR with 0=UP and
+            4=FULL. FlightFabric uses profile flap LVARs before SimConnect flap mapping.
+          spoilers:
+            _comment: The cited FlyByWire interface supplies the intended armed state through A32NX_SPOILERS_ARMED and a
+              0-1 handle fraction through A32NX_SPOILERS_HANDLE_POSITION; the standard SimConnect armed field
+              is not used for this profile.
+            armed: A32NX_SPOILERS_ARMED
+            handlePosition: A32NX_SPOILERS_HANDLE_POSITION
+          parkingBrake: A32NX_PARK_BRAKE_LEVER_POS
+          _commentParkingBrake: The cited FlyByWire interface supplies the intended parking-brake lever state through
+            A32NX_PARK_BRAKE_LEVER_POS (0=released, 1=set); the standard SimConnect field is not used for this
+            profile.
+          mcp:
+            _comment: A380X documents selected speed, heading, and V/S as custom FCU LVAR readbacks. Selected altitude is
+              documented as AUTOPILOT ALTITUDE LOCK VAR:3, so FlightFabric keeps altitude on the existing
+              SimConnect target path.
+            speed: A32NX_AUTOPILOT_SPEED_SELECTED
+            heading: A32NX_AUTOPILOT_HEADING_SELECTED
+            vs: A32NX_AUTOPILOT_VS_SELECTED
+            loc: A32NX_FCU_LOC_MODE_ACTIVE
+            app: A32NX_FCU_APPR_MODE_ACTIVE
+        lights: {}
+      controls:
+        backend: simconnect
+        genericFallback: false
+        standardSurfaceFallback: true
+        _comment: The exact-profile trusted adapter exposes 46 guarded actions, including six FCU numeric targets,
+          four calibrated forward-throttle detents, exterior lights, gear, flaps, spoilers, parking brake, APU
+          and three side-targeted STD commands. Each STD command selects the real A380 STD mode and confirms
+          each selected active EFIS panel independently. QNH entry, managed/selected push-pull, reverse
+          thrust, arbitrary axes and deep systems remain excluded.
+      presentation:
+        visualSupport: basic
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - turnoff
+            - logo
+            - wing
+          labels:
+            beacon: BCN
+            nav: NAV
+            strobe: STRB
+            landing: LND
+            taxi: TAXI
+            turnoff: RWY
+            logo: LOGO
+            wing: WING
+    meta:
+      developer: FlyByWire Simulations
+      platforms:
+        - msfs2020
+        - msfs2024
+      updated: 2026-08-15
+      status: experimental
+      notes: Dedicated exact-profile FlyByWire A380X page with 46 logical fields and 38 guarded, untested actions.
+        The compact write surface prioritizes four-lever calibrated IDLE, CLB, FLX/MCT, and TOGA targets,
+        FCU/autopilot and exterior lights, then gear, flaps, parking brake, and spoilers. Each throttle target
+        uses every lever's saved calibration-window midpoint and requires four independent newer TLA
+        confirmations. Direct AP1 OFF/ON intents use the documented A32NX.FCU_AP_1_PUSH toggle behind fresh
+        AP1 readback; AP2 and V/S-FPA remain read-only. Selected altitude uses the documented AUTOPILOT
+        ALTITUDE LOCK VAR:3 confirmation path.
+    provenance:
+      sources:
+        - type: official-sdk
+          name: FlyByWire A380X aircraft.cfg
+          url: https://github.com/flybywiresim/aircraft/blob/master/fbw-a380x/src/base/flybywire-aircraft-a380-842/SimObjects/AirPlanes/FlyByWire_A380_842/aircraft.cfg
+          retrievedAt: 2026-05-15
+          notes: "Title string: 'FlyByWire A380X'"
+        - type: official-sdk
+          name: FlyByWire A380X simvars (a380-simvars.md)
+          url: https://github.com/flybywiresim/aircraft/blob/master/fbw-a380x/docs/a380-simvars.md
+          retrievedAt: 2026-05-15
+        - type: official-docs
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: FlyByWire A380X Flight Deck API
+          url: https://docs.flybywiresim.com/aircraft/a380x/a380x-api/a380x-flight-deck-api/
+          retrievedAt: 2026-09-10
+          notes: "Documents the active A380X readback contract: A32NX_AUTOPILOT_1_ACTIVE, A32NX_AUTOPILOT_2_ACTIVE,
+            A32NX_AUTOTHRUST_STATUS, A32NX_FLAPS_HANDLE_INDEX, A32NX_PARK_BRAKE_LEVER_POS,
+            A32NX_SPOILERS_ARMED, A32NX_SPOILERS_HANDLE_POSITION, A32NX_AUTOPILOT_SPEED_SELECTED,
+            A32NX_AUTOPILOT_HEADING_SELECTED, A32NX_AUTOPILOT_VS_SELECTED, A32NX_FCU_LOC_MODE_ACTIVE,
+            A32NX_FCU_APPR_MODE_ACTIVE, and A:AUTOPILOT ALTITUDE LOCK VAR:3. It also documents
+            A32NX.FCU_AP_1_PUSH, THROTTLE1_AXIS_SET_EX1, THROTTLE2_AXIS_SET_EX1, THROTTLE3_AXIS_SET_EX1, and
+            THROTTLE4_AXIS_SET_EX1 with the accepted axis range. Exact throttle mapping and TLA LVAR names are
+            instead grounded in the official source entries below. Generic standard-event provenance is
+            supplied by the Microsoft SDK sources below. APU START review 2026-09-06: the A380X Flight Deck
+            API defines A32NX_OVHD_APU_MASTER_SW_PB_IS_ON and A32NX_OVHD_APU_START_PB_IS_ON as writable 0/1
+            controls, A32NX_OVHD_APU_START_PB_IS_AVAILABLE as availability, and
+            A32NX_OVHD_APU_MASTER_SW_PB_HAS_FAULT as fault. The preset confirms master ON then acknowledges
+            START dispatch; ON is distinct from AVAIL. Existing generic catalogue bindings and exact-profile
+            restrictions are preserved. Installed Stable 2024.1.0-161051add8a6959e3325289dbebe097c0793056f
+            aircraft_preset_procedures.xml also confirms these assignments and specifies 3000 ms after master
+            ON. The preset retains that bounded settling interval for a newly enabled master; it skips the
+            write and delay when master is already confirmed ON. FCU review 2026-09-10: current Flight Deck
+            API documents A32NX_FCU_AFS_DISPLAY_SPD_MACH_VALUE, A32NX_FCU_AFS_DISPLAY_HDG_TRK_VALUE,
+            A32NX_FCU_AFS_DISPLAY_ALT_VALUE, A32NX_FCU_AFS_DISPLAY_VS_FPA_VALUE,
+            A32NX_FCU_AFS_DISPLAY_MACH_MODE and A32NX_FCU_AFS_DISPLAY_TRK_FPA_MODE. A32NX.FCU_SPD_SET,
+            A32NX.FCU_HDG_SET, A32NX.FCU_ALT_SET and A32NX.FCU_VS_SET replace generic numeric setters. Mach
+            uses hundredths and FPA tenths; independent mode readbacks guard the selected units. The shared
+            catalogue includes all five main targets plus FPA. See docs/AUTOPILOT-TARGET-VALIDATION.md; live
+            aircraft validation remains pending. STD review 2026-09-10: the A380X Flight Deck API documents
+            A32NX_FCU_EFIS_L_CP_ACTIVE, A32NX_FCU_EFIS_R_CP_ACTIVE, A32NX_FCU_EFIS_L_DISPLAY_BARO_IS_STD and
+            A32NX_FCU_EFIS_R_DISPLAY_BARO_IS_STD. Vendor FlyByWireInterface.cpp updateEfisSync explicitly
+            sends A32NX.FCU_EFIS_L_BARO_PUSH and A32NX.FCU_EFIS_R_BARO_PUSH to select STD, with PULL for QNH.
+            Three exact-profile STD commands require independent fresh active-panel and mode observations,
+            skip an already-STD side and never infer STD from numeric pressure. This is the current published
+            API; the older installed stable package is not evidence of these new outputs. Live version
+            validation remains pending. See docs/BARO-CONTROLS.md. Cockpit lighting review 2026-09-10:
+            LIGHT_POTENTIOMETER_SET uses fixed index then 0..100 brightness. Panel indices 84,87,85,86;
+            flood/table 83,76,10,11; PFD/ND/weather/engine 88,89,94,90,91,95,92,93; MFD 98,99. Each knob is
+            independently confirmed through LIGHT POTENTIOMETER:index Percent. Display presets exclude panel
+            and flood controls. See docs/COCKPIT-LIGHTING-VALIDATION.md."
+        - type: official-docs
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: FlyByWire Common Throttle Calibration
+          url: https://docs.flybywiresim.com/aircraft/common/flypados3/throttle-calibration/
+          retrievedAt: 2026-08-15
+          notes: Documents the shared A32NX/A380X calibration workflow, the A380X's four independently calibrated
+            throttle axes, and the common forward detents. Exact interface names are grounded in the official
+            source entries below. Reverse calibration and arbitrary axis values are not exposed.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: FlyByWire shared ThrottleAxisMapping source
+          url: https://github.com/flybywiresim/aircraft/blob/master/fbw-common/src/wasm/fbw_common/src/ThrottleAxisMapping.h
+          retrievedAt: 2026-08-15
+          notes: Defines the exact A32NX_THROTTLE_MAPPING_* LOW/HIGH LVAR names, A32NX_AUTOTHRUST_TLA indexed readback,
+            and the IDLE=0, CLB=25, FLX/MCT=35, TOGA=45 angles used by the shared throttle implementation.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: FlyByWire A380X FlyByWireInterface source
+          url: https://github.com/flybywiresim/aircraft/blob/master/fbw-a380x/src/wasm/fbw_a380/src/FlyByWireInterface.cpp
+          retrievedAt: 2026-08-15
+          notes: Instantiates four shared ThrottleAxisMapping objects and the A32NX_AUTOTHRUST_TLA:1,
+            A32NX_AUTOTHRUST_TLA:2, A32NX_AUTOTHRUST_TLA:3, and A32NX_AUTOTHRUST_TLA:4 local variables in the
+            A380X WASM interface.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2020 SDK - Aircraft Autopilot and Flight Assist Events
+          url: https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Autopilot_Flight_Assist_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "MSFS 2020 source for the active standard flight-guidance events: AUTO_THROTTLE_DISCONNECT,
+            AUTO_THROTTLE_ARM, AP_LOC_HOLD, AP_APR_HOLD, AP_SPD_VAR_SET, HEADING_BUG_SET, and
+            AP_ALT_VAR_SET_ENGLISH. Direct AP1 control, A380X-specific readback, and exclusions remain defined
+            by the FlyByWire source above."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2020 SDK - Aircraft Electrical Events
+          url: https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Electrical_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "MSFS 2020 source for the active exterior-light events: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET,
+            LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. These actions target
+            standard light output only and do not claim A380X AUTO or selector-detent semantics."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2020 SDK - Aircraft Flight Control Events
+          url: https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Flight_Control_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "MSFS 2020 source for the active flap and spoiler events: FLAPS_DECR, FLAPS_INCR, SPOILERS_ARM_OFF,
+            SPOILERS_ARM_ON, and SPOILERS_SET. The spoiler target is bounded to 0..16383 and confirmed through
+            the documented A380X 0..1 handle readback."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2020 SDK - Aircraft Miscellaneous Events
+          url: https://docs.flightsimulator.com/html/Programming_Tools/Event_IDs/Aircraft_Misc_Events.htm
+          retrievedAt: 2026-08-13
+          notes: MSFS 2020 source for the active PARKING_BRAKE_SET, GEAR_UP, and GEAR_DOWN events. FlightFabric exposes
+            fixed semantic targets and requires a newer A380X or standard handle-state readback.
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft Autopilot and Flight Assist Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Autopilot_Flight_Assist_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "Source for the active standard flight-guidance events: AUTO_THROTTLE_DISCONNECT, AUTO_THROTTLE_ARM,
+            AP_LOC_HOLD, AP_APR_HOLD, AP_SPD_VAR_SET, HEADING_BUG_SET, and AP_ALT_VAR_SET_ENGLISH. Direct AP1
+            control, A380X-specific readback, and exclusions remain defined by the FlyByWire source above."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft Electrical Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "Source for the active exterior-light events: STROBES_SET, BEACON_LIGHTS_SET, NAV_LIGHTS_SET,
+            LOGO_LIGHTS_SET, WING_LIGHTS_SET, LANDING_LIGHTS_SET, and TAXI_LIGHTS_SET. These actions target
+            standard light output only and do not claim A380X AUTO or selector-detent semantics."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft Flight Control Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Flight_Control_Events.htm
+          retrievedAt: 2026-08-13
+          notes: "Source for the remaining active standard flap and spoiler events: FLAPS_DECR, FLAPS_INCR,
+            SPOILERS_ARM_OFF, SPOILERS_ARM_ON, and SPOILERS_SET. The spoiler target is bounded to 0..16383 and
+            confirmed through the documented A380X 0..1 handle readback."
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator 2024 SDK - Aircraft General Systems Events
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_General_Systems.htm
+          retrievedAt: 2026-08-13
+          notes: Source for the active PARKING_BRAKE_SET, GEAR_UP, and GEAR_DOWN events. FlightFabric exposes fixed
+            semantic targets and requires a newer A380X or standard handle-state readback.
+        - type: official-docs
+          name: FlyByWire A380X VFE limits commit 884541d
+          url: https://github.com/flybywiresim/aircraft/commit/884541d6e9efb2be4a7718d3dd4e1d06337c58b1
+          retrievedAt: 2026-05-15
+          notes: "VFE: Conf1=263, Conf1+F=222 (auto), Conf2=220, Conf3=196, Full=182 kt"
+        - type: official-sdk
+          authority: simulator-vendor
+          access: public
+          supportsActiveMappings: true
+          name: Microsoft Flight Simulator SDK - indexed cockpit light potentiometers
+          url: https://docs.flightsimulator.com/msfs2024/html/6_Programming_APIs/Key_Events/Aircraft_Electrical_Events.htm
+          retrievedAt: 2026-09-10
+          notes: LIGHT_POTENTIOMETER_SET takes potentiometer index in parameter 0, brightness percentage in parameter 1.
+            Aircraft-specific indices are grounded separately in vendor evidence. The caller supplies only a
+            bounded whole percentage.
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: vendor-install
+          supportsActiveMappings: true
+          name: Installed aircraft exterior lighting selectors and light indices
+          url: https://github.com/flybywiresim/aircraft
+          retrievedAt: 2026-09-10
+          notes: "A380_COCKPIT.xml and systems.cfg: landing lamps share LIGHT LANDING:2. Both aircraft use LIGHT TAXI:1
+            for nose taxi lighting, LIGHT TAXI:2 and LIGHT TAXI:3 for runway turnoff lamps. Bounded
+            LANDING_LIGHTS_SET and TAXI_LIGHTS_SET events use state first, fixed light index second, matching
+            the shipped switch templates. All changed indexed outputs require independent newer readback.
+            Existing takeoff preset actions are retained. See docs/EXTERIOR-LIGHTS-VALIDATION.md."
+      verification:
+        status: partial
+        lastVerified: 2026-08-15
+        testedTitles: []
+        knownIssues:
+          - Gear limits are estimated pending a reviewable vendor or manufacturer source.
+          - Flap handle value mapping (0-4 lever indices) not confirmed in MSFS
+          - The profile relies on the FLAPS HANDLE INDEX path; its five detent positions still need in-sim
+            verification.
+          - All 46 write actions remain untested in the live aircraft. A documented standard simulator event
+            can still be ignored or incompletely mirrored by a complex aircraft.
+          - The four forward-throttle actions use every lever's saved FlyPad calibration-window midpoint
+            through one MobiFlight calculator expression, then require newer exact A32NX_AUTOTHRUST_TLA:1
+            through :4 confirmation. Missing or malformed bounds prevent all four axis writes. Reverse thrust
+            and arbitrary raw-axis targets remain excluded.
+          - A32NX.FCU_AP_1_PUSH is a direct AP1 toggle. OFF/ON intents require fresh A32NX_AUTOPILOT_1_ACTIVE
+            readback before dispatch and a newer matching result afterward; AP2 remains read-only.
+          - Exterior-light readback confirms lamp output, not Airbus AUTO or selector-detent position. Only
+            explicit OFF and ON output targets are exposed.
+          - Managed/selected push-pull, runway-turnoff writes, engines, QNH entry, guarded/emergency controls
+            and deep systems remain excluded.
+          - Start APU UI and voice preset is source-backed and covered by automated transport tests; live
+            start, electrical prerequisites, selector release and aircraft variant/build coverage remain
+            untested. See docs/APU-START-VALIDATION.md.
+      dataQuality:
+        flaps: documented
+        gear: estimated
+        spoilers: unknown
+        lights: unknown

@@ -845,6 +845,9 @@ async function main() {
   await test('connection keeps bootstrap auth on the socket URL while exposing a token-free display URL', async () => {
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
+    const timers = new Map(); let timerId = 0;
+    windowRef.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
+    windowRef.clearTimeout = id => timers.delete(id);
     resetGlobals(windowRef, documentRef, createStorage());
     const sockets = [];
     windowRef.fetch = async (url) => ({
@@ -855,6 +858,7 @@ async function main() {
     });
 
     class FakeAuthWebSocket {
+      static CONNECTING = 0;
       static OPEN = 1;
 
       constructor(url) {
@@ -886,6 +890,9 @@ async function main() {
     assert.equal(sockets.length, 1, 'connection should open one main websocket');
     assert.equal(sockets[0].url, 'ws://localhost:8099?token=module-token', 'main websocket should use bootstrap token');
     assert.equal(connection.getWsUrl(), 'ws://localhost:8099', 'display websocket URL should stay token-free');
+    sockets[0].readyState = FakeAuthWebSocket.OPEN;
+    sockets[0].onopen();
+    assert.equal(timers.size, 0, 'opening releases the connection deadline');
   });
 
   await test('message frame batcher coalesces bursty websocket packets into one animation-frame flush', () => {
@@ -1031,6 +1038,22 @@ async function main() {
       clearTimeout(id) { timers.delete(id); },
     };
   }
+
+  await test('recording progress retains only its latest size while rendering and timers are suspended', () => {
+    const windowRef = createBatcherScheduler();
+    const flushed = [];
+    const batcher = createMessageFrameBatcher({ windowRef, coalescedMessageTypes: FRAME_COALESCED_MESSAGE_TYPES, handleMessage: message => flushed.push(message) });
+    for (let elapsedSeconds = 0; elapsedSeconds < 7200; elapsedSeconds += 1) {
+      batcher.enqueue({ type: 'flightRecording', status: 'recording', recordingSessionId: 'flight', sizeBytes: elapsedSeconds * 1024 });
+      assert.equal(batcher.queuedCount(), 1);
+      assert.equal(windowRef.frames.size, 1);
+      assert.equal(windowRef.timers.size, 1);
+    }
+    batcher.flush();
+    assert.deepEqual(flushed, [{ type: 'flightRecording', status: 'recording', recordingSessionId: 'flight', sizeBytes: 7199 * 1024 }]);
+    assert.equal(batcher.queuedCount(), 0);
+    assert.equal(windowRef.frames.size + windowRef.timers.size, 0);
+  });
 
   await test('suspended display frames still drain correlated replies in order through a timer', () => {
     const windowRef = createBatcherScheduler();
@@ -3176,6 +3199,9 @@ async function main() {
   await test('forced websocket reconnect cancels old aircraft requests before the replacement socket opens', async () => {
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
+    const timers = new Map(); let timerId = 0;
+    windowRef.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
+    windowRef.clearTimeout = id => timers.delete(id);
     resetGlobals(windowRef, documentRef, createStorage());
     setActivePinia(createPinia());
     const store = useAircraftControlsStore();
@@ -3184,6 +3210,7 @@ async function main() {
     let closed = 0;
     windowRef.fetch = async () => ({ ok: true, json: async () => ({}) });
     class Socket {
+      static CONNECTING = 0;
       static OPEN = 1;
       constructor() { this.readyState = 0; this.sent = []; sockets.push(this); }
       send(message) { this.sent.push(JSON.parse(message)); }
@@ -3208,6 +3235,7 @@ async function main() {
     });
     const makeReady = () => {
       sockets.at(-1).readyState = Socket.OPEN;
+      sockets.at(-1).onopen();
       sockets.at(-1).onmessage({ data: JSON.stringify({ type: 'authorizationScope', scope: 'aircraft-control' }) });
       controller.setActiveProfileToken({ _profileKey: 'bundled/msfs/pmdg-737', profileRevision: 1 });
       controller.updateAvailability();
@@ -3386,7 +3414,7 @@ async function main() {
     });
 
     assert.equal(statusStore.recordingVisible, true, 'recording should show the Vue indicator');
-    assert.equal(statusStore.recordingBadgeLabel, 'REC', 'recording badge should be store-backed');
+    assert.equal(statusStore.recordingBadgeLabel, 'Flight REC', 'recording badge should be store-backed');
     assert.equal(statusStore.recordingDetail, 'C:/Flights/active-flight.csv', 'recording path should be store-backed');
 
     controller.updateRecordingIndicator({
@@ -3395,7 +3423,7 @@ async function main() {
     });
 
     assert.equal(statusStore.recordingFailed, true, 'recording failures should use the warning state');
-    assert.equal(statusStore.recordingBadgeLabel, 'NO REC', 'failure badge should be store-backed');
+    assert.equal(statusStore.recordingBadgeLabel, 'Flight recording failed', 'failure badge should be store-backed');
     assert.equal(statusStore.recordingDetail, 'Failed to start recording', 'failure copy should be store-backed');
 
     controller.updateRecordingIndicator({ status: 'stopped' });
@@ -7404,6 +7432,79 @@ async function main() {
     runtimeApi.cleanup();
   });
 
+  await test('saving a Settings draft preserves untouched values saved by another client', async () => {
+    const documentRef = new FakeDocument(); const windowRef = new FakeWindow(documentRef);
+    const timers = new Map(); let timerId = 0;
+    windowRef.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
+    windowRef.clearTimeout = id => timers.delete(id);
+    resetGlobals(windowRef, documentRef, createStorage()); setActivePinia(createPinia());
+    documentRef.register(new FakeElement('settings-form', { tagName: 'FORM' }));
+    const editor = useSettingsEditorStore(), form = useSettingsFormStore();
+    const sent = [];
+    const baseline = sharedSettings.normalizeAppSettings({ onboarding: { completed: true }, recording: { autoStart: true } });
+    const runtime = initSettingsRuntime({
+      $: id => documentRef.getElementById(id), getAppSettings: () => baseline,
+      getWs: () => ({ readyState: 1, send: value => sent.push(JSON.parse(value)) }),
+      settingsEditorStore: editor, settingsFormStore: form,
+      subscribeAppSettingsSignal: subscribeAppSettings, subscribeAppSettingsSavedSignal: subscribeAppSettingsSaved,
+      appSettingsShared: sharedSettings, windowRef, WebSocketRef: { OPEN: 1 }, consoleRef: { warn() {} },
+    });
+    try {
+      editor.updateChecks = false;
+      await nextTick();
+      // A second local client broadcasts a new recording preference while
+      // this window retains its own unrelated draft.
+      const savedByOtherClient = { ...baseline, recording: { autoStart: false } };
+      emitAppSettings({ settings: savedByOtherClient });
+      emitAppSettingsSaved({ requestId: 'other-client-save', ok: true, settings: savedByOtherClient });
+      await nextTick();
+      assert.equal(await form.requestSave(), true);
+      assert.equal(sent.at(-1).settings.recording.autoStart, false, 'the later General save must not restore automatic recording');
+      assert.equal(sent.at(-1).settings.network.updateChecks, false, 'the unrelated draft is still saved');
+      assert.equal(editor.recordingAutoStart, false, 'the visible recording setting follows the confirmed save');
+      emitAppSettingsSaved({ requestId: sent.at(-1).requestId, ok: true, settings: sent.at(-1).settings });
+      await nextTick();
+      assert.equal(form.saveEnabled, false, 'confirmation advances the baseline to both saved choices');
+      assert.equal(timers.size, 0, 'confirmation clears the save deadline');
+    } finally {
+      runtime.cleanup();
+    }
+  });
+
+  await test('settings refreshes preserve edited fields and refresh untouched fields in the same section', async () => {
+    const documentRef = new FakeDocument(); const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage()); setActivePinia(createPinia());
+    documentRef.register(new FakeElement('settings-form', { tagName: 'FORM' }));
+    const editor = useSettingsEditorStore(), form = useSettingsFormStore();
+    const baseline = sharedSettings.normalizeAppSettings({ network: { wsPort: 8099, httpPort: 8100 } });
+    const runtime = initSettingsRuntime({
+      $: id => documentRef.getElementById(id), getAppSettings: () => baseline,
+      getWs: () => ({ readyState: 1, send() {} }),
+      settingsEditorStore: editor, settingsFormStore: form,
+      subscribeAppSettingsSignal: subscribeAppSettings,
+      appSettingsShared: sharedSettings, windowRef, WebSocketRef: { OPEN: 1 }, consoleRef: { warn() {} },
+    });
+    try {
+      editor.wsPort = '9001';
+      await nextTick();
+      // Another local settings client can change an untouched field while
+      // this form retains its own port draft.
+      const saved = { ...baseline, network: { ...baseline.network, httpPort: 9002 } };
+      emitAppSettings({ settings: saved });
+      emitAppSettings({ settings: saved });
+      await nextTick();
+      assert.equal(editor.wsPort, '9001');
+      assert.equal(editor.httpPort, '9002');
+      assert.equal(form.saveEnabled, true, 'repeated snapshots retain the local draft');
+      assert.match(form.pendingMeta, /Network ports/);
+      editor.wsPort = '8099';
+      await nextTick();
+      assert.equal(form.saveEnabled, false, 'undoing only the local edit clears dirty state against the refreshed baseline');
+    } finally {
+      runtime.cleanup();
+    }
+  });
+
   await test('settings runtime waits for full control and preserves drafts through revocation', async () => {
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
@@ -7552,7 +7653,7 @@ async function main() {
     assert.equal(timers.size, 0, 'cleanup cancels an ordinary save deadline too');
   });
 
-  await test('settings restart saves dirty drafts before restart and cancels safely on failed or interrupted saves', async () => {
+  await test('settings restart after onboarding saves dirty drafts and cancels safely on failed or interrupted saves', async () => {
     const documentRef = new FakeDocument(); const windowRef = new FakeWindow(documentRef);
     const timers = new Map(); let timerId = 0;
     windowRef.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
@@ -7565,7 +7666,7 @@ async function main() {
     windowRef.electronAPI = { restartApp: async () => { restarts += 1; return { ok: true }; } };
     const runtime = initSettingsRuntime({
       $: id => documentRef.getElementById(id),
-      getAppSettings: () => sharedSettings.normalizeAppSettings({}),
+      getAppSettings: () => sharedSettings.normalizeAppSettings({ onboarding: { completed: true } }),
       getWs: () => ({ readyState: connected ? 1 : 3, send: value => sent.push(JSON.parse(value)) }),
       canManageSettings: () => profiles.authorizationScope === 'full-control',
       settingsEditorStore: editor, settingsFormStore: form, settingsUiStore: ui,
@@ -7573,7 +7674,12 @@ async function main() {
       appSettingsShared: sharedSettings, windowRef, WebSocketRef: { OPEN: 1 }, consoleRef: { warn() {} },
     });
     const edit = async value => { editor.wsPort = String(value); await nextTick(); await nextTick(); };
-    const acknowledge = (extra = {}) => emitAppSettingsSaved({ requestId: sent.at(-1).requestId, ok: true, settings: sent.at(-1).settings, ...extra });
+    // The real backend preserves completed onboarding even though the General
+    // form does not edit that field. Its reply is not just an echo of the form.
+    const acknowledge = (extra = {}) => emitAppSettingsSaved({
+      requestId: sent.at(-1).requestId, ok: true,
+      settings: { ...sent.at(-1).settings, onboarding: { completed: true } }, ...extra,
+    });
     try {
       await nextTick();
       assert.equal(ui.restartActionLabel, 'Restart App');
@@ -7592,7 +7698,7 @@ async function main() {
       assert.equal(await form.requestSave(), false);
       assert.equal(await form.requestReload(), false);
       acknowledge({ restartRequired: true });
-      assert.equal(await restart, true);
+      assert.equal(await restart, true, 'completed onboarding must not make the confirmed settings differ from the submitted preferences');
       assert.equal(restarts, 2);
       assert.equal(timers.size, 0, 'successful confirmation clears its timeout');
 
@@ -7624,6 +7730,9 @@ async function main() {
       assert.equal(editor.wsPort, '9204');
       assert.equal(form.saveEnabled, true);
       assert.match(form.statusMessage, /newer edits are kept/i);
+      await edit(9203);
+      assert.equal(form.saveEnabled, false, 'undoing the newer edit must clear dirty state even when onboarding is complete');
+      await edit(9204);
 
       const timeout = ui.requestRestart();
       assert.equal(timers.size, 1);

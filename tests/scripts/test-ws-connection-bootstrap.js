@@ -4,6 +4,7 @@
 const assert = require('assert/strict');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { mock } = require('node:test');
 
 async function loadConnectionModule() {
   const modulePath = pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'src', 'ws', 'connection.js')).href;
@@ -375,21 +376,22 @@ async function testElectronPrefersIpcBootstrap() {
   assert.equal(connection.getAuthorizationScope(), 'full-control');
 }
 
-async function testElectronRetriesBootstrapBeforeOpeningReadOnlySocket() {
+async function testElectronRetriesBootstrapBeforeOpeningReadOnlySocket(rejected = false) {
   const { createConnection } = await loadConnectionModule();
   const openedUrls = [];
   let bootstrapCalls = 0;
+  let fetchCalls = 0;
 
   class FakeWebSocket {
+    static CONNECTING = 0;
     static OPEN = 1;
 
     constructor(url) {
       openedUrls.push(url);
-      this.readyState = FakeWebSocket.OPEN;
-      setTimeout(() => this.onopen && this.onopen(), 0);
+      this.readyState = FakeWebSocket.CONNECTING;
     }
 
-    close() {}
+    close() { this.readyState = 3; }
     send() {}
   }
 
@@ -405,7 +407,8 @@ async function testElectronRetriesBootstrapBeforeOpeningReadOnlySocket() {
       getBackendHttpPort: async () => 8100,
       getBackendBootstrap: async () => {
         bootstrapCalls += 1;
-        if (bootstrapCalls === 1) {
+        if (bootstrapCalls % 2 === 1) {
+          if (rejected) throw new Error('Desktop bootstrap listener not ready');
           return { ok: false, status: 0, port: 8100, body: { ok: false } };
         }
         return {
@@ -416,10 +419,9 @@ async function testElectronRetriesBootstrapBeforeOpeningReadOnlySocket() {
         };
       },
     },
-    fetch: async () => ({
-      ok: true,
-      json: async () => ({ wsAuthToken: '' }),
-    }),
+    // Cross-origin renderer requests cannot acquire desktop session secrets.
+    // A response still pending here must not hold up the next native retry.
+    fetch: () => { fetchCalls++; return new Promise(() => {}); },
   };
 
   const connection = createConnection({
@@ -427,18 +429,138 @@ async function testElectronRetriesBootstrapBeforeOpeningReadOnlySocket() {
     WebSocketRef: FakeWebSocket,
     defaultWsPort: 8099,
     defaultHttpPort: 8100,
-    reconnectDelay: 1,
   });
 
-  await connection.initialize();
-  assert.deepEqual(openedUrls, [], 'Electron must not silently open a read-only socket when startup bootstrap is early');
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const initial = connection.initialize();
+    await flush();
+    assert.equal(fetchCalls, 0, 'an unavailable desktop bootstrap must not detour through browser requests');
+    await initial;
+    assert.deepEqual(openedUrls, [], 'Electron must not silently open a read-only socket when startup bootstrap is early');
+    mock.timers.tick(2999);
+    assert.equal(bootstrapCalls, 1, 'native retries retain their spacing');
+    mock.timers.tick(1);
+    await flush();
+    assert.equal(bootstrapCalls, 2, 'Electron retries the privileged bootstrap without waiting on browser fetch');
+    assert.deepEqual(openedUrls, ['ws://127.0.0.1:8099?token=startup-token']);
+    connection.getWs().readyState = FakeWebSocket.OPEN;
+    connection.getWs().onopen();
+    acknowledgeScope(connection, 'full-control');
 
-  await wait(20);
-  assert.ok(bootstrapCalls >= 2, 'Electron should retry the privileged bootstrap automatically');
-  assert.deepEqual(openedUrls, ['ws://127.0.0.1:8099?token=startup-token']);
+    connection.reconnect();
+    await flush();
+    assert.equal(bootstrapCalls, 3);
+    assert.equal(connection.getWs(), null, 'a later failed bootstrap cannot reuse the old session token');
+    assert.equal(connection.isAuthorizationAcknowledged(), false);
+    assert.equal(fetchCalls, 0, 'later recovery also stays on the native bootstrap path');
+    mock.timers.tick(3000);
+    await flush();
+    connection.getWs().readyState = FakeWebSocket.OPEN;
+    connection.getWs().onopen();
+    acknowledgeScope(connection, 'full-control');
+    assert.equal(bootstrapCalls, 4, 'a fresh native bootstrap recovers after the later failure');
+    assert.equal(openedUrls.length, 2);
+  } finally {
+    mock.timers.reset();
+  }
 }
 
-async function testOverlappingElectronBootstrapCannotOverwriteCurrentConnectionState() {
+async function testReconnectDoesNotInterruptPendingAttempt() {
+  const { createConnection } = await loadConnectionModule();
+  const sockets = [];
+  const replies = [];
+  let closes = 0;
+  class FakeWebSocket {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    constructor(url) { this.url = url; this.readyState = 0; sockets.push(this); }
+    close() { closes++; this.readyState = 3; }
+    send() {}
+  }
+  const connection = createConnection({
+    windowRef: {
+      location: { search: '', hostname: '127.0.0.1', protocol: 'http:', port: '8100' },
+      electronAPI: { getBackendBootstrap: () => new Promise(resolve => replies.push(resolve)) },
+    },
+    WebSocketRef: FakeWebSocket,
+  });
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const open = () => {
+    const socket = connection.getWs();
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen();
+    acknowledgeScope(connection, 'full-control');
+    return socket;
+  };
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const initial = connection.connect();
+    connection.reconnect();
+    connection.reconnect();
+    void connection.connect();
+    assert.equal(replies.length, 1, 'manual requests share the pending bootstrap');
+    replies[0]({ wsAuthToken: 'first-session' });
+    await initial;
+    connection.reconnect();
+    connection.reconnect();
+    assert.equal(replies.length, 1, 'a socket handshake must not be restarted by another click');
+    assert.equal(closes, 0, 'manual recovery leaves the pending socket alone');
+    assert.equal(connection.isAuthorizationAcknowledged(), false);
+    const first = open();
+    const oldClose = first.onclose;
+    const oldError = first.onerror;
+    const oldMessage = first.onmessage;
+    mock.timers.tick(10000);
+    assert.equal(replies.length, 1, 'opening clears the attempt deadline');
+
+    first.readyState = 3;
+    first.onclose({ type: 'close' });
+    mock.timers.tick(3000);
+    assert.equal(replies.length, 2, 'closed sockets start one automatic retry');
+    connection.reconnect();
+    connection.reconnect();
+    assert.equal(replies.length, 2, 'manual clicks share an automatic bootstrap already in progress');
+    replies[1]({ wsAuthToken: 'second-session' });
+    await flush();
+    connection.reconnect();
+    assert.equal(replies.length, 2, 'manual clicks also share the automatic socket handshake');
+    const second = open();
+    oldClose({ type: 'close' });
+    oldError({ type: 'error' });
+    oldMessage({ data: JSON.stringify({ type: 'authorizationScope', scope: 'read-only' }) });
+    mock.timers.tick(10000);
+    assert.equal(connection.getWs(), second);
+    assert.equal(connection.getAuthorizationScope(), 'full-control', 'retired events cannot revoke the recovered session');
+    assert.equal(replies.length, 2, 'retired events cannot schedule another connection');
+
+    // An open connection can still be refreshed when settings never arrive.
+    connection.reconnect();
+    connection.reconnect();
+    assert.equal(replies.length, 3, 'manual recovery of an open but unresponsive connection remains available');
+    assert.equal(closes, 1, 'the open socket is retired exactly once');
+    replies[2]({ wsAuthToken: 'third-session' });
+    await flush();
+    const failed = connection.getWs();
+    failed.onerror({ type: 'error' });
+    failed.readyState = 3;
+    failed.onclose({ type: 'close' });
+    connection.reconnect();
+    assert.equal(replies.length, 4, 'a failed handshake remains manually retryable');
+    replies[3]({ wsAuthToken: 'recovered-session' });
+    await flush();
+    const recovered = open();
+    mock.timers.tick(10000);
+    assert.equal(replies.length, 4, 'manual recovery cancels the pending automatic retry');
+    assert.equal(connection.getWs(), recovered);
+    assert.equal(sockets.length, 4, 'each admitted attempt creates exactly one socket');
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+async function testOverlappingElectronBootstrapCannotOverwriteCurrentConnectionState(lateFailure = false) {
   const { createConnection } = await loadConnectionModule();
   const openedUrls = [];
   const bootstrapResolvers = [];
@@ -465,7 +587,10 @@ async function testOverlappingElectronBootstrapCannotOverwriteCurrentConnectionS
     electronAPI: {
       getBackendWsPort: async () => 8099,
       getBackendHttpPort: async () => 8100,
-      getBackendBootstrap: () => new Promise((resolve) => bootstrapResolvers.push(resolve)),
+      getBackendBootstrap: () => new Promise((resolve, reject) => {
+        resolve.reject = reject;
+        bootstrapResolvers.push(resolve);
+      }),
     },
     fetch: async () => {
       throw new Error('Electron bootstrap should resolve through IPC');
@@ -479,44 +604,126 @@ async function testOverlappingElectronBootstrapCannotOverwriteCurrentConnectionS
     defaultHttpPort: 8100,
   });
 
-  const firstConnect = connection.initialize();
-  await wait(0);
-  assert.equal(bootstrapResolvers.length, 1);
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const firstConnect = connection.initialize();
+    await flush();
+    assert.equal(bootstrapResolvers.length, 1);
 
-  connection.reconnect();
-  await wait(0);
-  assert.equal(bootstrapResolvers.length, 2);
+    mock.timers.tick(10000);
+    await firstConnect;
+    connection.reconnect();
+    await flush();
+    assert.equal(bootstrapResolvers.length, 2);
 
-  bootstrapResolvers[1]({
-    ok: true,
-    status: 200,
-    port: 9300,
-    body: {
+    bootstrapResolvers[1]({
       ok: true,
-      wsAuthToken: 'current-token',
-      networkInfo: { wsPort: 9299 },
-    },
-  });
-  await wait(5);
-  assert.deepEqual(openedUrls, ['ws://127.0.0.1:9299?token=current-token']);
-  assert.equal(connection.getBackendHttpBase(), 'http://127.0.0.1:9300');
+      status: 200,
+      port: 9300,
+      body: {
+        ok: true,
+        wsAuthToken: 'current-token',
+        networkInfo: { wsPort: 9299 },
+      },
+    });
+    await flush();
+    assert.deepEqual(openedUrls, ['ws://127.0.0.1:9299?token=current-token']);
+    assert.equal(connection.getBackendHttpBase(), 'http://127.0.0.1:9300');
 
-  bootstrapResolvers[0]({
-    ok: true,
-    status: 200,
-    port: 9200,
-    body: {
+    if (lateFailure) bootstrapResolvers[0].reject(new Error('retired bootstrap failed'));
+    else bootstrapResolvers[0]({
       ok: true,
-      wsAuthToken: 'stale-token',
-      networkInfo: { wsPort: 9199 },
-    },
-  });
-  await firstConnect;
-  await wait(5);
+      status: 200,
+      port: 9200,
+      body: {
+        ok: true,
+        wsAuthToken: 'stale-token',
+        networkInfo: { wsPort: 9199 },
+      },
+    });
+    await flush();
 
-  assert.deepEqual(openedUrls, ['ws://127.0.0.1:9299?token=current-token'], 'stale bootstrap must not open another socket');
-  assert.equal(connection.getWsUrl(), 'ws://127.0.0.1:9299', 'stale bootstrap must not overwrite the active WS port');
-  assert.equal(connection.getBackendHttpBase(), 'http://127.0.0.1:9300', 'stale bootstrap must not overwrite the active HTTP port');
+    assert.deepEqual(openedUrls, ['ws://127.0.0.1:9299?token=current-token'], 'stale bootstrap must not open another socket');
+    assert.equal(connection.getWsUrl(), 'ws://127.0.0.1:9299', 'stale bootstrap must not overwrite the active WS port');
+    assert.equal(connection.getBackendHttpBase(), 'http://127.0.0.1:9300', 'stale bootstrap must not overwrite the active HTTP port');
+    mock.timers.tick(10000);
+    assert.equal(bootstrapResolvers.length, 2, 'a retired deadline cannot restart the recovered connection');
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+async function testStalledHttpAndSocketAttemptsCanRecover() {
+  const { createConnection } = await loadConnectionModule();
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  for (const phase of ['http-body', 'socket-opening', 'socket-constructor']) {
+    const sockets = [];
+    const signals = [];
+    const errors = [];
+    let finishOldBody;
+    let calls = 0;
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      constructor(url) {
+        if (phase === 'socket-constructor' && calls === 1) throw new Error('Invalid WebSocket URL');
+        this.url = url;
+        this.readyState = 0;
+        sockets.push(this);
+      }
+      close() { this.readyState = 3; }
+      send() {}
+    }
+    const connection = createConnection({
+      windowRef: {
+        location: { search: '', hostname: 'localhost', protocol: 'http:', port: '8100' },
+        fetch: async (_url, { signal }) => {
+          calls++;
+          signals.push(signal);
+          return { ok: true, json: () => phase === 'http-body' && calls === 1
+            ? new Promise(resolve => { finishOldBody = resolve; })
+            : Promise.resolve({ wsAuthToken: 'current-token' }) };
+        },
+      },
+      WebSocketRef: FakeWebSocket,
+      onError: event => errors.push(event.type),
+    });
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const initial = connection.connect();
+      await flush();
+      const oldSocket = connection.getWs();
+      const oldOpen = oldSocket?.onopen;
+      if (phase !== 'socket-constructor') {
+        connection.reconnect();
+        assert.equal(calls, 1, `${phase}: manual retry cannot duplicate pending work`);
+        mock.timers.tick(10000);
+      }
+      await initial;
+      assert.equal(signals[0].aborted, true, `${phase}: terminal attempt releases its HTTP work`);
+      assert.deepEqual(errors, [phase === 'socket-constructor' ? 'error' : 'timeout']);
+      assert.equal(connection.getWs(), null);
+      if (oldSocket) assert.equal(oldSocket.readyState, 3, 'timed-out handshake is closed');
+      mock.timers.tick(3000);
+      await flush();
+      assert.equal(calls, 2, `${phase}: failure admits an automatic retry`);
+      const replacement = connection.getWs();
+      replacement.readyState = FakeWebSocket.OPEN;
+      replacement.onopen();
+      acknowledgeScope(connection, 'full-control');
+      finishOldBody?.({ wsAuthToken: 'stale-token', networkInfo: { wsPort: 9999 } });
+      oldOpen?.();
+      await flush();
+      mock.timers.tick(10000);
+      assert.equal(calls, 2, `${phase}: stale completion and old deadlines cannot restart recovery`);
+      assert.equal(connection.getWs(), replacement);
+      assert.equal(connection.getAuthorizationScope(), 'full-control');
+      assert.equal(connection.getWsUrl(), 'ws://localhost:8099');
+    } finally {
+      mock.timers.reset();
+    }
+  }
 }
 
 async function testElectronRecoversRejectedCredentials() {
@@ -868,6 +1075,8 @@ async function testBrowserReconnectsAcrossBackendRestart() {
 }
 
 async function run() {
+  const args = process.argv.slice(2);
+  if (args.some(arg => arg !== '--lifecycle-only')) throw new Error('Unknown option. Use --lifecycle-only or no arguments.');
   await testPortMismatchBootstrapFallback();
   await testDirectBackendBootstrap();
   await testPairedLanUrlKeepsAircraftScopeSeparate();
@@ -875,16 +1084,32 @@ async function run() {
   await testElectronLoopbackBootstrapFallback();
   await testElectronPrefersIpcBootstrap();
   await testElectronRetriesBootstrapBeforeOpeningReadOnlySocket();
+  await testElectronRetriesBootstrapBeforeOpeningReadOnlySocket(true);
+  await testReconnectDoesNotInterruptPendingAttempt();
   await testOverlappingElectronBootstrapCannotOverwriteCurrentConnectionState();
+  await testOverlappingElectronBootstrapCannotOverwriteCurrentConnectionState(true);
+  await testStalledHttpAndSocketAttemptsCanRecover();
   await testElectronRecoversRejectedCredentials();
   await testManualReconnectCancelsPendingDesktopRetry();
   await testBrowserKeepsAcknowledgedLimitedAccess();
-  await testDesktopRecoversAgainstBackendWithRotatedToken();
-  await testBrowserReconnectsAcrossBackendRestart();
-  console.log('✅ ws connection bootstrap tests passed');
+  // The same source-level regressions run on relevant commits without a backend
+  // build. Full-suite/release runs also exercise the real backend contracts.
+  if (!args.includes('--lifecycle-only')) {
+    await testDesktopRecoversAgainstBackendWithRotatedToken();
+    await testBrowserReconnectsAcrossBackendRestart();
+  }
+  console.log(args.includes('--lifecycle-only')
+    ? '✅ ws connection lifecycle tests passed (source only)'
+    : '✅ ws connection bootstrap tests passed');
 }
 
+// A deferred promise alone does not keep Node alive. Do not report success if
+// a regression strands a caller and the test never reaches its final marker.
+const watchdog = setTimeout(() => {
+  console.error('WebSocket bootstrap checks did not settle within 30 seconds');
+  process.exit(1);
+}, 30000);
 run().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
   process.exit(1);
-});
+}).finally(() => clearTimeout(watchdog));

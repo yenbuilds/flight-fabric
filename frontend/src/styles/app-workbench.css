@@ -108,8 +108,12 @@
 .header-nav-search { display: none; }
 .header-mobile-phase { display: none; }
 .app-header .ff-status-chip, .app-header .ff-status-chip-primary { min-height: 1.65rem; padding: .25rem .45rem; font-size: .6rem; letter-spacing: .04em; }
-.app-header .recording-details-trigger { min-height: 2rem; }
-.recording-details-trigger:hover { outline: 1px solid rgb(var(--border-strong)); }
+.recording-details-trigger { display: inline-flex; align-items: center; padding: 0; border-radius: var(--ff-radius-pill); }
+.app-header .recording-badge { min-height: 2.25rem; font-size: .7rem; letter-spacing: 0; gap: .4rem; }
+.recording-dot { flex-shrink: 0; }
+.recording-size { display: inline-flex; align-items: center; justify-content: flex-end; gap: .3rem; min-width: 6.5ch; padding-left: .4rem; border-left: 1px solid rgb(var(--border-strong) / .6); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recording-storage-icon { width: .75rem; height: .75rem; flex: none; color: rgb(var(--muted-foreground)); pointer-events: none; }
+.recording-details-trigger:hover .recording-badge { outline: 1px solid rgb(var(--border-strong)); }
 
 .ff-app-footer { border-top: 1px solid rgb(var(--border) / .55); background: rgb(var(--panel)); }
 .ff-app-footer .app-shell-container { padding-block: .3rem; }
@@ -215,6 +219,11 @@
   .header-aircraft-summary { order: -1; flex: 1; }
   .header-mobile-phase { display: flex; flex: none; }
   .header-flight-time { display: none; }
+  /* Keep the visible badge compact inside a full-height touch target. */
+  .app-header .recording-details-trigger { min-height: 2.75rem; border-radius: .375rem; }
+  .app-header .recording-badge { display: grid; grid-template-columns: .75rem minmax(0, 1fr); gap: .1rem .3rem; min-height: 0; max-width: 7.5rem; padding: .25rem .4rem; border-radius: .375rem; font-size: .65rem; line-height: 1.15; white-space: normal; text-align: left; }
+  .recording-dot { justify-self: center; }
+  .recording-size { grid-column: 1 / -1; justify-content: flex-start; border-left: 0; padding-left: 0; font-size: inherit; }
   #aircraft-name { font-size: .75rem; max-width: min(14rem, calc(100vw - 8rem)); }
   .header-aircraft-copy { max-width: 100%; }
   .header-nav-search { display: inline-grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: .35rem; color: rgb(var(--muted-foreground)); }
@@ -232,6 +241,10 @@
   .app-navigator { align-self: flex-start; }
   .app-navigator-header .ff-icon-button { min-width: 2.75rem; min-height: 2.75rem; }
   .app-navigator-hint { display: none; }
+}
+
+@media (max-width: 360px) {
+  .app-header .recording-badge { max-width: 6rem; }
 }
 @media (max-height: 500px) and (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   .app-workbench .live-map-wrap, .live-map-canvas { min-height: 14rem; }

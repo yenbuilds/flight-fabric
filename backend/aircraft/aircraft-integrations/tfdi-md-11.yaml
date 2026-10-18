@@ -1,0 +1,2058 @@
+# FlightFabric aircraft definition.
+# Schema version 1; preserves existing data, ordering, inheritance and verification limits.
+
+# Mapping source notes: tfdi-md-11/actions.ts
+# Only documented EXTCTL inputs and CEVENT events are writable. State,
+# annunciator and animation LVARs remain read-only. See MD11-CONTROL-VALIDATION.md.
+# CEVENT is one shared mailbox: serialize all switch transactions.
+# Both directions and all three positions confirmed on the parked PW4462.
+# The EXTCTL minimums input did not move the loaded aircraft. Use the published
+# wheel events, with a fresh RADIO reference and confirmation after every detent.
+
+# Mapping source notes: tfdi-md-11/fields.ts
+# TFDi publishes the MD11_AFS_*, AP/ATS, mode-flag, V-speed, and APU rows as
+# read/integration variables. Light switch semantics were confirmed through
+# reversible live transitions; see MD11-CONTROL-VALIDATION.md. Standard light
+# bits did not follow those switches and must not confirm controls. Speedbrake telemetry is
+# deliberately absent because the MD-11's Direct Lift Control can move spoiler
+# panels during a normal approach.
+# NAV/BCN/HI INT annunciators illuminate OFF; turnoff annunciators illuminate ON.
+# Flashing bulb-output LVARs cannot confirm a steady switch selection.
+
+schemaVersion: 1
+integration:
+  id: tfdi-md-11
+  aircraft:
+    vendor: TFDi Design
+    family: McDonnell Douglas MD-11
+  trustedProfileKeys:
+    - bundled/msfs/tfdi-md-11
+  presentation:
+    templateId: tfdi-md-11
+  fields:
+    # Observed state: sources and decoders retain their original order.
+
+    # afs
+    afs.speedValue:
+      id: afs.speedValue
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AFS_SPD
+            unit: Number
+          decode:
+            type: number
+            precision: 3
+            unavailableValues:
+              - -999
+    afs.headingValue:
+      id: afs.headingValue
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AFS_HDG
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+            unavailableValues:
+              - -999
+    afs.altitudeValue:
+      id: afs.altitudeValue
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AFS_ALT
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    afs.verticalValue:
+      id: afs.verticalValue
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AFS_VS
+            unit: Number
+          decode:
+            type: number
+            precision: 1
+            unavailableValues:
+              - -9999
+    afs.apState:
+      id: afs.apState
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AP_STATE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": ap1
+              "2": ap2
+              "3": dual
+    afs.apMaster:
+      id: afs.apMaster
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AP_STATE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+              - 2
+              - 3
+            falseValues:
+              - false
+              - 0
+    afs.atsClamped:
+      id: afs.atsClamped
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_ATS_CLAMP
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    afs.speedMode:
+      id: afs.speedMode
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AP_IAS_MACH
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": ias
+              "1": mach
+    afs.headingMode:
+      id: afs.headingMode
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AP_HDG_TRK
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": heading
+              "1": track
+    afs.verticalMode:
+      id: afs.verticalMode
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AP_VS_FPA
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": vertical-speed
+              "1": flight-path-angle
+    afs.altitudeUnit:
+      id: afs.altitudeUnit
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_AP_FT_M
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": feet
+              "1": metres
+
+    # performance
+    performance.v1:
+      id: performance.v1
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_V1
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    performance.vr:
+      id: performance.vr
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_VR
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    performance.v2:
+      id: performance.v2
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_V2
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    performance.vsr:
+      id: performance.vsr
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_VSR
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    performance.vfr:
+      id: performance.vfr
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_VFR
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+
+    # systems
+    systems.apuState:
+      id: systems.apuState
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_APU_STATE
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": off
+              "1": starting
+              "2": running
+              "3": stopping
+    systems.apuN1:
+      id: systems.apuN1
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_APU_N1
+            unit: Number
+          decode:
+            type: number
+            precision: 1
+    systems.apuN2:
+      id: systems.apuN2
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_APU_N2
+            unit: Number
+          decode:
+            type: number
+            precision: 1
+
+    # lights
+    lights.strobe:
+      id: lights.strobe
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_HI_INT_LT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 0
+            falseValues:
+              - 1
+    lights.beacon:
+      id: lights.beacon
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_BCN_LT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 0
+            falseValues:
+              - 1
+    lights.nav:
+      id: lights.nav
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_NAV_LT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 0
+            falseValues:
+              - 1
+    lights.logo:
+      id: lights.logo
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_LOGO_ON_LT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.turnoffLeft:
+      id: lights.turnoffLeft
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_RWY_TURNOFF_L_LT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.turnoffRight:
+      id: lights.turnoffRight
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_RWY_TURNOFF_R_LT
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    lights.landingLeftPosition:
+      id: lights.landingLeftPosition
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_LDG_L_SW
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lights.landingRightPosition:
+      id: lights.landingRightPosition
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_LDG_R_SW
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    lights.nosePosition:
+      id: lights.nosePosition
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_NOSE_SW
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+
+    # systems
+    systems.busVoltage:
+      id: systems.busVoltage
+      sources:
+        - route:
+            type: lvar
+            name: A:ELECTRICAL MAIN BUS VOLTAGE:1
+            unit: Volts
+          decode:
+            type: number
+            precision: 1
+
+    # baro
+    baro.captain.value:
+      id: baro.captain.value
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_CAP_ALTIMETER
+            unit: Number
+          decode:
+            type: number
+            precision: 2
+    baro.firstOfficer.value:
+      id: baro.firstOfficer.value
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_FO_ALTIMETER
+            unit: Number
+          decode:
+            type: number
+            precision: 2
+
+    # cabin
+    cabin.seatBeltsPosition:
+      id: cabin.seatBeltsPosition
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_SEAT_BELTS_SW
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    cabin.noSmokingPosition:
+      id: cabin.noSmokingPosition
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_OVHD_LTS_NO_SMOKE_SW
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+
+    # approach
+    approach.captain.minimums:
+      id: approach.captain.minimums
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_CAP_MINIMUMS
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    approach.firstOfficer.minimums:
+      id: approach.firstOfficer.minimums
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_FO_MINIMUMS
+            unit: Number
+          decode:
+            type: number
+            precision: 0
+    approach.captain.minimumsMode:
+      id: approach.captain.minimumsMode
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_LECP_MINIMUMS_KB
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": radio
+              "1": baro
+    approach.firstOfficer.minimumsMode:
+      id: approach.firstOfficer.minimumsMode
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_RECP_MINIMUMS_KB
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": radio
+              "1": baro
+
+    # controls
+    controls.flapsPercent:
+      id: controls.flapsPercent
+      sources:
+        - route:
+            type: simvar
+            name: FLAPS HANDLE PERCENT
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.flapAngleDeg:
+      id: controls.flapAngleDeg
+      sources:
+        - route:
+            type: simvar
+            name: TRAILING EDGE FLAPS LEFT ANGLE
+            unit: Degrees
+          decode:
+            type: number
+            precision: 1
+    controls.gearHandleDown:
+      id: controls.gearHandleDown
+      sources:
+        - route:
+            type: simvar
+            name: GEAR HANDLE POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    controls.gearNosePct:
+      id: controls.gearNosePct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR CENTER POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearLeftPct:
+      id: controls.gearLeftPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR LEFT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.gearRightPct:
+      id: controls.gearRightPct
+      sources:
+        - route:
+            type: simvar
+            name: GEAR RIGHT POSITION
+            unit: Percent
+          decode:
+            type: number
+            precision: 0
+    controls.parkingBrake:
+      id: controls.parkingBrake
+      sources:
+        - route:
+            type: simvar
+            name: BRAKE PARKING POSITION
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+
+    # systems
+    systems.engine1N1:
+      id: systems.engine1N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:1
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine2N1:
+      id: systems.engine2N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:2
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine3N1:
+      id: systems.engine3N1
+      sources:
+        - route:
+            type: simvar
+            name: TURB ENG N1:3
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.engine1Running:
+      id: systems.engine1Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:1
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine2Running:
+      id: systems.engine2Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:2
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.engine3Running:
+      id: systems.engine3Running
+      sources:
+        - route:
+            type: simvar
+            name: ENG COMBUSTION:3
+            unit: Bool
+          decode:
+            type: boolean
+            trueValues:
+              - true
+              - 1
+            falseValues:
+              - false
+              - 0
+    systems.fuelTotalPct:
+      id: systems.fuelTotalPct
+      sources:
+        - route:
+            type: simvar
+            name: FUEL SELECTED QUANTITY PERCENT:99
+            unit: Percent
+          decode:
+            type: number
+            precision: 1
+    systems.fuelTotalWeightLbs:
+      id: systems.fuelTotalWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: FUEL TOTAL QUANTITY WEIGHT EX1
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.grossWeightLbs:
+      id: systems.grossWeightLbs
+      sources:
+        - route:
+            type: simvar
+            name: TOTAL WEIGHT
+            unit: Pounds
+          decode:
+            type: number
+            precision: 0
+    systems.cabinAltitudeFt:
+      id: systems.cabinAltitudeFt
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE
+            unit: Feet
+          decode:
+            type: number
+            precision: 0
+    systems.cabinVerticalSpeedFpm:
+      id: systems.cabinVerticalSpeedFpm
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION CABIN ALTITUDE RATE
+            unit: Feet per minute
+          decode:
+            type: number
+            precision: 0
+    systems.cabinDeltaPressurePsi:
+      id: systems.cabinDeltaPressurePsi
+      sources:
+        - route:
+            type: simvar
+            name: PRESSURIZATION PRESSURE DIFFERENTIAL
+            unit: PSI
+          decode:
+            type: number
+            precision: 2
+    systems.outsideAirTemperatureC:
+      id: systems.outsideAirTemperatureC
+      sources:
+        - route:
+            type: simvar
+            name: AMBIENT TEMPERATURE
+            unit: Celsius
+          decode:
+            type: number
+            precision: 1
+    systems.mach:
+      id: systems.mach
+      sources:
+        - route:
+            type: simvar
+            name: AIRSPEED MACH
+            unit: Mach
+          decode:
+            type: number
+            precision: 3
+    controls.autobrakePosition:
+      id: controls.autobrakePosition
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_CTR_AUTOBRAKE_SW
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": 0
+              "1": 1
+              "2": 2
+              "3": 3
+              "4": 4
+    controls.flapsHandle:
+      id: controls.flapsHandle
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_FLAP_RNG
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": 0
+              "20": 1
+              "70": 3
+              "82": 4
+              "100": 5
+            numberRanges:
+              - min: 38
+                max: 65
+                value: 2
+    controls.spoilersPosition:
+      id: controls.spoilersPosition
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_SPDBRK_RNG
+            unit: Number
+          decode:
+            type: enum
+            values:
+              "0": 0
+              "25": 2
+              "17.5": 1
+              "32.5": 3
+    controls.spoilersArmed:
+      id: controls.spoilersArmed
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_SPDBRK_HANDLE
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 1
+            falseValues:
+              - 0
+    controls.flapsSettled:
+      id: controls.flapsSettled
+      sources:
+        - route:
+            type: lvar
+            name: L:MD11_FLAP_LATCH
+            unit: Number
+          decode:
+            type: boolean
+            trueValues:
+              - 0
+            falseValues:
+              - 5
+  actions:
+    # Commands: ordered routes, guards, readbacks and evidence labels are unchanged.
+
+    # flightGuidance
+    flightGuidance.speed.set:
+      id: flightGuidance.speed.set
+      input:
+        type: number
+        min: 100
+        max: 399
+        step: 1
+      guard:
+        cooldownMs: 400
+        groupId: md11.fcp
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: afs.speedMode
+            freshness: field
+            expectedValue: ias
+          - fieldId: afs.speedValue
+            freshness: field
+            min: 100
+            max: 399
+      routes:
+        - id: md11.flightGuidance.speed.set.external
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:MD11_EXTCTL_FCP_SPD
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: afs.speedValue
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    flightGuidance.heading.set:
+      id: flightGuidance.heading.set
+      input:
+        type: number
+        min: 0
+        max: 359
+        step: 1
+      guard:
+        cooldownMs: 400
+        groupId: md11.fcp
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: afs.headingMode
+            freshness: field
+            expectedValue: heading
+          - fieldId: afs.headingValue
+            freshness: field
+            min: 0
+            max: 359
+      routes:
+        - id: md11.flightGuidance.heading.set.external
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:MD11_EXTCTL_FCP_HDG
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: afs.headingValue
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    flightGuidance.altitude.set:
+      id: flightGuidance.altitude.set
+      input:
+        type: number
+        min: 0
+        max: 50000
+        step: 100
+      guard:
+        cooldownMs: 400
+        groupId: md11.fcp
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: afs.altitudeUnit
+            freshness: field
+            expectedValue: feet
+          - fieldId: afs.altitudeValue
+            freshness: field
+            min: 0
+            max: 50000
+      routes:
+        - id: md11.flightGuidance.altitude.set.external
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:MD11_EXTCTL_FCP_ALT
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: afs.altitudeValue
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+
+    # lights
+    lights.nav.off:
+      id: lights.nav.off
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.nav.off.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90267 (>L:CEVENT, Number)
+          releaseCode: 90268 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.nav
+            expectedValue: false
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.nav.on:
+      id: lights.nav.on
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.nav.on.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90267 (>L:CEVENT, Number)
+          releaseCode: 90268 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.nav
+            expectedValue: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.beacon.off:
+      id: lights.beacon.off
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.beacon.off.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90271 (>L:CEVENT, Number)
+          releaseCode: 90272 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.beacon
+            expectedValue: false
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.beacon.on:
+      id: lights.beacon.on
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.beacon.on.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90271 (>L:CEVENT, Number)
+          releaseCode: 90272 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.beacon
+            expectedValue: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.strobe.off:
+      id: lights.strobe.off
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.strobe.off.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90273 (>L:CEVENT, Number)
+          releaseCode: 90274 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.strobe
+            expectedValue: false
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.strobe.on:
+      id: lights.strobe.on
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.strobe.on.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90273 (>L:CEVENT, Number)
+          releaseCode: 90274 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.strobe
+            expectedValue: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.logo.off:
+      id: lights.logo.off
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.logo.off.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90269 (>L:CEVENT, Number)
+          releaseCode: 90270 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.logo
+            expectedValue: false
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.logo.on:
+      id: lights.logo.on
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.logo.on.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90269 (>L:CEVENT, Number)
+          releaseCode: 90270 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.logo
+            expectedValue: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.turnoffLeft.off:
+      id: lights.turnoffLeft.off
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.turnoffLeft.off.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90263 (>L:CEVENT, Number)
+          releaseCode: 90264 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.turnoffLeft
+            expectedValue: false
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.turnoffLeft.on:
+      id: lights.turnoffLeft.on
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.turnoffLeft.on.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90263 (>L:CEVENT, Number)
+          releaseCode: 90264 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.turnoffLeft
+            expectedValue: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.turnoffRight.off:
+      id: lights.turnoffRight.off
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.turnoffRight.off.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90265 (>L:CEVENT, Number)
+          releaseCode: 90266 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.turnoffRight
+            expectedValue: false
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.turnoffRight.on:
+      id: lights.turnoffRight.on
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.turnoffRight.on.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 90265 (>L:CEVENT, Number)
+          releaseCode: 90266 (>L:CEVENT, Number)
+          delayMs: 150
+          readback:
+            fieldId: lights.turnoffRight
+            expectedValue: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.landingLeft.set:
+      id: lights.landingLeft.set
+      input:
+        type: number
+        min: 0
+        max: 2
+        step: 1
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.landingLeft.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 90258 (>L:CEVENT, Number)
+          decreaseCode: 90257 (>L:CEVENT, Number)
+          maxSteps: 2
+          readback:
+            fieldId: lights.landingLeftPosition
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.landingRight.set:
+      id: lights.landingRight.set
+      input:
+        type: number
+        min: 0
+        max: 2
+        step: 1
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.landingRight.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 90260 (>L:CEVENT, Number)
+          decreaseCode: 90259 (>L:CEVENT, Number)
+          maxSteps: 2
+          readback:
+            fieldId: lights.landingRightPosition
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    lights.nose.set:
+      id: lights.nose.set
+      input:
+        type: number
+        min: 0
+        max: 2
+        step: 1
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.lights.nose.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 90262 (>L:CEVENT, Number)
+          decreaseCode: 90261 (>L:CEVENT, Number)
+          maxSteps: 2
+          readback:
+            fieldId: lights.nosePosition
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+
+    # cabin
+    cabin.seatBelts.set:
+      id: cabin.seatBelts.set
+      input:
+        type: number
+        min: 0
+        max: 2
+        step: 1
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.cabin.seatBelts.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 90249 (>L:CEVENT, Number)
+          decreaseCode: 90248 (>L:CEVENT, Number)
+          maxSteps: 2
+          readback:
+            fieldId: cabin.seatBeltsPosition
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    cabin.noSmoking.set:
+      id: cabin.noSmoking.set
+      input:
+        type: number
+        min: 0
+        max: 2
+        step: 1
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.cabin.noSmoking.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 90247 (>L:CEVENT, Number)
+          decreaseCode: 90246 (>L:CEVENT, Number)
+          maxSteps: 2
+          readback:
+            fieldId: cabin.noSmokingPosition
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+
+    # approach
+    approach.captain.minimums.set:
+      id: approach.captain.minimums.set
+      input:
+        type: number
+        min: 0
+        max: 1000
+        step: 10
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: approach.captain.minimumsMode
+            freshness: field
+            expectedValue: radio
+      routes:
+        - id: md11.approach.captain.minimums.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 86064 (>L:CEVENT, Number)
+          decreaseCode: 86065 (>L:CEVENT, Number)
+          maxSteps: 100
+          readback:
+            fieldId: approach.captain.minimums
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    approach.firstOfficer.minimums.set:
+      id: approach.firstOfficer.minimums.set
+      input:
+        type: number
+        min: 0
+        max: 1000
+        step: 10
+      guard:
+        cooldownMs: 400
+        groupId: md11.cevent
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: approach.firstOfficer.minimumsMode
+            freshness: field
+            expectedValue: radio
+      routes:
+        - id: md11.approach.firstOfficer.minimums.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 86134 (>L:CEVENT, Number)
+          decreaseCode: 86135 (>L:CEVENT, Number)
+          maxSteps: 100
+          readback:
+            fieldId: approach.firstOfficer.minimums
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+
+    # baro
+    baro.captain.inHg.set:
+      id: baro.captain.inHg.set
+      input:
+        type: number
+        min: 28
+        max: 31
+        step: 0.01
+      guard:
+        cooldownMs: 400
+        groupId: md11.fcp
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: baro.captain.value
+            freshness: field
+            min: 28
+            max: 31
+      routes:
+        - id: md11.baro.captain.inHg.set.external
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:MD11_EXTCTL_CAP_BARO
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: baro.captain.value
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    baro.firstOfficer.inHg.set:
+      id: baro.firstOfficer.inHg.set
+      input:
+        type: number
+        min: 28
+        max: 31
+        step: 0.01
+      guard:
+        cooldownMs: 400
+        groupId: md11.fcp
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: baro.firstOfficer.value
+            freshness: field
+            min: 28
+            max: 31
+      routes:
+        - id: md11.baro.firstOfficer.inHg.set.external
+          transport: simconnect-sequence
+          operations:
+            - type: lvar
+              name: L:MD11_EXTCTL_FO_BARO
+              unit: Number
+              inputValue:
+                source: input
+          readback:
+            fieldId: baro.firstOfficer.value
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    flightGuidance.autoflight.request:
+      id: flightGuidance.autoflight.request
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      verification: untested
+      routes:
+        - id: md11.flightGuidance.autoflight.request.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 86094 (>L:CEVENT, Number)
+          releaseCode: 86095 (>L:CEVENT, Number)
+          delayMs: 150
+          confirmation: transport-acknowledged
+    flightGuidance.fmsSpeed.request:
+      id: flightGuidance.fmsSpeed.request
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      verification: untested
+      routes:
+        - id: md11.flightGuidance.fmsSpeed.request.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 86088 (>L:CEVENT, Number)
+          releaseCode: 86089 (>L:CEVENT, Number)
+          delayMs: 150
+          confirmation: transport-acknowledged
+    flightGuidance.navigation.request:
+      id: flightGuidance.navigation.request
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      verification: untested
+      routes:
+        - id: md11.flightGuidance.navigation.request.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 86090 (>L:CEVENT, Number)
+          releaseCode: 86091 (>L:CEVENT, Number)
+          delayMs: 150
+          confirmation: transport-acknowledged
+    flightGuidance.profile.request:
+      id: flightGuidance.profile.request
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      verification: untested
+      routes:
+        - id: md11.flightGuidance.profile.request.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 86096 (>L:CEVENT, Number)
+          releaseCode: 86097 (>L:CEVENT, Number)
+          delayMs: 150
+          confirmation: transport-acknowledged
+    flightGuidance.approach.request:
+      id: flightGuidance.approach.request
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      verification: untested
+      routes:
+        - id: md11.flightGuidance.approach.request.event
+          transport: mobiflight-calculator
+          mode: pulse
+          pressCode: 86092 (>L:CEVENT, Number)
+          releaseCode: 86093 (>L:CEVENT, Number)
+          delayMs: 150
+          confirmation: transport-acknowledged
+    controls.autobrake.set:
+      id: controls.autobrake.set
+      input:
+        type: number
+        min: 0
+        max: 4
+        step: 1
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.controls.autobrake.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 82212 (>L:CEVENT, Number)
+          decreaseCode: 82211 (>L:CEVENT, Number)
+          maxSteps: 4
+          readback:
+            fieldId: controls.autobrakePosition
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    controls.flaps.set:
+      id: controls.flaps.set
+      input:
+        type: number
+        min: 0
+        max: 5
+        step: 1
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.controls.flaps.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 77831 (>L:CEVENT, Number)
+          decreaseCode: 77830 (>L:CEVENT, Number)
+          maxSteps: 5
+          readback:
+            fieldId: controls.flapsHandle
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+            readyWhen:
+              fieldId: controls.flapsSettled
+              expectedValue: true
+              freshness: field
+      verification: partial
+    controls.spoilers.set:
+      id: controls.spoilers.set
+      input:
+        type: number
+        min: 0
+        max: 3
+        step: 1
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: controls.spoilersArmed
+            expectedValue: false
+            freshness: field
+      routes:
+        - id: md11.controls.spoilers.set.event
+          transport: mobiflight-calculator
+          mode: step-to-target
+          increaseCode: 77828 (>L:CEVENT, Number)
+          decreaseCode: 77853 (>L:CEVENT, Number)
+          maxSteps: 3
+          readback:
+            fieldId: controls.spoilersPosition
+            expectedInput: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    controls.spoilers.arm:
+      id: controls.spoilers.arm
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+          - fieldId: controls.spoilersPosition
+            expectedValue: 0
+            freshness: field
+      routes:
+        - id: md11.controls.spoilers.arm.event
+          transport: mobiflight-calculator
+          code: 77829 (>L:CEVENT, Number)
+          readback:
+            fieldId: controls.spoilersArmed
+            expectedValue: true
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+    controls.spoilers.disarm:
+      id: controls.spoilers.disarm
+      guard:
+        groupId: md11.cevent
+        cooldownMs: 400
+        retry: never
+        requires:
+          - fieldId: systems.busVoltage
+            freshness: field
+            min: 90
+            max: 130
+      routes:
+        - id: md11.controls.spoilers.disarm.event
+          transport: mobiflight-calculator
+          code: 77829 (>L:CEVENT, Number)
+          readback:
+            fieldId: controls.spoilersArmed
+            expectedValue: false
+            freshness: field
+            timeoutMs: 3000
+      verification: partial
+  behavior:
+    lightingOverlay:
+      snapshotStatus: running
+      freshnessMs: 2500
+      futureToleranceMs: 5000
+      inputs:
+        nav:
+          key: aircraft_specific_lights_nav
+          allowed:
+            - 0
+            - 1
+        beacon:
+          key: aircraft_specific_lights_beacon
+          allowed:
+            - 0
+            - 1
+        strobe:
+          key: aircraft_specific_lights_strobe
+          allowed:
+            - 0
+            - 1
+        logo:
+          key: aircraft_specific_lights_logo
+          allowed:
+            - 0
+            - 1
+        left:
+          key: aircraft_specific_lights_landing_left_position
+          allowed:
+            - 0
+            - 1
+            - 2
+        right:
+          key: aircraft_specific_lights_landing_right_position
+          allowed:
+            - 0
+            - 1
+            - 2
+        nose:
+          key: aircraft_specific_lights_nose_position
+          allowed:
+            - 0
+            - 1
+            - 2
+        turnLeft:
+          key: aircraft_specific_lights_turnoff_left
+          allowed:
+            - 0
+            - 1
+        turnRight:
+          key: aircraft_specific_lights_turnoff_right
+          allowed:
+            - 0
+            - 1
+        power:
+          key: aircraft_specific_systems_bus_voltage
+          min: 90
+          max: 130
+          coerceNumber: true
+      outputs:
+        nav:
+          any:
+            - input: nav
+              equals: 0
+        beacon:
+          any:
+            - input: beacon
+              equals: 0
+        strobe:
+          any:
+            - input: strobe
+              equals: 0
+        logo:
+          any:
+            - input: logo
+              equals: 1
+        landing:
+          any:
+            - input: left
+              equals: 2
+            - input: right
+              equals: 2
+        taxi:
+          any:
+            - input: nose
+              equals: 1
+            - input: nose
+              equals: 2
+        turnoff:
+          any:
+            - input: turnLeft
+              equals: 1
+            - input: turnRight
+              equals: 1
+  catalogue:
+    order: 17
+    legacyExports:
+      TFDI_MD_11_ADAPTER_ID:
+        kind: id
+        order: 56
+      TFDI_MD_11_INTEGRATION:
+        kind: integration
+        order: 57
+      TFDI_MD_11_PROFILE_KEY:
+        kind: profile
+        profileKey: bundled/msfs/tfdi-md-11
+        order: 58
+profiles:
+  # Bundled profile documents retain their exact identity, inheritance and provenance.
+  bundled/msfs/tfdi-md-11:
+    $schema: ../../aircraft-profile.schema.json
+    version: 2
+    id: tfdi-md-11
+    name: TFDi Design MD-11
+    simulator: msfs
+    namespace: bundled
+    author: null
+    authorAccount: null
+    createdAt: 2026-05-14T00:00:00Z
+    updatedAt: 2026-09-25T00:00:00Z
+    visibility: public
+    extends: bundled/msfs/widebody-base
+    abstract: false
+    aircraft:
+      category: D
+      flaps:
+        _comment: Do not infer SimConnect handle indexes from MD-11 flap-angle labels. On 2026-09-25 the PW4462 Low
+          Poly Cabin reported handle index 1, handle 14.2857%, and actual angle 14.95 degrees while the
+          cockpit showed FLAPS 15. The former table incorrectly labelled this 5. Use measured physical angle,
+          or labelled raw percent when angle is unavailable, until all handle slots and Dial-a-Flap behavior
+          are verified. Landing angles remain provisional family compatibility values. See
+          docs/MD11-PROFILE-VALIDATION.md.
+        notches: []
+        landingNotches:
+          - 35
+          - 50
+      stability:
+        stabilizedGates:
+          imcRaFt: 1000
+          vmcRaFt: 500
+      engines:
+        _comment: "3 engines: 2 underwing (GE CF6-80C2D1F or PW4460/4462) + 1 centre-mounted tail-cone engine. TFDi
+          models both engine variants. EPR-based thrust management."
+        count: 3
+        type: jet
+    integration:
+      aircraftSpecific:
+        adapter: tfdi-md-11
+      matching:
+        priority: 94
+        titleContains:
+          - TFDi Design MD-11
+          - TFDi Design MD11
+          - TFDi MD-11
+          - TFDi MD11
+          - TFDi_Design_MD-11
+        titleRegex: ^(?=.*tfdi(?:[\s_/-]*design)?)(?=.*md[\s_-]*11(?:\b|_)).*$
+        configPathContains:
+          - tfdidesign-aircraft-md11
+          - tfdi_design_md-11
+          - simobjects/airplanes/tfdi_design_md-11
+        configPathRegex: (?:^|[/\\])tfdidesign-aircraft-md11(?:[/\\]|$)|(?:^|[/\\])tfdi_design_md-11(?:_[a-z0-9-]+)?(?:[/\\]|$)
+        aircraftCfg:
+          _comment: An MD11 designator is accepted only when both the aircraft title and creator identify TFDi; bare
+            MD11 metadata may identify traffic models or other MD-11 products.
+          equals:
+            icao_type_designator: MD11
+          containsAll:
+            title:
+              - TFDi Design MD-11
+              - TFDi Design MD11
+              - TFDi_Design_MD-11
+            ui_createdby:
+              - TFDi Design
+              - TFDi
+      telemetry:
+        preferred: simconnect
+        lvars:
+          autopilot: MD11_AP_STATE
+          autothrottle: MD11_ATS_STATE
+          mcp:
+            altitude: MD11_AFS_ALT
+            heading: MD11_AFS_HDG
+            speed: MD11_AFS_SPD
+            vs: MD11_AFS_VS
+        lights:
+          source: simconnect
+          _comment: Use the trusted MD-11 stable switch decoder for the overview. Live switch changes did not update the
+            standard light mask. Missing, stale or unpowered vendor readings mark the overview unavailable.
+            See docs/MD11-CONTROL-VALIDATION.md.
+          simVarReliable: false
+      controls:
+        backend: simconnect
+        genericFallback: false
+        standardSurfaceFallback: true
+        _comment: Guarded EXTCTL targets and CEVENT light, sign and minimums controls use the exact bundled adapter.
+          Generic cockpit fallback remains disabled. See docs/MD11-CONTROL-VALIDATION.md for verified scope
+          and remaining 737 coverage gaps.
+      presentation:
+        visualSupport: basic
+        lights:
+          available:
+            - beacon
+            - nav
+            - strobe
+            - landing
+            - taxi
+            - turnoff
+            - logo
+          labels:
+            beacon: BCN
+            nav: NAV
+            strobe: STRB
+            landing: LND
+            taxi: TAXI
+            turnoff: RWY TO
+            logo: LOGO
+    meta:
+      developer: TFDi Design
+      icaoType: MD11
+      platforms:
+        - msfs2020
+        - msfs2024
+      updated: 2026-09-25
+      status: partial
+      notes: "Trusted TFDi Design MD-11 monitoring and 24 guarded aircraft-specific actions: IAS/heading/altitude
+        targets, exterior-light buttons and detents, cabin signs, inHg pressure and RADIO-reference minimums.
+        Uses documented EXTCTL inputs and CEVENT events, never raw state writes. Live changed-and-restored
+        PW4462 checks, limitations and remaining 737 parity gaps: docs/MD11-CONTROL-VALIDATION.md. Earlier
+        monitoring checks: docs/MD11-PROFILE-VALIDATION.md. Other variants and airborne operation remain
+        unverified."
+    provenance:
+      sources:
+        - type: official-docs
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: TFDi MD-11 Integration Guide Variables
+          url: https://docs.tfdidesign.com/md11/integration-guide/variables
+          retrievedAt: 2026-09-25
+          notes: "Documents MD11_AFS_SPD, MD11_AFS_HDG, MD11_AFS_ALT, MD11_AFS_VS, MD11_AP_STATE, MD11_ATS_STATE,
+            MD11_ATS_CLAMP, MD11_APU_STATE, MD11_APU_N1, MD11_APU_N2, MD11_AP_IAS_MACH, MD11_AP_HDG_TRK,
+            MD11_AP_VS_FPA, MD11_AP_FT_M, MD11_V1, MD11_VR, MD11_V2, MD11_VSR, MD11_VFR; explicit
+            external-control inputs MD11_EXTCTL_FCP_SPD, MD11_EXTCTL_FCP_HDG, MD11_EXTCTL_FCP_ALT,
+            MD11_EXTCTL_CAP_BARO, MD11_EXTCTL_FO_BARO; and the control/annunciator variables consumed by the
+            adapter. Stable light polarity and selector direction were established by live transitions, not
+            names alone. See docs/MD11-CONTROL-VALIDATION.md. Additional readback variables checked against
+            this source: MD11_OVHD_LTS_HI_INT_LT, MD11_OVHD_LTS_BCN_LT, MD11_OVHD_LTS_NAV_LT,
+            MD11_OVHD_LTS_LOGO_ON_LT, MD11_OVHD_LTS_RWY_TURNOFF_L_LT, MD11_OVHD_LTS_RWY_TURNOFF_R_LT,
+            MD11_OVHD_LTS_LDG_L_SW, MD11_OVHD_LTS_LDG_R_SW, MD11_OVHD_LTS_NOSE_SW, MD11_CAP_ALTIMETER,
+            MD11_FO_ALTIMETER, MD11_OVHD_LTS_SEAT_BELTS_SW, MD11_OVHD_LTS_NO_SMOKE_SW, MD11_CAP_MINIMUMS,
+            MD11_FO_MINIMUMS, MD11_LECP_MINIMUMS_KB, MD11_RECP_MINIMUMS_KB."
+        - type: official-docs
+          name: TFDi MD-11 Integration Guide
+          url: https://docs.tfdidesign.com/md11/integration-guide
+          retrievedAt: 2026-09-25
+          notes: Defines L:CEVENT as the vendor event channel; state writes bypass aircraft integrity checks.
+            FlightFabric uses only this event channel and the explicitly documented EXTCTL inputs.
+        - type: official-docs
+          name: TFDi Design MD-11 product page
+          url: https://tfdidesign.com/products/md11
+          retrievedAt: 2026-07-19
+          notes: Confirms the canonical TFDi Design MD-11 name, MSFS 2020/2024 support, passenger and freighter
+            packages, and Boeing licensing.
+        - type: official-docs
+          name: TFDi MD-11 navigation-data troubleshooting
+          url: https://support.tfdidesign.com/support/solutions/articles/62000237255-md-11-navigation-data-troubleshooting
+          retrievedAt: 2026-07-19
+          notes: Publishes the main package folder identifier tfdidesign-aircraft-md11 used by the exact config-path
+            matcher.
+        - type: official-docs
+          name: TFDi MD-11 FS24 livery catalog
+          url: https://tfdidesign.com/downloads/liveries/md11/fs24
+          retrievedAt: 2026-07-19
+          notes: Official catalog separates GE/PW passenger/freighter variants; an official catalog archive uses the
+            SimObject family folder TFDi_Design_MD-11.
+        - type: official-docs
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: TFDi MD-11 Integration Guide Events
+          url: https://docs.tfdidesign.com/md11/integration-guide/events
+          retrievedAt: 2026-09-25
+          notes: "Documents the CEVENT IDs used for exterior-light press/release, landing/nose detents, cabin signs and
+            minimums wheels. Reversible live transition evidence and event table:
+            docs/MD11-CONTROL-VALIDATION.md."
+        - type: official-sdk
+          authority: aircraft-vendor
+          access: public
+          supportsActiveMappings: true
+          name: TFDi MD-11 requested surface and FCP event contract
+          url: https://docs.tfdidesign.com/md11/integration-guide/events
+          retrievedAt: 2026-10-17
+          notes: "Vendor CEVENT contract and variables, cross-checked on 2026-10-17 with TFDi Design MD-11 PW4462 (Low
+            Poly Cabin) in MSFS 2024. Autobrake 82212 increases and 82211 decreases MD11_CTR_AUTOBRAKE_SW: T.O.=0,
+            OFF=1, MIN=2, MED=3, MAX=4. All selections and restoration passed through the production command service;
+            repeat MED sent no writes. Flap 77831 increases and 77830 decreases MD11_FLAP_RNG: UP=0, 0/EXT=20, 28=70,
+            35=82, 50=100. Dial-a-Flap 10, 15 and displayed 25 yielded 38, 46.91 and 64.73 with dial animation 0, 33 and
+            99. The variable detent is decoded in a bounded 38-65 interval; 65 is the endpoint inferred from the
+            observed linear span, not a separately observed selector value. A moving lever can traverse the takeoff
+            interval; confirmation requires a fresh MD11_FLAP_LATCH=0 sample at least as recent as the handle sample.
+            The final production run selected 0/EXT, TAKEOFF, 28, 35, 50 and restored TAKEOFF, with independently
+            settled surface angles. UP was observed as the initial no-op baseline; its transition after the
+            settled-readback correction remains untested. Spoiler 77828 increases, 77853 decreases MD11_SPDBRK_RNG:
+            RET=0, 1/3=17.5, 2/3=25, FULL=32.5; ground overtravel is excluded. MD11_SPDBRK_HANDLE 0 is disarmed and 1
+            armed; standard SPOILERS ARMED did not follow disarming. Left button 77829 arm/disarm and same-state no-op
+            passed. Production FULL from armed first confirmed disarm, then stepped to FULL; all intermediate choices
+            and RET restoration passed. FCP pairs FMS SPD 86088/86089, NAV 86090/86091, APPR LAND 86092/86093,
+            AUTOFLIGHT 86094/86095, PROF 86096/86097 press/release once and acknowledge delivery without claiming
+            engagement; live FMA acceptance remains pending. The vendor forward-panel guide defines AUTOFLIGHT as ATS on
+            ground and AP/ATS airborne; no independent AP/ATS toggle or ATS-state enum is inferred. All actions share
+            the CEVENT lock and fresh power guard. These are selector checks, not airborne or automatic-braking
+            qualification. See docs/MD11-CONTROL-VALIDATION.md for exact evidence and pending acceptance."
+      verification:
+        status: partial
+        lastVerified: 2026-09-25
+        knownIssues:
+          - The MSFS 2024 title TFDi Design MD-11 PW4462 (Low Poly Cabin) and parked readbacks were observed
+            on 2026-09-25. Installed package version, other variants and airborne behavior remain unverified.
+            See docs/MD11-PROFILE-VALIDATION.md.
+          - Generic LIGHT STATES did not follow live switch changes. The overview now uses fresh, powered
+            vendor switch selections and hides availability when these are missing. Minimums direct EXTCTL
+            writes did not confirm, so bounded CEVENT wheel events are used. The centre-body gear has no
+            verified separate binding.
+          - Flap and gear operating limits remain provisional MD-11-family compatibility values until
+            cross-checked against redistributable public-source or vendor data for the target add-on
+            configuration.
+    _comment: TFDi Design MD-11 for MSFS 2020 and 2024. Payware wide-body tri-jet (Boeing Officially Licensed)
+      with GE CF6-80C2D1F or PW4460/4462 passenger/freighter variants. The exact-profile page offers guarded
+      core controls through documented EXTCTL inputs and CEVENT events, with independent vendor readback; it
+      does not write raw state/control LVARs. Flap and gear speed values remain provisional pending
+      redistributable public-source or vendor verification.

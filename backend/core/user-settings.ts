@@ -69,6 +69,7 @@ let retiredLocalProfileWarningEmitted = false;
 
 // Default settings with documentation
 const DEFAULT_SETTINGS: SettingsObject = {
+  onboarding: { completed: false },
   // Schema version for forward compatibility
   _version: CURRENT_SETTINGS_VERSION,
   _description: 'FlightFabric user settings. Edit values below and restart the app.',

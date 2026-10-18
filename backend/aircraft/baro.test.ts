@@ -1,8 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { captureBaroState, executeBaroTransaction } = require('./aircraft-integrations/fbw-a32nx/baro-control');
-const { baroField, BARO_HPA_PER_INHG } = require('./aircraft-integrations/fbw-a32nx/baro');
-const { defaultAircraftIntegrationRegistry, createAircraftIntegrationRegistry } = require('./aircraft-integrations');
+const { captureStagedControlState, executeStagedControl } = require('./staged-control-execution');
+const { defaultAircraftIntegrationRegistry, createAircraftIntegrationRegistry } = require('./integration-engine');
 const { buildAircraftControlCapabilities } = require('./aircraft-control-service');
 const { SimConnectTelemetryProvider } = require('../telemetry-provider/simconnect-telemetry-provider');
 const { LvarSidecarBridge } = require('../telemetry-provider/lvar-sidecar-bridge');
@@ -10,6 +9,28 @@ const loader = require('./aircraft-profile-loader');
 const PROFILE = { id: 'fbw-a32nx', simulator: 'msfs', _profileKey: 'bundled/msfs/fbw-a32nx',
   integration: { aircraftSpecific: { adapter: 'fbw-a32nx' }, controls: { genericFallback: false } } };
 const capabilities = { actionTypes: ['aircraft-integration'], integrationTransports: ['simconnect-sequence'] };
+
+// Independent simulator fixture conversions and logical field names, not imported authoring helpers.
+const BARO_HPA_PER_INHG = 33.863886666667;
+const baroField = (side, property) => property === 'unitInHg'
+  ? `flightGuidance.baroUnit${side === 'captain' ? 'Captain' : 'FirstOfficer'}` : `baro.${side}.${property}`;
+const routeFor = (target, operation) => defaultAircraftIntegrationRegistry.resolveForProfile(PROFILE._profileKey)
+  .actions[`baro.${target}.${operation}`].routes[0];
+
+// Exercise the neutral engine with the existing independent physical fixtures.
+// Exact public response adaptation remains covered by unchanged provider parity tests.
+async function executeRecipe(params) {
+  const route = routeFor(params.target, params.operation);
+  return executeStagedControl({ ...params, recipe: route.stagedControl, capture: () => {
+    const state = params.capture();
+    return state && { available: state.healthy, targets: Object.fromEntries(Object.entries(state.sides).map(([id, s]: [string, any]) =>
+      [id, { values: { mode: s.mode, valueMode: s.valueMode, value: s.value, unitInHg: s.unitInHg }, times: s.updatedAt }])) };
+  }, write: (id, key) => {
+    const op = route.operations[route.stagedControl.targets.find(t => t.id === id).writes[key]];
+    const value = op.inputValue ? Math.round(params.value * op.inputValue.scale) : op.value;
+    return op.type === 'event' ? params.sendEvent(op.name, value) : params.setNamedVar({ name: op.name, unit: op.unit, value });
+  } });
+}
 
 function harness() {
   let time = 1000, active = true;
@@ -41,28 +62,78 @@ function harness() {
     },
   };
   return { params, state, calls, advance: (ms) => { time += ms; },
-    run: (overrides = {}) => executeBaroTransaction({ ...params, ...overrides }), retire: () => { active = false; } };
+    run: (overrides = {}) => executeRecipe({ ...params, ...overrides }), retire: () => { active = false; } };
 }
+
+test('neutral staged recipe consumes explicit false/zero values, confirmed transitions and single increments', async () => {
+  const { hasValidStagedControl } = require('./staged-control-contract');
+  const conditions = [{ property: 'enabled', equals: false }, { property: 'setting', equals: 1 }, { property: 'count', input: true, scale: 1 }];
+  const recipe = {
+    sampling: 'raw', freshnessMs: 2000, prerequisites: [{ fieldId: 'utility.inhibit', type: 'boolean01', equals: false }],
+    targets: ['alpha', 'beta'].map((id, index) => ({ id, observations: {
+      enabled: { fieldId: `utility.${id}.enabled`, type: 'boolean01' },
+      setting: { fieldId: `utility.${id}.setting`, type: 'enum', values: [0, 1, 2] },
+      count: { fieldId: `utility.${id}.count`, type: 'number' },
+    }, writes: { disable: index * 4, select: index * 4 + 1, minus: index * 4 + 2, plus: index * 4 + 3 } })),
+    input: { min: 0, max: 10, step: 1, scale: 1, validation: 'scaled-integer' },
+    stages: [
+      { kind: 'ensure', phase: 'configuration', property: 'enabled', conditions: [conditions[0]], write: 'disable', confirmation: 'affected', invalidate: 'count',
+        freeze: { conditions: [conditions[0]], message: 'Configuration changed.' } },
+      { kind: 'transition', phase: 'selection', property: 'setting', conditions: [conditions[1]], write: 'select', maxTransitions: 2,
+        completion: [conditions[1]], invalidate: 'count', freeze: { conditions: [conditions[1]], message: 'Selection changed.' } },
+      { kind: 'step', phase: 'quantity', property: 'count', conditions: [conditions[2]], decrease: 'minus', increase: 'plus', scale: 1, min: 0, max: 10, maxSteps: 11 },
+    ], final: conditions, timing: { readbackTimeoutMs: 2500, pollMs: 50, totalTimeoutMs: 25000 },
+    errors: Object.fromEntries(['staleContext', 'failed', 'unavailable', 'transportRejected', 'writeRejected', 'invalidInput', 'timeout',
+      'timeLimit', 'finalChanged', 'outOfRange', 'missingValue', 'unexpectedStep', 'valueChanged'].map(key => [key, `${key}: {phase}`])),
+  };
+  const fields = Object.fromEntries(['utility.inhibit', ...recipe.targets.flatMap(t => Object.values(t.observations).map(o => o.fieldId))].map(id => [id, { id }]));
+  const route = { stagedControl: recipe, transport: 'mobiflight-calculator', mode: 'staged-control', codes: Array.from({ length: 8 }, (_, i) => `write ${i}`),
+    readbacks: [{ fieldId: 'utility.inhibit', expectedValue: false, timeoutMs: 2500 }, ...recipe.targets.flatMap(t => conditions.map(c => ({
+      fieldId: t.observations[c.property].fieldId, ...(c.input ? { expectedInput: true } : { expectedValue: c.equals }), timeoutMs: 2500,
+    })))],
+  };
+  assert.equal(hasValidStagedControl({ fields }, { guard: { retry: 'never' }, input: { type: 'number', min: 0, max: 10, step: 1 } }, route), true);
+  let now = 1000;
+  const states = Object.fromEntries(recipe.targets.map(t => [t.id, { enabled: true, setting: 0, count: 2 }]));
+  const calls = [];
+  const capture = () => captureStagedControlState(recipe, { decoded: () => null, raw: field => {
+    const [, id, property] = field.split('.');
+    return { value: field === 'utility.inhibit' ? 0 : states[id][property], updatedAt: new Date(now).toISOString() };
+  } }, now);
+  const result = await executeStagedControl({ recipe, value: 0, isCurrent: () => true, capture, now: () => now,
+    sleep: async ms => { now += ms; }, write: async (id, key) => {
+      calls.push([id, key]); now++;
+      if (key === 'disable') states[id].enabled = false;
+      if (key === 'select') states[id].setting = states[id].setting === 0 ? 2 : 1;
+      if (key === 'minus') states[id].count--;
+      return { ok: true };
+    } });
+  assert.deepEqual(result, { ok: true, code: 'executed', confirmedTargets: ['alpha', 'beta'] });
+  assert.deepEqual(calls, [['alpha', 'disable'], ['beta', 'disable'], ['alpha', 'select'], ['beta', 'select'],
+    ['alpha', 'select'], ['beta', 'select'], ['alpha', 'minus'], ['beta', 'minus'], ['alpha', 'minus'], ['beta', 'minus']]);
+  assert.deepEqual(states, { alpha: { enabled: false, setting: 1, count: 0 }, beta: { enabled: false, setting: 1, count: 0 } });
+});
 
 test('barometer samples require fresh independent timestamps, valid modes, units and FCU health', () => {
   const samples: any = { 'baro.healthy': { value: 1, updatedAt: new Date(1000).toISOString() } };
   for (const side of ['captain', 'firstOfficer']) for (const [p, value] of Object.entries({ mode: 1, valueMode: 1, value: 1013, unitInHg: 0 })) {
     samples[baroField(side, p)] = { value, updatedAt: new Date(1000).toISOString() };
   }
-  const capture = (target = 'both', now = 1000) => captureBaroState(target, (id) => samples[id], now);
-  assert.equal(capture().healthy, true);
+  const capture = (target = 'both', now = 1000) => captureStagedControlState(routeFor(target, 'qnhHpa').stagedControl,
+    { raw: (id) => samples[id], decoded: () => null }, now);
+  assert.equal(capture().available, true);
   assert.equal(capture('both', 3001), null); assert.equal(capture('both', 999), null);
   samples['baro.firstOfficer.mode'].updatedAt = null;
   assert.equal(capture(), null); assert.ok(capture('captain'));
   samples['baro.captain.mode'].value = 3; assert.equal(capture('captain'), null);
-  samples['baro.captain.mode'].value = 1; samples['baro.healthy'].value = 0; assert.equal(capture('captain').healthy, false);
+  samples['baro.captain.mode'].value = 1; samples['baro.healthy'].value = 0; assert.equal(capture('captain').available, false);
 });
 
 test('both pressure writes are dispatched before waiting and each selected side confirms', async () => {
   const h = harness(), queued = [];
   const result = await h.run({ sendEvent: async (name, value) => { queued.push({ name, value }); return { ok: true }; },
     sleep: async (ms) => { assert.equal(queued.length, 2); for (const item of queued.splice(0)) await h.params.sendEvent(item.name, item.value); await h.params.sleep(ms); } });
-  assert.equal(result.ok, true); assert.deepEqual(result.baro.confirmedSides, ['captain', 'firstOfficer']);
+  assert.equal(result.ok, true); assert.deepEqual(result.confirmedTargets, ['captain', 'firstOfficer']);
   assert.deepEqual(h.calls, ['L', 'R'].map((s) => ({ name: `A32NX.FCU_EFIS_${s}_BARO_SET`, value: 16256 })));
   assert.equal((await h.run()).noOp, true); assert.equal(h.calls.length, 2);
 });
@@ -153,7 +224,7 @@ test('QNH cannot confirm cached pressure digits from before leaving STD or QFE, 
       return ack;
     } });
     assert.equal(result.ok, refresh === 'both', `${mode}/${linked}/${refresh}: ${JSON.stringify(result)}`);
-    assert.deepEqual(result.baro.confirmedSides, refresh === 'both' ? ['captain', 'firstOfficer']
+    assert.deepEqual(result.confirmedTargets, refresh === 'both' ? ['captain', 'firstOfficer']
       : refresh === 'captain' ? ['captain'] : []);
     assert.equal(h.calls.filter((call) => call.name.endsWith('_SET')).length, 2,
       'each side needs a pressure write or a fresh pressure observation after its mode change');
@@ -182,7 +253,7 @@ test('missing peer mode observations stop a QNH request before another possibly 
   for (const side of ['captain', 'firstOfficer']) h.state.sides[side].mode = 2;
   const result = await h.run({ sleep: async (ms) => { h.advance(ms); } });
   assert.equal(result.ok, false);
-  assert.equal(result.code, 'baro_readback_timeout');
+  assert.equal(result.code, 'readback_timeout');
   assert.deepEqual(h.calls.map((call) => call.name), ['A32NX.FCU_EFIS_L_BARO_PUSH']);
 });
 
@@ -205,8 +276,8 @@ test('one responding altimeter cannot report both success; absent and old readba
       if (name.includes('_L_')) return h.params.sendEvent(name, value);
       h.calls.push({ name, value }); return { ok: true };
     } });
-    assert.equal(result.ok, false); assert.equal(result.code, 'baro_readback_timeout');
-    assert.deepEqual(result.baro.confirmedSides, ['captain']); assert.equal(h.calls.length, 2);
+    assert.equal(result.ok, false); assert.equal(result.code, 'readback_timeout');
+    assert.deepEqual(result.confirmedTargets, ['captain']); assert.equal(h.calls.length, 2);
   }
   const h = harness(); h.state.sides.captain.mode = h.state.sides.captain.valueMode = 0;
   assert.equal((await h.run({ sendEvent: async (name, value) => { h.calls.push({ name, value }); return { ok: true }; } })).ok, false);
@@ -214,7 +285,7 @@ test('one responding altimeter cannot report both success; absent and old readba
   const old = harness();
   const stale = await old.run({ sendEvent: async () => { old.state.sides.captain.value = old.state.sides.firstOfficer.value = 1016; return { ok: true }; } });
   assert.equal(stale.ok, false);
-  assert.deepEqual(stale.baro.confirmedSides, [], 'stale pressure cannot be reported as a confirmed side after a failed write');
+  assert.deepEqual(stale.confirmedTargets, [], 'stale pressure cannot be reported as a confirmed side after a failed write');
 });
 
 test('invalid input, stale state, lost power, rejection, profile changes and correlated native exceptions stop writes', async () => {
@@ -238,15 +309,32 @@ test('real sidecar validation accepts exact A32NX barometer events and unit sett
   assert.equal(result.ok, true); assert.equal(h.calls.length, 4);
 });
 
-test('trusted A32NX-only contracts reject changed mappings, pressure bounds or guards', () => {
+test('trusted A32NX barometer recipes retain independent write, limit and shared-guard expectations', () => {
   for (const profile of [PROFILE, { ...PROFILE, _profileKey: 'local/msfs/fbw-a32nx' }, { id: 'generic', simulator: 'msfs' }]) {
     const commands = buildAircraftControlCapabilities(profile, { capabilities }).aircraftCommands.commands.filter((c) => c.id.startsWith('baro.'));
     assert.equal(commands.length, profile === PROFILE ? 9 : 0);
   }
   const source = defaultAircraftIntegrationRegistry.resolveForProfile(PROFILE._profileKey);
-  for (const change of [(a) => { a.routes[0].operations[2].name = 'KOHLSMAN_SET'; }, (a) => { a.input.max = 1200; }, (a) => { a.guard.groupId = 'other.group'; }]) {
+  for (const target of ['captain', 'firstOfficer', 'both']) for (const operation of ['qnhHpa', 'qnhInHg', 'std']) {
+    const action = source.actions[`baro.${target}.${operation}`], inHg = operation === 'qnhInHg', std = operation === 'std';
+    const sides = target === 'both' ? ['L', 'R'] : [target === 'captain' ? 'L' : 'R'];
+    assert.deepEqual(action.guard, { groupId: 'fbwA32nx.baro', cooldownMs: 750, retry: 'never' });
+    assert.deepEqual(action.input, std ? undefined : { type: 'number', min: inHg ? 27.99 : 948, max: inHg ? 32.01 : 1084, step: inHg ? .01 : 1 });
+    assert.deepEqual(action.routes[0].operations, sides.flatMap(side => std
+      ? [{ type: 'event', name: `A32NX.FCU_EFIS_${side}_BARO_PULL`, value: 0 }]
+      : [{ type: 'lvar', name: `L:A32NX_FCU_EFIS_${side}_BARO_IS_INHG`, unit: 'Number', value: inHg ? 1 : 0 },
+        { type: 'event', name: `A32NX.FCU_EFIS_${side}_BARO_PUSH`, value: 0 },
+        { type: 'event', name: `A32NX.FCU_EFIS_${side}_BARO_SET`, inputValue: { source: 'input', scale: 16 * (inHg ? 33.863886666667 : 1), round: 'nearest' } }]));
+  }
+  for (const change of [(a) => { a.routes[0].stagedControl.targets[0].writes.setValue = 99; },
+    (a) => { a.input.max = 1200; }, (a) => { a.guard.retry = 'automatic'; },
+    (a) => { a.routes[0].stagedControl.targets[0].observations.mode.fieldId = 'missing.mode'; },
+    (a) => { a.routes[0].stagedControl.stages[1].property = 'missing'; },
+    (a) => { a.routes[0].stagedControl.targets[1].id = 'captain'; },
+    (a) => { a.routes[0].stagedControl.final[0].equals = 2; },
+  ]) {
     const invalid = structuredClone(source); change(invalid.actions['baro.both.qnhHpa']);
-    assert.throws(() => createAircraftIntegrationRegistry([invalid]), /barometer contract/i);
+    assert.throws(() => createAircraftIntegrationRegistry([invalid]), /barometer|staged.control|dispatch guard|invalid action/i);
   }
 });
 

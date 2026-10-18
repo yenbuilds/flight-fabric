@@ -18,6 +18,10 @@ module.exports = async function checkAircraftSections({ win, evaluate, settled, 
   try {
     for (const id of ['pmdg-737', 'pmdg-777', 'fenix-a320', 'fbw-a32nx', 'fbw-a380x']) {
       await evaluate(`sessionStorage.clear(); await layoutTest.scenario(${JSON.stringify(id)});`);
+      const expectedTemplate = id === 'fenix-a320' ? 'fenix-a32x' : id;
+      const mountedTemplate = await settled(`return document.querySelector('[data-aircraft-template]')?.getAttribute('data-aircraft-template');`,
+        value => value === expectedTemplate);
+      assert.equal(mountedTemplate, expectedTemplate, `${id}: requested aircraft template is mounted before reading section choices`);
       for (const width of [1440, 390, 320]) {
         win.setContentSize(width, 900);
         await wait(100);

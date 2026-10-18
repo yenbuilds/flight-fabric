@@ -106,7 +106,8 @@ async function main() {
   const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
   const { buildAircraftControlCapabilities } = require(resolveBackendRuntimeFile('aircraft/aircraft-control-service.js'));
   const { normalizeProfileDocument, finalizeLoadedProfile } = require(resolveBackendRuntimeFile('aircraft/aircraft-profile-model.js'));
-  const profile = finalizeLoadedProfile(normalizeProfileDocument(JSON.parse(fs.readFileSync(path.join(ROOT, 'backend/aircraft/profiles/bundled/msfs/fbw-a32nx.json'), 'utf8'))));
+  const { readBundledProfile } = require(resolveBackendRuntimeFile('aircraft/aircraft-profile-sources.js'));
+  const profile = finalizeLoadedProfile(normalizeProfileDocument(readBundledProfile('bundled/msfs/fbw-a32nx', path.join(ROOT, 'backend/aircraft/aircraft-integrations'))));
   profile._profileKey = 'bundled/msfs/fbw-a32nx';
   const capabilities = buildAircraftControlCapabilities(profile, { profileRevision: 1,
     capabilities: { actionTypes: ['aircraft-integration'], integrationTransports: ['simconnect-sequence'] } });

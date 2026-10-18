@@ -1,12 +1,17 @@
-import { getTriStarKeyEventPolicy } from './aircraft-integrations/inibuilds-tristar/key-event-policy.js';
-import { getPmdg777ReadbackFailureHint } from './aircraft-integrations/pmdg-777/control-feedback.js';
+const { defaultAircraftIntegrationRegistry } = require('./integration-engine');
 
 /** Compatibility policy for already-validated profile key-event requests. */
 export function resolveProfileKeyEventPolicy(profileKey: string, eventName: string) {
-  return getTriStarKeyEventPolicy(profileKey, eventName);
+  const definition = defaultAircraftIntegrationRegistry.resolveForProfile(profileKey);
+  const policy = definition?.trustedProfileKeys.includes(profileKey) ? definition.behavior?.keyEventPolicy : null;
+  const groupId = policy && Object.hasOwn(policy.eventGroups, eventName) ? policy.eventGroups[eventName] : null;
+  return groupId ? { groupId, cooldownMs: policy.cooldownMs,
+    inFlightError: policy.inFlightError, cooldownError: policy.cooldownError } : null;
 }
 
 /** Aircraft advice supplements a failed readback; it never authorizes a write. */
 export function getAircraftReadbackFailureHint(adapterId: string, actionId: string): string {
-  return adapterId === 'pmdg-777' ? getPmdg777ReadbackFailureHint(actionId) : '';
+  const definition = defaultAircraftIntegrationRegistry.getById(adapterId);
+  const hints = definition?.id === adapterId ? definition.behavior?.readbackFailureHints : null;
+  return hints?.find(hint => actionId.startsWith(hint.actionPrefix))?.text || '';
 }

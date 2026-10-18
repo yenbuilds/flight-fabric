@@ -85,6 +85,7 @@ function run() {
     assertEqual(Object.hasOwn(mod.settings, 'performance'), false, 'performance poll-rate setting is retired');
     assertEqual(Object.hasOwn(mod.settings, 'advanced'), false, 'backend debug setting is not user-configurable');
     assertEqual(mod.settings.recording.autoStart, true, 'recording.autoStart default');
+    assertEqual(mod.settings.onboarding.completed, false, 'new installations require preference setup');
     assertEqual(Object.hasOwn(mod.settings.recording, 'maxFlights'), false, 'recording.maxFlights is retired');
     assertEqual(Object.hasOwn(mod.settings.recording, 'maxStorageMB'), false, 'recording.maxStorageMB is retired');
     assertEqual(mod.settings.cabinAnnouncements.startupGraceMs, 5000, 'cabinAnnouncements.startupGraceMs default');

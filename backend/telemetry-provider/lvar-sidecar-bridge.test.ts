@@ -28,6 +28,7 @@ type LvarSidecarBridgeTestInstance = {
   isEnabled: () => boolean;
   getSnapshot: () => {
     source: string;
+    status: string;
     inputEventsAvailable?: boolean;
     error: string | null;
     snapshotSequence?: number;
@@ -1038,6 +1039,72 @@ test('LvarSidecarBridge recovers when disconnected subscription changes coalesce
 
     assert.deepEqual(bridge.getSnapshot().values, { latest: 50 });
     assert.equal(bridge.getSnapshot().updatedAt, '2026-07-14T00:00:02.000Z');
+  });
+});
+
+test('LvarSidecarBridge resumes confirmed subscriptions after temporary native all-null health status', () => {
+  withPatchedBridge({}, (LvarSidecarBridge) => {
+    const bridge = new LvarSidecarBridge();
+    bridge.isEnabled = () => false; // No helper process or native connection in this protocol regression.
+    const emit = (message: Record<string, unknown>) => bridge._onStdout(`${JSON.stringify(message)}\n`);
+    bridge.setSubscriptions([{ key: 'selector', expression: '(L:TEST_SELECTOR)', unit: 'Number' }], 'test-aircraft');
+    emit({ type: 'status', state: 'subscriptions_updated', subscriptionGeneration: 1 });
+    emit({ type: 'snapshot', values: { selector: 0 }, subscriptionGeneration: 1,
+      timestampIso: '2026-10-13T08:10:00.000Z' });
+    assert.equal(bridge.getSnapshot().status, 'running');
+
+    // The native loop emits this health status after 30 all-null 200 ms ticks.
+    // Values may return while an aircraft loads, before its 150-tick retry.
+    for (let tick = 1; tick <= 30; tick++) {
+      emit({ type: 'snapshot', values: { selector: null }, subscriptionGeneration: 1,
+        timestampIso: new Date(Date.parse('2026-10-13T08:10:00.000Z') + tick * 200).toISOString() });
+    }
+    emit({ type: 'status', state: 'connecting', error: 'LVAR values unavailable yet (aircraft variable not updating)' });
+    assert.equal(bridge.getSnapshot().status, 'connecting');
+    assert.deepEqual(bridge.getSnapshot().values, {});
+    assert.equal(bridge.getSnapshot().updatedAt, null, 'unavailable health must not preserve a fresh prior sample');
+
+    // Once values return, native health cancels re-registration. It emits no
+    // new subscriptions_updated ACK because the original set remains applied.
+    emit({ type: 'snapshot', values: { selector: 1 }, subscriptionGeneration: 1,
+      timestampIso: '2026-10-13T08:10:06.200Z' });
+    assert.equal(bridge.getSnapshot().status, 'running');
+    assert.deepEqual(bridge.getSnapshot().values, { selector: 1 });
+    assert.equal(bridge.getSnapshot().updatedAt, '2026-10-13T08:10:06.200Z');
+    assert.equal(bridge.getSnapshot().snapshotSequence, 32);
+  });
+});
+
+test('LvarSidecarBridge still requires current subscription acknowledgement across real reconnect and error boundaries', () => {
+  withPatchedBridge({}, (LvarSidecarBridge) => {
+    const bridge = new LvarSidecarBridge();
+    bridge.isEnabled = () => false;
+    const emit = (message: Record<string, unknown>) => bridge._onStdout(`${JSON.stringify(message)}\n`);
+    const snapshot = { type: 'snapshot', values: { selector: 1 }, subscriptionGeneration: 1,
+      timestampIso: '2026-10-13T08:10:00.000Z' };
+    const acknowledge = { type: 'status', state: 'subscriptions_updated', subscriptionGeneration: 1 };
+    bridge.setSubscriptions([{ key: 'selector', expression: '(L:TEST_SELECTOR)', unit: 'Number' }], 'test-aircraft');
+    emit(acknowledge);
+    emit(snapshot);
+    for (const state of ['disconnected', 'connected', 'error']) {
+      emit({ type: 'status', state });
+      emit({ type: 'status', state: 'connecting', error: 'LVAR values unavailable yet (aircraft variable not updating)' });
+      emit(snapshot);
+      assert.deepEqual(bridge.getSnapshot().values, {}, `${state} must retain its pending acknowledgement`);
+      assert.equal(bridge.getSnapshot().updatedAt, null);
+      emit(acknowledge);
+      emit(snapshot);
+      assert.equal(bridge.getSnapshot().status, 'running');
+      assert.deepEqual(bridge.getSnapshot().values, { selector: 1 });
+    }
+    bridge.setSubscriptions([{ key: 'replacement', expression: '(L:TEST_REPLACEMENT)', unit: 'Number' }], 'replacement');
+    emit({ type: 'status', state: 'connecting' });
+    emit(acknowledge);
+    emit(snapshot);
+    assert.deepEqual(bridge.getSnapshot().values, {}, 'health changes cannot revive a retired subscription generation');
+    emit({ type: 'status', state: 'subscriptions_updated', subscriptionGeneration: 2 });
+    emit({ ...snapshot, values: { replacement: 0 }, subscriptionGeneration: 2 });
+    assert.deepEqual(bridge.getSnapshot().values, { replacement: 0 });
   });
 });
 

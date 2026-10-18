@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { SimConnectTelemetryProvider } = require('./simconnect-telemetry-provider');
-const { createAircraftIntegrationRegistry, defaultAircraftIntegrationRegistry } = require('../aircraft/aircraft-integrations');
+const { createAircraftIntegrationRegistry, defaultAircraftIntegrationRegistry } = require('../aircraft/integration-engine');
 
 // Synthetic definition isolates transport confirmation from aircraft mappings.
 const adapterId = 'native-input-test';
@@ -185,6 +185,100 @@ test('native SimVar confirmation requires a newer field sample, not an unrelated
   snapshot.valueUpdatedAt.flapsIndex = snapshot.updatedAt;
   f.provider._connected = false;
   assert.equal(capture().fresh, false);
+});
+
+// Use bundled fields and the production decoder/subscription keys. These tests
+// verify request semantics; they do not establish live aircraft response.
+function mappedFixture(key, initial, options: any = {}) {
+  const loader = require('../aircraft/aircraft-profile-loader');
+  loader.setActiveProfile(key);
+  const config = loader.getAircraftSpecificConfig();
+  const provider = new SimConnectTelemetryProvider(); provider._connected = true; provider._simRunning = true;
+  provider._lastDetectedAircraftTitle = `SimObjects\\Airplanes\\${config.integrationId}\\aircraft.CFG`;
+  provider._getActiveAircraftIntegrationConfig = () => config;
+  const stamp = new Date(Date.now() - 100).toISOString();
+  const snapshot: any = { profileId: key, status: 'running', inputEventsAvailable: true, snapshotSequence: 1,
+    values: {}, valueUpdatedAt: {}, updatedAt: stamp,
+    mobiflight: { connected: true, available: true, state: 'connected' } };
+  const native: any = { status: 'running', valueUpdatedAt: { flaps: stamp }, updatedAt: stamp };
+  provider._rustSimvarBridge = { getSnapshot: () => native }; provider._rustSimvarSnapshotSequence = 1;
+  let tick = Date.now() - 100;
+  const publish = (id, value, fresh = true) => {
+    const field = config.confirmationFields.find(f => f.id === id);
+    assert.ok(field, id);
+    const time = new Date(++tick).toISOString();
+    if (field.source.type === 'simvar') {
+      assert.equal(field.source.name, 'FLAPS HANDLE PERCENT');
+      provider._data.flaps = value; provider._rustSimvarSnapshotSequence++;
+      if (fresh) native.valueUpdatedAt.flaps = time;
+    } else {
+      snapshot.values[field.source.key] = value; snapshot.snapshotSequence++;
+      if (fresh) snapshot.valueUpdatedAt[field.source.key] = time;
+    }
+  };
+  Object.entries(initial).forEach(([id, value]) => publish(id, value));
+  const calls = [];
+  const bridge: any = { _started: true, getSnapshot: () => snapshot,
+    sendInputEvent: async (...args) => { calls.push(args); options.onWrite?.(publish, args); return { ok: true }; },
+    sendEvent: async (...args) => { calls.push(args); options.onWrite?.(publish, args); return { ok: true }; },
+    executeMobiFlightCode: async code => { calls.push(code); options.onWrite?.(publish, code); return { ok: true }; },
+    setNamedVar: async () => { throw Error('No raw state writes'); },
+  };
+  const wait = provider._waitForAircraftIntegrationReadback.bind(provider);
+  provider._waitForAircraftIntegrationReadback = (b, r, c, baseline) => wait(b, { ...r, timeoutMs: 15 }, c, baseline);
+  const execute = (actionId, value = undefined) => provider._executeAircraftIntegrationAction(bridge,
+    { name: config.integrationId }, 'test', { profileKey: key, profileRevision: config.profileRevision, request: { actionId, value } });
+  return { provider, snapshot, config, calls, publish, execute };
+}
+
+test('A350 landing autobrake confirms system state, suppresses repeated toggles and refuses stale or unpowered state', async () => {
+  const key = 'bundled/msfs/inibuilds-a350-1000';
+  for (const state of [0, 1]) {
+    const f = mappedFixture(key, { 'controls.autobrakeArmed': state, 'systems.busVoltage': 28 }, {
+      onWrite: publish => publish('controls.autobrakeArmed', 1),
+    });
+    const result = await f.execute('controls.autobrake.arm');
+    assert.equal(result.ok, true); assert.equal(f.calls.length, state === 1 ? 0 : 1);
+    if (f.calls.length) assert.equal(f.calls[0][0], 'AIRLINER_LDG_AUTO_BRK');
+  }
+  for (const problem of ['stale', 'unknown', 'power', 'silent']) {
+    const f = mappedFixture(key, { 'controls.autobrakeArmed': problem === 'unknown' ? 7 : 0,
+      'systems.busVoltage': problem === 'power' ? 0 : 28 });
+    if (problem === 'stale') Object.keys(f.snapshot.valueUpdatedAt).forEach(k => { f.snapshot.valueUpdatedAt[k] = '2000-01-01'; });
+    const result = await f.execute('controls.autobrake.arm');
+    assert.equal(result.ok, false, problem);
+    assert.equal(f.calls.length, problem === 'silent' ? 1 : 0, problem);
+  }
+});
+
+test('A350 flap targets confirm the selection ahead of surface travel, including UP zero', async () => {
+  for (const target of [0, 50, 100]) {
+    let current = 25;
+    const f = mappedFixture('bundled/msfs/inibuilds-a350-900', { 'controls.flapsHandle': current, 'systems.busVoltage': 28 }, {
+      onWrite: (publish, code) => { current += code.includes('_Inc') ? 25 : -25; publish('controls.flapsHandle', current); },
+    });
+    f.provider._data.flapsAngle = 0;
+    const result = await f.execute('controls.flaps.set', target);
+    assert.equal(result.ok, true); assert.equal(result.confirmedValue, target);
+    assert.equal(f.calls.length, Math.abs(target - 25) / 25);
+    assert.match(f.calls[0], /FLAPS NUM HANDLE POSITIONS.*B:AIRLINER_Flaps_(Inc|Dec)/);
+  }
+  const silent = mappedFixture('bundled/msfs/inibuilds-a350-900', { 'controls.flapsHandle': 25, 'systems.busVoltage': 28 });
+  assert.equal((await silent.execute('controls.flaps.set', 100)).ok, false);
+  assert.equal(silent.calls.length, 1, 'an unconfirmed step stops the remaining movement');
+});
+
+test('iniBuilds A380 gear uses its native handle, preserves ground inhibition and confirms selection only', async () => {
+  for (const onGround of [1, 9, 0]) {
+    const f = mappedFixture('bundled/msfs/inibuilds-a380-800-rr', {
+      'controls.onGround': onGround, 'controls.gearHandleDown': 1,
+    }, { onWrite: publish => publish('controls.gearHandleDown', 0) });
+    const result = await f.execute('controls.gear.up');
+    assert.equal(result.ok, onGround === 0); assert.equal(f.calls.length, onGround === 0 ? 1 : 0);
+    if (f.calls.length) assert.deepEqual(f.calls[0].slice(0, 2), ['AIRLINER_MIP_LG_HANDLE', 0]);
+  }
+  const same = mappedFixture('bundled/msfs/inibuilds-a380-800-rr', { 'controls.onGround': 1, 'controls.gearHandleDown': 1 });
+  assert.equal((await same.execute('controls.gear.down')).noOp, true); assert.equal(same.calls.length, 0);
 });
 
 export {};
