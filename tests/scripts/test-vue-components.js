@@ -1805,23 +1805,23 @@ async function main() {
     assert.doesNotMatch(html, /id="profiles-update-badge"/, 'retired profile administration badges should remain absent');
   });
 
-  await test('DesktopTabs keeps the experimental Flight cues surface out of primary navigation', async () => {
+  await test('DesktopTabs keeps the removed Flight cues surface out of primary navigation', async () => {
     const { html } = await renderComponent(path.join('src', 'vue', 'components', 'DesktopTabs.vue'));
-    assert.doesNotMatch(html, /data-tab="cues"/, 'Flight cues should not render as a primary workspace tab while experimental');
+    assert.doesNotMatch(html, /data-tab="cues"/, 'Flight cues should not render as a primary workspace tab after removal');
   });
 
-  await test('MobileTabs omits disabled Flight cues and its empty Experimental section', async () => {
+  await test('MobileTabs omits removed Flight cues and its empty Experimental section', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'MobileTabs.vue'),
       ({ useTabsStore }) => {
         useTabsStore().setActiveTab('cues');
-        assert.equal(useTabsStore().activeTabId, 'flight', 'disabled cues should fall back to Overview');
+        assert.equal(useTabsStore().activeTabId, 'flight', 'retired cues should fall back to Overview');
         useTabsStore().toggleMoreSheet();
       },
     );
 
     assert.match(html, /id="mobile-more-btn"/, 'normal mobile navigation remains available');
-    assert.doesNotMatch(html, /data-tab="cues"|mobile-more-experimental/, 'disabled cues leave no link or empty group');
+    assert.doesNotMatch(html, /data-tab="cues"|mobile-more-experimental/, 'retired cues leave no link or empty group');
   });
 
   console.log('\n--- fixed navigation ---\n');
@@ -2109,8 +2109,8 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render from the main Vue shell`);
     }
     assert.doesNotMatch(html, /id="tab-profiles"/, 'the retired Profiles workspace should not render in the main shell');
-    assert.doesNotMatch(html, /id="tab-cues"|id="vue-flight-cues-tab-root"|data-flight-cues-page/, 'disabled Flight Cues must not mount');
-    assert.equal(Object.hasOwn(pinia.state.value, 'flightCues'), false, 'disabled Flight Cues must not start its background store');
+    assert.doesNotMatch(html, /id="tab-cues"|id="vue-flight-cues-tab-root"|data-flight-cues-page/, 'removed Flight Cues must not mount');
+    assert.equal(Object.hasOwn(pinia.state.value, 'flightCues'), false, 'removed Flight Cues must not start its background store');
     assert.equal(sharedSettings.TAKEOFF_SCORING_ENABLED, true);
     for (const id of ['vue-takeoff-root', 'vue-last-takeoff-root', 'takeoff-card']) assert.match(html, new RegExp(`id="${id}"`), 'takeoff panels render in the normal build');
     assert.match(html, /id="tab-flight" class="tab-section active"/, 'Overview should keep the state-driven active marker for first paint');
@@ -2213,89 +2213,6 @@ async function main() {
         assert.doesNotMatch(html, /Controls paired/, 'a stored token must not imply authorization either');
       }
     } finally { delete globalThis.location; }
-  });
-
-  await test('FlightCuesTabShell renders a quiet state without an orb or unsupported command', async () => {
-    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'));
-    assert.match(html, /Flight cues/);
-    assert.match(html, /Waiting for simulator data/);
-    assert.doesNotMatch(html, /data-flight-voice-cue/);
-    assert.doesNotMatch(html, /zen-orb|zen-page/);
-  });
-
-  await test('FlightCuesTabShell presents takeoff lights before TAKEOFF and withholds them once underway', async () => {
-    const configure = ({ useStatusStore, useFlightStore, useAircraftControlsStore, useAircraftSpecificStore }) => {
-      const status = useStatusStore();
-      const flight = useFlightStore();
-      const controls = useAircraftControlsStore();
-      status.websocket = 'ready';
-      status.simConnected = true;
-      status.phase = 'TAXI';
-      status.aircraftProfile.profileKey = 'fixture-aircraft';
-      const specific = useAircraftSpecificStore();
-      specific.applyProfile({ _profileKey: 'fixture-aircraft', profileRevision: 1, aircraftSpecificTemplateId: 'fixture' });
-      specific.sourceStatus = 'connected';
-      flight.mode = 'live';
-      flight.lastLiveTelemetryAt = Date.now();
-      controls.setAvailability({ enabled: true });
-      controls.applyControlCapabilities({ aircraftCommands: {
-        configurationId: 'fixture', profileKey: 'fixture-aircraft', profileRevision: 1,
-        commands: [{
-          id: 'configuration.lights.takeoff', kind: 'preset', label: 'Takeoff lights',
-          input: { kind: 'none' }, speech: { patterns: ['set lights for takeoff'] },
-        }],
-      } });
-    };
-    const taxi = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'), configure);
-    assert.match(taxi.html, /data-flight-voice-cue/);
-    assert.match(taxi.html, /Before takeoff/);
-    assert.match(taxi.html, /set lights for takeoff/);
-
-    const disconnected = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'), stores => {
-      configure(stores); stores.useAircraftSpecificStore().sourceStatus = 'disconnected';
-    });
-    assert.doesNotMatch(disconnected.html, /data-flight-voice-cue/, 'the suggestion must not bypass the preset aircraft-data gate');
-
-    const takeoff = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'), (stores) => {
-      configure(stores);
-      stores.useStatusStore().phase = 'TAKEOFF';
-    });
-    assert.doesNotMatch(takeoff.html, /data-flight-voice-cue/);
-    assert.match(takeoff.html, /Takeoff underway/);
-  });
-
-  await test('FlightCuesTabShell renders Fenix phase choices and explains LS without offering an execute action', async () => {
-    const profileKey = 'bundled/msfs/fenix-a320';
-    const profile = lightingLoader.loadProfile(profileKey);
-    const capabilities = lightingService.buildAircraftControlCapabilities(profile, { profileRevision: 1,
-      capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration'],
-        integrationTransports: ['simconnect-sequence', 'lvar', 'mobiflight-calculator'] } });
-    for (const [phase, commandId, phrase, hint] of [
-      ['TAXI', 'surfaces.flaps.set', 'set flaps [planned takeoff detent]', 'Choose the appropriate setting: 1, 2, 3.'],
-      ['TAXI', 'surfaces.autobrake.set', 'set autobrake max', 'rejected-takeoff setting'],
-      ['APPROACH', 'surfaces.autobrake.set', 'set autobrake [planned landing setting]', 'Choose the appropriate setting: off, low, medium.'],
-      ['DESCENT', 'navigation.captain.ls', 'captain ls on', 'does not arm LOC or APPR'],
-    ]) {
-      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'FlightCuesTabShell.vue'),
-        ({ useStatusStore, useFlightStore, useAircraftControlsStore, useAircraftSpecificStore }) => {
-          const status = useStatusStore(), flight = useFlightStore(), controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
-          status.websocket = 'ready'; status.simConnected = true; status.phase = phase;
-          status.aircraftProfile.profileKey = profileKey;
-          flight.mode = 'live'; flight.lastLiveTelemetryAt = Date.now();
-          controls.setAvailability({ enabled: true });
-          controls.applyControlCapabilities({ ...capabilities, aircraftCommands: { ...capabilities.aircraftCommands,
-            commands: capabilities.aircraftCommands.commands.filter(c => c.id === commandId) } });
-          specific.applyProfile({ _profileKey: profileKey, profileRevision: 1, aircraftSpecificTemplateId: 'fenix-a32x' });
-          const updatedAt = new Date().toISOString();
-          specific.ingestState({ profileKey, profileRevision: 1, templateId: 'fenix-a32x', available: true,
-            sourceStatus: { overall: 'connected' }, updatedAt, values: { 'navigation.captain.ls': false },
-            valueUpdatedAt: { 'navigation.captain.ls': updatedAt }, unavailable: [] });
-        });
-      assert.ok(html.includes(phrase), `${phase}: ${phrase}`);
-      assert.ok(html.includes(hint), `${phase}: ${hint}`);
-      assert.match(html, /Nothing is sent automatically/);
-      assert.doesNotMatch(html, /data-aircraft-command=|>\s*(?:Execute|Apply|Send)\s*</);
-    }
   });
 
   await test('DevicePairingRequest gives a remote viewer one clear matching-code action', async () => {
@@ -2743,7 +2660,7 @@ async function main() {
     assert.doesNotMatch(html, /Open telemetry debug panel/, 'footer debug toggle should not render tooltip copy');
     assert.match(html, /id="connection-info"[^>]*>ws:\/\/127\.0\.0\.1:8123</, 'footer connection info should render from status state');
     assert.match(html, /id="footer-open-lvars-btn"/, 'footer should expose the compact LVARs shortcut');
-    assert.doesNotMatch(html, /footer-open-cues-btn|footer-experimental-label/, 'disabled Flight Cues must not leave a footer link or empty Experimental group');
+    assert.doesNotMatch(html, /footer-open-cues-btn|footer-experimental-label/, 'removed Flight Cues must not leave a footer link or empty Experimental group');
     assert.match(html, /id="footer-open-lvars-btn"[\s\S]*LVAR inspector/, 'footer LVAR shortcut should render its label');
     assert.doesNotMatch(html, /data-tab="lvars"/, 'footer should not expose hidden tab-routing hooks');
   });

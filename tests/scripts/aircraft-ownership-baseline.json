@@ -90,20 +90,6 @@
       "aircraft-source-placement:5891e98a6d60e84ced70ab78609b4820094295ae95f7b593150b3b0205d450f4"
     ]
   },
-  "frontend/src/cues/aircraft-cue-observations.js": {
-    "reason": "Existing cue profile-to-field observation table and selector; retained pending shared aircraft capability work.",
-    "accepted": [
-      "aircraft-source-placement:133bef11fae601f4c7361565236701138c26791aa3961334fd2f9fef599ab0cd",
-      "aircraft-source-placement:f7ecea1deb980165596775c8ee4e66a3ee7195b96c6c9cc6a1dd33ede001dded"
-    ]
-  },
-  "frontend/src/cues/aircraft-cue-policies.js": {
-    "reason": "Existing qualified aircraft cue policy registry; additions need explicit ownership review.",
-    "accepted": [
-      "aircraft-source-placement:9e2577db5951ecf4aee45d364c07424e5a72982220678ab9fafee75eadcc4452",
-      "aircraft-source-placement:b88aae78ce16a36ce20a81dcfd7a704da34240014d5bbbf703265dd3d6736904"
-    ]
-  },
   "frontend/src/voice/baro-state-queries.js": {
     "reason": "Existing barometer query family selection and display observations; retained while preserving voice behavior.",
     "accepted": [

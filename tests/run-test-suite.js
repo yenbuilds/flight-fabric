@@ -86,7 +86,6 @@ const TEST_STEPS = [
   ['node', ['tests/scripts/test-onboarding-browser.js']],
   ['node', ['tests/scripts/test-aircraft-layout-browser.js']],
   ['node', ['tests/scripts/test-timeline-load-recovery.js']],
-  ['node', ['--test', 'frontend/src/cues/flight-cues-model.test.js', 'tests/scripts/test-flight-cues.js']],
   ['npm', ['run', 'test:voice']],
   ['node', ['tests/scripts/test-ptt-helper-parent-lifecycle.js']],
   ['node', ['tests/scripts/test-ptt-helper-joystick-modes.js']],

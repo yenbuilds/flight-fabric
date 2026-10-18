@@ -84,11 +84,6 @@ function getDefaultTelemetry() {
       kohlsmanStd: '--',
     },
     hdg: '---',
-    observedAt: {
-      gear: null,
-      flaps: null,
-      lights: null,
-    },
     xwind: '--',
     xwindArrow: '\u2190',
     xwindArrowOpacity: '0.5',
@@ -104,7 +99,6 @@ function getDefaultTelemetry() {
       parkingBrake: null,
     },
     flaps: '--',
-    flapsExtended: null,
     flapsUnit: '',
     spoilers: '--',
     engines: {
@@ -271,7 +265,6 @@ export const useFlightStore = defineStore('flight', {
       muted: initialFlightState.muted !== false,
       lastLanding: getDefaultLandingPreview(),
       telemetry: getDefaultTelemetry(),
-      lastLiveTelemetryAt: null,
       warnings: getDefaultWarnings(),
     };
   },
@@ -332,7 +325,6 @@ export const useFlightStore = defineStore('flight', {
     resetLiveTelemetry() {
       const fuelUnit = this.telemetry.fuelUnit || 'gal';
       this.telemetry = getDefaultTelemetry();
-      this.lastLiveTelemetryAt = null;
       this.warnings = getDefaultWarnings();
       this.telemetry.fuelUnit = fuelUnit;
       this.telemetry.raVisible = false;
@@ -464,10 +456,6 @@ export const useFlightStore = defineStore('flight', {
     ingestMessage(message) {
       if (!message || typeof message !== 'object') return;
 
-      if (['ias', 'gs', 'vs', 'altitude', 'heading', 'gear', 'flaps', 'lights', 'spoilers', 'engines'].includes(message.type)) {
-        this.lastLiveTelemetryAt = Date.now();
-      }
-
       switch (message.type) {
         case 'ias':
           this.updateSpeedDisplay({ ias: message.value });
@@ -533,7 +521,6 @@ export const useFlightStore = defineStore('flight', {
 
     updateGear(data) {
       if (!data) return;
-      this.telemetry.observedAt.gear = Date.now();
       const state = resolveGearState(data);
       this.telemetry.gearState = state;
       this.telemetry.gear = {
@@ -547,7 +534,6 @@ export const useFlightStore = defineStore('flight', {
 
     updateLights(data) {
       if (!data) return;
-      this.telemetry.observedAt.lights = Date.now();
       this.telemetry.lights = {
         available: data.available !== false,
         ...Object.fromEntries(['nav', 'beacon', 'strobe', 'landing', 'taxi'].map(light => [light,
@@ -563,8 +549,6 @@ export const useFlightStore = defineStore('flight', {
         : Number.isFinite(flapsValue?.fraction) ? flapsValue.fraction * 100 : null;
       const validNotch = Number.isFinite(notch) && notch >= 0;
       const validPercent = percent != null && percent >= 0 && percent <= 100;
-      this.telemetry.observedAt.flaps = validNotch || validPercent ? Date.now() : null;
-      this.telemetry.flapsExtended = validNotch ? notch > 0 : validPercent ? percent >= 1 : null;
       if (validNotch && notch !== percent) {
         const label = flapsValue.label || flapsValue.notch;
         this.telemetry.flaps = label === 0 || label === '0' ? 'UP' : String(label);

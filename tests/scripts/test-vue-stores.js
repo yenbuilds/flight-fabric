@@ -94,7 +94,6 @@ async function main() {
   const { useThemeStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'theme.js'));
   const { useSystemHostStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'system-host.js'));
   const { useVoiceControlStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'voice-control.js'));
-  const { useFlightCuesStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'flight-cues.js'));
   const {
     matchesMedia,
     readStorageJson,
@@ -2557,9 +2556,6 @@ async function main() {
     assert.match(flight.gearDotClass('right'), /down/, 'backend DOWN state should show right gear down');
     assert.equal(flight.telemetry.flaps, '5', 'flaps notch label should render');
     assert.equal(flight.telemetry.spoilers, 'ARMED', 'spoiler state should render');
-    assert.equal(typeof flight.telemetry.observedAt.gear, 'number', 'gear cues should have a readback timestamp');
-    assert.equal(typeof flight.telemetry.observedAt.flaps, 'number', 'flap cues should have a readback timestamp');
-    assert.equal(typeof flight.telemetry.observedAt.lights, 'number', 'light cues should have a readback timestamp');
     assert.equal(flight.engineCards[2].visible, true, 'third engine should be visible when count is 3');
     assert.equal(flight.engineCards[3].visible, false, 'fourth engine should remain hidden when count is 3');
     assert.equal(flight.telemetry.cabinAlt, '12,050', 'cabin altitude should format');
@@ -2587,7 +2583,6 @@ async function main() {
     assert.equal(flight.cabinAltitudeBannerVisible, false, 'cabin altitude banner should be dismissible independently');
 
     flight.ingestMessage({ type: 'flaps', value: { notch: 4, label: 'FULL', percent: 100 } });
-    assert.equal(typeof flight.lastLiveTelemetryAt, 'number', 'flight cues should receive a live telemetry freshness timestamp');
     flight.ingestMessage({ type: 'engines', data: { count: 4, eng1Text: '51%', eng2Text: '52%', eng3Text: '53%', eng4Text: '54%' } });
     flight.ingestMessage({ type: 'fuel', totalGal: 123.4, totalWeightLbs: 827 });
     assert.equal(flight.telemetry.flaps, 'FULL', 'raw websocket ingestion should update flaps directly');
@@ -2644,10 +2639,6 @@ async function main() {
     assert.equal(flight.telemetry.gearState, '--', 'reset should not imply that the gear is up');
     assert.equal(flight.telemetry.flaps, '--', 'reset should not imply that flaps are up');
     assert.equal(flight.telemetry.spoilers, '--', 'reset should not imply that spoilers are stowed');
-    assert.equal(flight.telemetry.observedAt.gear, null, 'reset should clear the previous gear readback timestamp');
-    assert.equal(flight.telemetry.observedAt.flaps, null, 'reset should clear the previous flap readback timestamp');
-    assert.equal(flight.telemetry.observedAt.lights, null, 'reset should clear the previous light readback timestamp');
-    assert.equal(flight.lastLiveTelemetryAt, null, 'reset should stop stale flight cues');
     assert.equal(flight.speedWarningVisible, false, 'reset should clear speed warnings');
     assert.equal(flight.fuelExhaustedWarningVisible, false, 'reset should clear fuel warnings');
     assert.equal(flight.cabinAltCardToneClass, 'border-surface-200', 'reset should restore cabin card tone');
@@ -5826,29 +5817,6 @@ async function main() {
     assert.equal(store.mapEmptyMessage, 'Loading timeline replay...', 'map placeholder should make loading clear');
   });
 
-  await test('flight cues remember dismissals across tabs, advance phases and distinguish arrival at the stand', () => {
-    setActivePinia(createPinia());
-    const cues = useFlightCuesStore(), status = useStatusStore();
-    status.phase = 'TAXI';
-    cues.dismiss('takeoff-lights');
-    useTabsStore().setActiveTab('flight');
-    assert.deepEqual(useFlightCuesStore().dismissed, ['takeoff-lights']);
-    status.phase = 'TAKEOFF';
-    assert.deepEqual(cues.dismissed, []);
-    status.phase = 'TAXI-IN';
-    status.phase = 'PARKED';
-    assert.equal(cues.arrived, true);
-    status.phase = 'TAXI';
-    assert.equal(cues.arrived, false);
-    cues.dismiss('example');
-    cues.restore();
-    assert.deepEqual(cues.dismissed, []);
-    cues.dismiss('old-profile');
-    status.aircraftProfile.profileKey = 'new-aircraft';
-    assert.deepEqual(cues.dismissed, []);
-    cues.$dispose();
-  });
-
   await test('configuration telemetry preserves missing state instead of inventing off or retracted values', () => {
     setActivePinia(createPinia());
     const flight = useFlightStore();
@@ -5860,13 +5828,17 @@ async function main() {
     for (const value of [null, {}, { fraction: null }, { percent: NaN }, { percent: -1 }, { percent: 101 }]) {
       flight.updateFlaps({ value });
       assert.equal(flight.telemetry.flaps, '--');
-      assert.equal(flight.telemetry.flapsExtended, null);
-      assert.equal(flight.telemetry.observedAt.flaps, null);
+      assert.equal(flight.telemetry.flapsUnit, '');
     }
     flight.updateFlaps({ value: { notch: 5, label: '5', percent: 20 } });
-    assert.equal(flight.telemetry.flapsExtended, true);
+    assert.equal(flight.telemetry.flaps, '5');
+    assert.equal(flight.telemetry.flapsUnit, '');
     flight.updateFlaps({ value: { notch: 0, percent: 0 } });
-    assert.equal(flight.telemetry.flapsExtended, false);
+    assert.equal(flight.telemetry.flaps, 'UP');
+    assert.equal(flight.telemetry.flapsUnit, '');
+    flight.updateFlaps({ value: { fraction: 0.25 } });
+    assert.equal(flight.telemetry.flaps, '25');
+    assert.equal(flight.telemetry.flapsUnit, '%');
   });
 
   await test('timeline store appends indexed Recent Flights pages without rebuilding the first page', () => {

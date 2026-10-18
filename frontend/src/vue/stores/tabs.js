@@ -2,14 +2,11 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   DEFAULT_TAB_ID,
-  EXPERIMENTAL_TABS,
   normalizeTabId,
   resolveTabs,
   resolveNavigation,
   navigationTabId,
 } from '../tab-config.js';
-
-const EXPERIMENTAL_TAB_IDS = new Set(EXPERIMENTAL_TABS.map((tab) => tab.id));
 
 export const useTabsStore = defineStore('tabs', () => {
   const activeTabId = ref(DEFAULT_TAB_ID);
@@ -35,8 +32,7 @@ export const useTabsStore = defineStore('tabs', () => {
   const mobileNavigationMoreTabs = computed(() => navigation.mobileMore);
   const activeNavigationTabId = computed(() => navigationTabId(activeTabId.value));
   const isMoreTabActive = computed(() => (
-    EXPERIMENTAL_TAB_IDS.has(activeTabId.value)
-    || mobileNavigationMoreTabs.value.some((tab) => tab.id === activeNavigationTabId.value)
+    mobileNavigationMoreTabs.value.some((tab) => tab.id === activeNavigationTabId.value)
   ));
   const pullRefreshClass = computed(() => ({
     visible: pullRefreshVisible.value,

@@ -10,7 +10,6 @@ import { useVoiceControlStore } from '../stores/voice-control.js';
 import { focusVoiceSettings } from '../voice-settings-navigation.js';
 import { focusToolbarPanelSettings } from '../toolbar-panel-navigation.js';
 import { SUPPORT_URL as supportHref } from '../../support/links.js';
-import { EXPERIMENTAL_TABS } from '../tab-config.js';
 
 const shell = useShellStore();
 const tabs = useTabsStore();
@@ -29,7 +28,7 @@ const descriptions = {
   autopilot: 'Cockpit controls, presets and CDU', dispatch: 'Flight plan, fuel and briefing',
   timeline: 'Saved flights, replay and landing review', settings: 'Preferences and integrations',
   system: 'Connection, devices and services', landing: 'Most recent takeoff and landing assessment',
-  cues: 'Experimental flight cues', lvars: 'Aircraft variable inspector',
+  lvars: 'Aircraft variable inspector',
   'toolbar-panel': 'Install, update or repair the in-sim toolbar',
   'voice-settings': 'Settings for microphone, push-to-talk and spoken feedback',
 };
@@ -42,7 +41,6 @@ const destinations = computed(() => [
   ...(toolbarPanel.available ? [{ id: 'toolbar-panel', tabId: 'settings', label: 'MSFS 2024 toolbar panel', icon: 'settings' }] : []),
   ...(voice.bridgeAvailable ? [{ id: 'voice-settings', tabId: 'settings', label: 'Voice control', icon: 'settings' }] : []),
   { id: 'landing', label: 'Takeoff and landing', icon: 'landing' },
-  ...EXPERIMENTAL_TABS,
   { id: 'lvars', label: 'LVAR inspector', icon: 'system' },
 ]);
 const results = computed(() => {

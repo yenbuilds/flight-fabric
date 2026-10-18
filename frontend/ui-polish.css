@@ -890,18 +890,6 @@ input[type="checkbox"] {
   text-transform: none !important;
 }
 
-.footer-experimental {
-  padding-top: 0.75rem;
-  border-top: 1px solid rgb(var(--border) / 0.5);
-}
-
-.footer-experimental-label {
-  font-size: 0.6rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgb(251 191 36 / 0.8);
-}
-
 .footer-diagnostics-panel #connection-info {
   font-size: 0.75rem;
   overflow-wrap: anywhere;

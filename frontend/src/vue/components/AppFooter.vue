@@ -9,7 +9,6 @@ import { useShellStore } from '../stores/shell.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
-import { EXPERIMENTAL_TABS } from '../tab-config.js';
 
 const debug = useDebugStore();
 const status = useStatusStore();
@@ -68,10 +67,6 @@ useDocumentEvent('focusin', event => {
                 <button id="footer-open-lvars-btn" type="button" class="ff-button-ghost" @click="tabs.requestTabChange('lvars')">LVAR inspector</button>
                 <button id="msfs-installs-btn" type="button" class="ff-button-ghost" :class="{ hidden: !settingsUi.canDetectMsfsInstalls }" @click="settingsUi.openMsfsInstallsModal()">MSFS installs</button>
                 <button id="debug-toggle-btn" type="button" class="ff-button-ghost" :class="{ hidden: !debug.toggleVisible }" @click="debug.toggleModal()">Debug telemetry</button>
-              </div>
-              <div v-if="EXPERIMENTAL_TABS.length" class="footer-diagnostics-tools footer-experimental" aria-label="Experimental features">
-                <span class="footer-experimental-label">Experimental</span>
-                <button v-for="tab in EXPERIMENTAL_TABS" :id="'footer-open-' + tab.id + '-btn'" :key="tab.id" type="button" class="ff-button-ghost" :data-tab="tab.id" :aria-current="tabs.activeTabId === tab.id ? 'page' : undefined" @click="tabs.requestTabChange(tab.id)">{{ tab.label }}</button>
               </div>
               <span id="connection-info">{{ status.connectionInfoLabel }}</span>
             </div>

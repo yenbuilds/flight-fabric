@@ -1,9 +1,5 @@
 export const DEFAULT_TAB_ID = 'flight';
 
-// Source-only gate while the Flight Cues prototype is disabled. Saved tabs,
-// links and user settings cannot enable it.
-export const FLIGHT_CUES_ENABLED = false;
-
 export const TAB_ORDER = Object.freeze([
   'livemap',
   'flight',
@@ -21,15 +17,9 @@ const CONTEXTUAL_TAB_IDS = Object.freeze([
   'lvars',
 ]);
 
-// Unfinished surfaces stay out of the main tab bars until they are ready.
-export const EXPERIMENTAL_TABS = Object.freeze([
-  ...(FLIGHT_CUES_ENABLED ? [{ id: 'cues', label: 'Flight cues', icon: 'cues' }] : []),
-]);
-
 export const VALID_TAB_IDS = new Set([
   ...TAB_ORDER,
   ...CONTEXTUAL_TAB_IDS,
-  ...EXPERIMENTAL_TABS.map(tab => tab.id),
 ]);
 
 // Stable route order also owns the existing 1..7 keyboard shortcuts.
@@ -88,9 +78,7 @@ export function normalizeTabId(tabId, fallback = DEFAULT_TAB_ID) {
   const normalized = String(tabId || '').trim();
   const mapped = normalized === 'systems' || normalized === 'launcher'
     ? 'system'
-    : normalized === 'zen'
-      ? 'cues'
-      : normalized === 'profiles'
+    : normalized === 'profiles'
       ? 'settings'
       : normalized;
   return VALID_TAB_IDS.has(mapped) ? mapped : fallback;

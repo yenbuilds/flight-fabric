@@ -4,7 +4,6 @@ import TabIcon from './TabIcon.vue';
 import SupportLink from './SupportLink.vue';
 import ToolbarPanelSetupTask from './ToolbarPanelSetupTask.vue';
 import VoiceControlSetupTask from './VoiceControlSetupTask.vue';
-import { EXPERIMENTAL_TABS } from '../tab-config.js';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useTabsStore } from '../stores/tabs.js';
@@ -172,23 +171,6 @@ useDocumentEvent('keydown', onKeydown);
         <TabIcon :kind="tab.icon" class="w-5 h-5 text-gray-400" />
         <span class="text-sm font-medium">{{ tab.label }}</span>
       </button>
-      <div v-if="EXPERIMENTAL_TABS.length" class="mobile-more-experimental border-t border-surface-300 mt-2 pt-2">
-        <h3 class="px-4 pb-1 text-[10px] uppercase tracking-widest text-amber-300/80" style="font-family: 'B612 Mono', monospace;">Experimental</h3>
-        <button
-          v-for="tab in EXPERIMENTAL_TABS"
-          :key="tab.id"
-          class="mobile-more-item w-full flex items-center gap-3 px-4 py-3 text-left text-gray-200 hover:bg-surface-200 active:bg-surface-200"
-          :data-tab="tab.id"
-          :aria-current="tabs.activeTabId === tab.id ? 'page' : undefined"
-          :aria-controls="`tab-${tab.id}`"
-          type="button"
-          @click="navigate(tab.id)"
-        >
-          <TabIcon :kind="tab.icon" class="w-5 h-5 text-gray-400" />
-          <span class="text-sm font-medium">{{ tab.label }}</span>
-          <span class="ml-auto rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-amber-300">Preview</span>
-        </button>
-      </div>
       <button type="button" class="mobile-more-item w-full px-4 py-3 text-left text-sm" @click="shell.openNavigator('help'); tabs.closeMoreSheet()">Help &amp; shortcuts</button>
     </div>
   </div>
