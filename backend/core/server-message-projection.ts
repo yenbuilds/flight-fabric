@@ -82,7 +82,6 @@ export const UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = 
 ]);
 
 export const UNPAIRED_PROJECTED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = Object.freeze([
-  MSG.IN_SIM_REPLAY_STATE,
   MSG.TOOLBAR_FLIGHT_HISTORY,
   MSG.AIRCRAFT_CHANGED,
   MSG.AIRCRAFT_PROFILE,
@@ -127,6 +126,7 @@ export const UNPAIRED_SUPPRESSED_SERVER_MESSAGE_TYPES: ReadonlyArray<string> = O
   MSG.LVAR_DEBUG_WATCH_ACK,
   // Reserved or currently unproduced types stay closed until a producer shape
   // is reviewed and covered by a projection test.
+  MSG.IN_SIM_REPLAY_STATE,
   MSG.ENVELOPE_STATUS,
   MSG.STABILITY_SCORE,
   MSG.CALLOUT,
@@ -1101,21 +1101,6 @@ export function projectServerMessageForClient(
   const value = message as ServerMessage;
   const type = typeof value.type === 'string' ? value.type : '';
   if (!type || SUPPRESSED_UNPAIRED_MESSAGE_TYPE_SET.has(type)) return null;
-  if (type === MSG.IN_SIM_REPLAY_STATE) {
-    if (client?.__ffToolbarPresetClient !== true) return null;
-    return {
-      type, session: safeBoundedString(value.session, 64), state: safeBoundedString(value.state, 32),
-      enabled: value.enabled === true,
-      title: safeAircraftLabel(value.title, ''), loadedTitle: safeAircraftLabel(value.loadedTitle, ''),
-      durationMs: Number(value.durationMs) || 0, positionMs: Number(value.positionMs) || 0,
-      touchdownMs: Number(value.touchdownMs) || 0, revision: Number(value.revision) || 0,
-      pending: value.pending === true, blocked: value.blocked === true, readyToStart: value.readyToStart === true,
-      detail: safeBoundedString(value.detail, 512) || '',
-      error: value.error ? (safeBoundedString(value.error, 512) || 'Replay needs attention in the FlightFabric client.') : '',
-    };
-  }
-
-
   if (PASSTHROUGH_UNPAIRED_MESSAGE_TYPE_SET.has(type)) {
     return stripKnownSensitiveFields(value) as ServerMessage;
   }

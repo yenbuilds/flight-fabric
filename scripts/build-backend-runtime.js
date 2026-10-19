@@ -170,6 +170,7 @@ function shouldSkipBackendDir(relativeDir) {
   const rel = normalizeRelative(relativeDir);
   return rel === 'node_modules'
     || rel === 'test-support'
+    || rel === 'tests'
     || rel === 'types'
     || rel === '__pycache__'
     || rel === 'telemetry-provider/rust-simconnect-sidecar'
@@ -196,7 +197,7 @@ function shouldSkipBackendFile(srcPath, relativeFile) {
 }
 
 function shouldSkipGenericDir(name) {
-  return name === 'node_modules' || name === '.git' || name === 'dist' || name === '__pycache__';
+  return name === 'node_modules' || name === '.git' || name === 'dist' || name === '__pycache__' || name === 'tests';
 }
 
 function shouldSkipGenericFile(name) {

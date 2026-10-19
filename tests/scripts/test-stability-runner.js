@@ -147,7 +147,7 @@ test('eight-flight calibration corpus yields three unstable and five marginal ve
 });
 
 test('runStability shim never returns an ultimate score (CSV-replay scorer owns it)', () => {
-  // The shim carries IMC visibility classification and raw-input diagnostics.
+  // The shim carries IMC visibility classification.
   const result = runStability(makeFrame({ ra: 400, wow: true }));
   assert.strictEqual(result.instantaneous, null);
   assert.strictEqual(result.ultimateScore, null);

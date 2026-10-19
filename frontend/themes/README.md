@@ -1,94 +1,43 @@
-# Theme assets
+# Legacy theme assets
 
-These CSS files keep older widget links and user overrides working. The main
-dashboard now uses one dark theme and no longer has a theme picker.
+This folder retains two compatibility stylesheets: `theme-default.css` and
+`theme-web3-dark.css`. They are served for older links and explicit user-asset
+requests. The current dashboard does not load them or expose a theme picker.
 
-## Storage
+The active app theme is Night Shift (`dark`), defined in
+`frontend/src/theme/definition.js` and applied by
+`frontend/src/theme/runtime.js`. Older saved names normalize to `dark`.
+Compact widgets use their own stylesheets and `widget-theme-bootstrap.js`
+under `frontend/widgets-compact/`; copying a file here does not switch them
+to another theme.
 
-Bundled defaults:
+## Compatibility route and overrides
 
-```text
-frontend/themes/
-  theme-default.css
-  theme-web3-dark.css
-```
+Both the backend and Electron static hosts support explicit requests to
+`/user-assets/themes/<filename>`. A safe regular user file is preferred. A
+missing override or non-file path falls back to the bundled file of the same
+name; paths that escape the owned theme folder are rejected.
+Requests to `/themes/<filename>` use the bundled frontend asset route.
 
-User overrides:
+User overrides are stored in:
 
-```text
-%APPDATA%/Flight Fabric/Themes/
-  theme-default.css
-  theme-web3-dark.css
-```
+- Windows: `%APPDATA%/Flight Fabric/Themes/`
+- macOS: `~/Library/Application Support/Flight Fabric/Themes/`
+- Linux: `${XDG_CONFIG_HOME:-~/.config}/Flight Fabric/Themes/`
 
-macOS uses `~/Library/Application Support/Flight Fabric/Themes/`.
-Linux uses `${XDG_CONFIG_HOME:-~/.config}/Flight Fabric/Themes/`.
+The on-disk `Flight Fabric` folder spelling is intentional. A consumer must
+explicitly load the compatibility URL to use an override; the main dashboard
+does not automatically discover or apply these files.
 
-FlightFabric looks for `/user-assets/themes/<filename>` first. If a valid user
-file is not present, it uses the bundled file with the same name.
+For an existing consumer, copy the matching bundled CSS file and edit the
+variables it actually defines, such as `--th-accent` and
+`--color-surface-100`. This is compatibility support, not the supported way
+to restyle the current app.
 
-## Available assets
+## Current visual work
 
-| Theme | Description | Best for |
-|-------|-------------|----------|
-| **Default** | Dark blue and understated | General use |
-| **Web3 Dark** | Rounded obsidian glass with crisp blue accents | Night flying, modern HUD feel |
-
-## Usage
-
-### Dashboard and widgets
-
-The dashboard and streaming widgets map older saved theme names to the current
-dark theme. To override an asset, copy it to the application data themes folder
-and keep the same filename.
-
-### Other HUD consumers
-
-Other HUD and overlay code can reference `themes/theme-*.css` directly.
-
-### Loading a theme file in code
-
-```javascript
-// Remove any existing theme
-document.querySelectorAll('link[data-theme]').forEach(el => el.remove());
-
-// Add new theme
-const link = document.createElement('link');
-link.rel = 'stylesheet';
-link.href = 'themes/theme-web3-dark.css';
-link.dataset.theme = 'web3-dark';
-document.head.appendChild(link);
-```
-
-## Creating custom overrides
-
-Copy a bundled theme into the application data themes folder and change its CSS
-variables:
-
-```css
-:root {
-  /* Core colors */
-  --hud-bg: #your-background;
-  --hud-surface: #your-surface;
-  --hud-text: #your-text;
-  --hud-accent: #your-accent;
-  --hud-success: #your-green;
-  --hud-warn: #your-yellow;
-  --hud-danger: #your-red;
-  
-  /* Panel styling */
-  --hud-panel-bg: rgba(...);
-  --hud-panel-border: rgba(...);
-  
-  /* Sizing */
-  --hud-radius: 10px;
-  --hud-blur: 6px;
-}
-```
-
-## Notes
-
-- Themes override shared variables through CSS specificity.
-- The Web3 dark theme uses `backdrop-filter`; unsupported browsers fall back to
-  solid surfaces.
-- Widgets map older saved theme names to the current dashboard theme.
+Use the shared semantic tokens and components described in
+[Frontend Tailwind Theming](../../docs/FRONTEND-TAILWIND-THEMING.md). Keep the
+legacy files and routes until their consumers have an explicit migration.
+The existing `test:http-server-assets` command covers override precedence,
+fallback and unsafe-file handling.

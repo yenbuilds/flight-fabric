@@ -37,14 +37,14 @@ test('packaged startup contract reports the exact missing file', () => {
   assert.deepEqual(missing, ['utils/safe-fs.js']);
 });
 
-test('packaged startup succeeds without the offline-only autotaxi recorder', () => {
+test('packaged startup succeeds without the retired autotaxi recorder', () => {
   assert.doesNotThrow(() => assertPackagedBackendStartupFiles(
     path.join('virtual', 'resources', 'backend'),
     { existsSync: candidate => !candidate.endsWith(path.join('autotaxi', 'recorder.js')) },
   ));
 });
 
-test('every release edition excludes the autotaxi recorder while retaining flight-control modules', () => {
+test('every release edition excludes stale autotaxi recorder artifacts while retaining flight-control modules', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-autotaxi-package-'));
   const controlModules = ['session.js', 'controller.js', 'route.js'];
   try {

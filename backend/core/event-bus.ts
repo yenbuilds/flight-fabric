@@ -130,8 +130,6 @@ export function eventNames(): string[] {
 //   profile:fallback    - profile fallback selected
 //   flightViolation:start - in-flight violation started
 //   flightViolation:end   - in-flight violation ended
-//   convectiveRisk:start  - convective exposure likelihood started
-//   convectiveRisk:end    - convective exposure likelihood ended
 //   storage:diskExhausted - CSV writer disk exhaustion warning
 //
 // Beat events (UI animation cues):

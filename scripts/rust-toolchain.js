@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Runtime builds, native tests and the replay driver must discover the same
+// Runtime builds and native tests must discover the same
 // installed toolchain, including PATH fallback when a configured home is stale.
 function resolveCargo({ env = process.env, platform = process.platform, existsSync = fs.existsSync } = {}) {
   const windows = platform === 'win32';

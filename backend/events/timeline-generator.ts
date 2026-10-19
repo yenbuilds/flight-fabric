@@ -1,6 +1,5 @@
 import { isRunwayGeometryScorable, RunwayExcursionFilter } from '../landing/runway-geometry-confidence';
 import { transientStallRows } from '../telemetry-provider/stall-warning-filter';
-import type { ReplayClipResult } from '../replay/landing-clip';
 import { buildTakeoffTimelineContext, extractRecordedTakeoff } from '../takeoff/takeoff-record';
 /**
  * Timeline Generator - Reconstruct timelines from CSV flight logs
@@ -501,10 +500,8 @@ type GeneratedTimeline = {
 type TimelineResult =
   | { success: false; error: string }
   | { success: true; timeline: GeneratedTimeline };
-export type RecordingReadRequest =
-  | { kind: 'timeline'; options: AnyRecord }
-  | { kind: 'replay-clip'; landingIndex: number };
-export type RecordingReadResult = TimelineResult | ReplayClipResult;
+export type RecordingReadRequest = { kind: 'timeline'; options: AnyRecord };
+export type RecordingReadResult = TimelineResult;
 type TimelineSaveResult =
   | { success: false; error: string }
   | { success: true; filePath: string; timeline: GeneratedTimeline };
@@ -2275,8 +2272,6 @@ function attachSimulatorDateTimesToEvents(
 }
 
 const RECORDED_FLIGHT_VIOLATION_STRING_CONTEXT = [
-  'risk_level',
-  'confidence_level',
   'spoiler_state',
 ] as const;
 
@@ -2289,36 +2284,10 @@ const RECORDED_FLIGHT_VIOLATION_NUMBER_CONTEXT = [
   'approach_overspeed_limit_kts',
   'approach_overspeed_buffer_kts',
   'approach_overspeed_excess_kts',
-  'convective_score',
-  'convective_duration_ms',
-  'convective_motion_score',
-  'convective_weather_score',
-  'convective_peak_load_excursion_g',
-  'convective_avg_load_excursion_g',
-  'convective_peak_load_jerk_gps',
-  'convective_peak_pitch_rate_dps',
-  'convective_peak_roll_rate_dps',
-  'convective_peak_yaw_rate_dps',
-  'convective_peak_pitch_deg',
-  'convective_peak_bank_deg',
-  'convective_maneuver_ratio',
-  'convective_vertical_reversals',
-  'convective_vertical_reversal_rate_per_min',
-  'convective_vertical_speed_activity_score',
-  'convective_ias_range_kts',
-  'convective_vs_range_fpm',
-  'convective_in_cloud_ratio',
-  'convective_precip_ratio',
-  'convective_precip_rate_max_mm',
-  'convective_density_alt_ft',
-  'convective_sample_count',
 ] as const;
 
 const RECORDED_FLIGHT_VIOLATION_BOOLEAN_CONTEXT = [
   'counts_as_upset',
-  'convective_weather_available',
-  'convective_weather_aligned',
-  'convective_maneuver_suppressed',
 ] as const;
 
 function copyRecordedFlightViolationContext(row: CsvRow, context: AnyRecord): void {
@@ -2338,11 +2307,6 @@ function copyRecordedFlightViolationContext(row: CsvRow, context: AnyRecord): vo
   }
 }
 
-function shouldSuppressRecordedFlightViolation(row: CsvRow, ruleId: string): boolean {
-  void row;
-  return ruleId === VIOLATION_RULE.CONVECTIVE_EXPOSURE;
-}
-
 function buildRecordedFlightViolationEvent(
   type: 'violation_start' | 'violation_end',
   row: CsvRow,
@@ -2352,7 +2316,8 @@ function buildRecordedFlightViolationEvent(
 ): AnyRecord | null {
   const ruleId = toNonEmptyString(row.rule_id);
   if (!ruleId) return null;
-  if (shouldSuppressRecordedFlightViolation(row, ruleId)) return null;
+  // Ignore retired diagnostics in historical CSVs without rewriting the recording.
+  if (ruleId === VIOLATION_RULE.CONVECTIVE_EXPOSURE) return null;
 
   const label = toNonEmptyString(row.label);
   const severity = toNonEmptyString(row.severity);
@@ -2864,9 +2829,7 @@ function attachRolloutLateralDiagnostics(
 }
 
 /**
- * Shared validated recording pipeline for Timeline and native replay clips.
- * Read the bundle and reconstruct touchdown once, then return the requested
- * projection. Replay always uses recorded scoring and returns only its clip.
+ * Read and validate the recording bundle before reconstructing its Timeline.
  */
 async function processRecordingInProcess(csvPath: string, request: RecordingReadRequest): Promise<RecordingReadResult> {
   const { headers, rows, fileSizeBytes: csvSizeBytes, sha256: csvSha256, error } = await parseCSV(
@@ -2882,7 +2845,7 @@ async function processRecordingInProcess(csvPath: string, request: RecordingRead
     return { success: false, error: 'No data rows in CSV' };
   }
 
-  const options: AnyRecord = request.kind === 'timeline' ? { ...request.options } : { scoringMode: 'recorded' };
+  const options: AnyRecord = { ...request.options };
   const strictBundle = headers.includes('recording_session_id') || isRecordingManifestRow(rows[0]);
   const bundleStatusRequired = rows[0]?.bundle_status_required === true
     || rows[0]?.bundle_status_required === 1
@@ -3036,14 +2999,6 @@ async function processRecordingInProcess(csvPath: string, request: RecordingRead
   }
 
   const result = generateTimelineFromRows(csvPath, timelineRows, options);
-  if (result.success && request.kind === 'replay-clip') {
-    const { buildLandingReplayClip } = require('../replay/landing-clip') as typeof import('../replay/landing-clip');
-    try {
-      return { success: true, clip: buildLandingReplayClip(timelineRows, result.timeline, request.landingIndex) };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Replay clip is unavailable' };
-    }
-  }
   return result;
 }
 
@@ -3157,17 +3112,6 @@ async function processRecordingIsolated(
 
 async function generateFromCSVIsolated(csvPath: string, options: AnyRecord = {}): Promise<TimelineResult> {
   return timelineResult(await processRecordingIsolated(csvPath, { kind: 'timeline', options }));
-}
-
-// A separate result contract keeps native poses out of saved/map Timeline DTOs
-// and avoids cloning the full Timeline back to a caller that needs only a clip.
-async function prepareReplayClipFromCSV(csvPath: string, landingIndex: number): Promise<ReplayClipResult> {
-  if (!Number.isSafeInteger(landingIndex) || landingIndex < 0) {
-    return { success: false, error: 'Invalid replay landing index' };
-  }
-  const result = await processRecordingIsolated(csvPath, { kind: 'replay-clip', landingIndex });
-  if (result.success === false) return result;
-  return 'clip' in result ? result : { success: false, error: 'Recording worker returned the wrong result kind.' };
 }
 
 /**
@@ -6012,7 +5956,6 @@ module.exports = {
   ),
   parseCSV,
   generateFromCSV,
-  prepareReplayClipFromCSV,
   // Internal entry point shared by the bounded recording worker operations.
   processRecordingInProcess,
   generateAndSave,

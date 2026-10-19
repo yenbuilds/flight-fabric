@@ -32,12 +32,12 @@ const ALLOW_PROCESS_ENV = new Set([
   relPath('backend', 'core', 'config.js'),
   relPath('backend', 'core', 'user-settings.ts'),
   relPath('backend', 'core', 'user-settings.js'),
-  relPath('backend', 'core', 'config.test.ts'),
-  relPath('backend', 'core', 'config.test.js'),
-  relPath('backend', 'core', 'debug.test.ts'),
-  relPath('backend', 'core', 'debug.test.js'),
-  relPath('backend', 'core', 'client-message-handler.aircraft-control.test.ts'),
-  relPath('backend', 'core', 'client-message-handler.aircraft-control.test.js'),
+  relPath('backend', 'tests', 'core', 'config.test.ts'),
+  relPath('backend', 'tests', 'core', 'config.test.js'),
+  relPath('backend', 'tests', 'core', 'debug.test.ts'),
+  relPath('backend', 'tests', 'core', 'debug.test.js'),
+  relPath('backend', 'tests', 'core', 'client-message-handler.aircraft-control.test.ts'),
+  relPath('backend', 'tests', 'core', 'client-message-handler.aircraft-control.test.js'),
 ]);
 
 const CANONICAL_DOMAIN_TYPES = {

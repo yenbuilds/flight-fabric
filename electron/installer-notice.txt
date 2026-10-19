@@ -1,6 +1,6 @@
 FlightFabric Installer Notice
 
-FlightFabric is unsigned experimental alpha software designed for use with
+FlightFabric is alpha software designed for use with
 consumer flight simulators. It is not certified, approved, or intended for
 real-world aviation or any other safety-critical use.
 

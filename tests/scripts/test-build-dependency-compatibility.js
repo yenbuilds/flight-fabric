@@ -66,6 +66,20 @@ if (process.argv[2] === '--download-child') {
     process.exitCode = 1;
   });
 } else {
+  test('shared Cargo discovery preserves precedence and falls back from stale homes to PATH', () => {
+    const { resolveCargo } = require('../../scripts/rust-toolchain');
+    const env = { CARGO_HOME: 'C:\\custom', USERPROFILE: 'C:\\user', PATH: 'C:\\tools;C:\\TOOLS;C:\\fallback' };
+    const seen = [];
+    assert.equal(resolveCargo({ env, platform: 'win32', existsSync: candidate => {
+      seen.push(candidate);
+      return candidate === 'C:\\fallback\\cargo.exe';
+    } }), 'C:\\fallback\\cargo.exe');
+    assert.equal(seen[0], 'C:\\custom\\bin\\cargo.exe');
+    assert.equal(seen.filter(value => value.toLowerCase() === 'c:\\tools\\cargo.exe').length, 1);
+    assert.equal(resolveCargo({ env: { PATH: '/first:/second' }, platform: 'linux',
+      existsSync: candidate => candidate === '/second/cargo' }), '/second/cargo');
+  });
+
   for (const location of ['.', 'electron']) {
     test(`Tailwind and nested selectors remain compatible in ${location}`, async () => {
       const requireBuild = createRequire(path.join(ROOT, location, 'package.json'));

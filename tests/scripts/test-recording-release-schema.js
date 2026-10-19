@@ -16,7 +16,11 @@ const takeoffColumns = [
   'takeoff_max_pitch_deg', 'takeoff_max_lateral_offset_ft', 'takeoff_hop_count', 'takeoff_assessment',
   'takeoff_analysis', 'takeoff_final',
 ];
-const expectedColumns = [...baseline.columns, ...takeoffColumns];
+// Keep the published fixture intact. Only the explicitly retired feature columns
+// are removed; every other column retains its original order and meaning.
+const retiredColumns = baseline.columns.filter(name => name.startsWith('convective_')
+  || name === 'risk_level' || name === 'confidence_level');
+const expectedColumns = [...baseline.columns.filter(name => !retiredColumns.includes(name)), ...takeoffColumns];
 
 const scratch = getRepoScratchPath('recording-release-schema');
 fs.mkdirSync(scratch, { recursive: true });
@@ -28,10 +32,11 @@ const writer = require(runtime('flight-recording', 'flight-csv-writer.js'));
 const { parseCsvLine, splitCsvLines } = require(runtime('utils', 'csv.js'));
 
 for (const [label, Writer] of [['inline', writer.FlightCSVWriter], ['worker', writer.WorkerFlightCSVWriter]]) {
-  test(`${label} recording appends takeoff fields without changing the published CSV prefix`, async () => {
+  test(`${label} recording removes only retired convective columns and preserves other fields`, async () => {
     assert.equal(TAKEOFF_SCORING_ENABLED, true);
     assert.equal(baseline.columns.length, 331);
-    assert.equal(expectedColumns.length, 352);
+    assert.equal(retiredColumns.length, 28);
+    assert.equal(expectedColumns.length, 324);
     assert.deepEqual(writer.getV1Columns(), expectedColumns);
     const recording = new Writer({ flightId: `release-schema-${label}`, outputDir: path.join(outputDir, label), syncIntervalMs: 60000 });
     try {
@@ -44,7 +49,7 @@ for (const [label, Writer] of [['inline', writer.FlightCSVWriter], ['worker', wr
       const stats = await recording.close();
       const lines = splitCsvLines(fs.readFileSync(stats.filePath, 'utf8'), { trimAndDropEmpty: true });
       const header = parseCsvLine(lines[0]);
-      assert.deepEqual(header, expectedColumns, 'on-disk columns follow the gate and retain the published prefix');
+      assert.deepEqual(header, expectedColumns, 'on-disk columns retain the published fields except the retired feature');
       const rows = lines.slice(1).map(line => parseCsvLine(line));
       assert.ok(rows.length >= 3, 'manifest, sample and landing rows were written');
       for (const row of rows) assert.equal(row.length, expectedColumns.length, 'every record matches the release header');

@@ -3,8 +3,7 @@
  * test-flight-logbook-trends.js
  * Unit tests for linearSlope/linearTrend logic in backend/landing/flight-logbook.js
  *
- * linearSlope and linearTrend are private functions, so we test them via
- * getTrends() which is the public API that exercises them.
+ * Production grouped trends are exercised through computeStatsFromEntries().
  * A small independent calculation fixture also tests the expected math.
  *
  * Run: node tests/scripts/test-flight-logbook-trends.js
@@ -1096,7 +1095,29 @@ test('grouped trend fallback keeps labels stable across sample counts', () => {
   assertEqual(longTrend?.trendVs, 'improving', 'long grouped trend');
 });
 
-// G-force metric: slope < 0 = improving (decreasing G)
+test('production grouped trends preserve direction and unavailable measurements', () => {
+  const cases = [
+    { aircraft: 'Improving', rates: [-500, -350, -200], scores: [70, 80, 90], expected: 'improving' },
+    { aircraft: 'Regressing', rates: [-200, -350, -500], scores: [90, 80, 70], expected: 'regressing' },
+    { aircraft: 'Steady', rates: [-300, -300, -300], scores: [85, 85, 85], expected: 'stable' },
+    { aircraft: 'Unavailable', rates: [-300, null, -200], scores: [85, null, 90], expected: null },
+  ];
+  const entries = cases.flatMap(({ aircraft, rates, scores }) => rates.map((vsFpm, index) => ({
+    id: `${aircraft}-${index}`,
+    aircraft,
+    timestampMs: Date.parse('2026-05-25T10:00:00Z') + index * 24 * 60 * 60 * 1000,
+    vsFpm,
+    stabilityScore: scores[index],
+  })));
+  const stats = flightLogbook.computeStatsFromEntries(entries.reverse());
+  for (const { aircraft, expected } of cases) {
+    const trend = stats.trends.aircraft.find(row => row.key === aircraft);
+    assertEqual(trend?.trendVs, expected, `${aircraft} vertical-speed trend`);
+    assertEqual(trend?.trendStability, expected, `${aircraft} stability trend`);
+  }
+});
+
+// Independent calculation fixture: slope < 0 means decreasing G-force.
 test('gforce: improving when slope is negative (G decreasing)', () => {
   // G-force going from 2.5 down to 1.2 (improving)
   const values = [2.5, 2.2, 1.8, 1.5, 1.2];

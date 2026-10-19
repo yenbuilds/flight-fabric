@@ -91,6 +91,29 @@ test('every advertised exact flap target has a reviewed lever source rather than
   ].sort(), 'fixed flap coverage must not disappear silently');
 });
 
+test('all PMDG heading and approach catalogue bindings share canonical and direct observation-loss feedback', async () => {
+  const { flightGuidanceObservationFailureText } = await import('../../frontend/src/aircraft/flight-guidance-controls.js');
+  const { formatAviationReadback } = await import('../../frontend/src/voice/local-readback.js');
+  const failure = { ok: false, executionStarted: true, code: 'aircraft_integration_readback_timeout' };
+  for (const family of ['pmdg-737', 'pmdg-777']) for (const profileId of families[family]) {
+    const profile = loader.loadProfile(`bundled/msfs/${profileId}`), options = { profile, capabilities };
+    const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
+    for (const mode of [family === 'pmdg-737' ? 'headingSelect' : 'headingHold', 'approach']) {
+      const commandId = `flightGuidance.${mode}.engage`, request = { commandId, input: {} };
+      assert(catalogue.commands.some(command => command.id === commandId));
+      const resolved = resolveAircraftCommand(request, options);
+      assert.equal(resolved.ok, true, `${profileId}: ${commandId}`);
+      const text = flightGuidanceObservationFailureText(failure, request);
+      assert.match(text, /not confirmed\. Check the flight mode annunciator/);
+      assert.equal(resolved.controlRequests.length, 1);
+      assert.equal(flightGuidanceObservationFailureText(failure, resolved.controlRequests[0]), text);
+      assert.equal(flightGuidanceObservationFailureText({ ...failure, code: 'sdk_execution_failed' }, request), null);
+      if (mode === 'approach') assert.equal(formatAviationReadback({ commandId }),
+        'Approach selected. Check the flight mode annunciator.');
+    }
+  }
+});
+
 test('every advertised spoiler command and its direct route share observation-loss feedback', async () => {
   const { spoilerObservationFailureText } = await import('../../frontend/src/aircraft/spoiler-controls.js');
   const failure = { ok: false, executionStarted: true, code: 'aircraft_integration_readback_timeout' };

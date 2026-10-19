@@ -30,6 +30,7 @@
     "electron",
     "docs",
     "backend/**/*.test.ts",
+    "backend/tests",
     "tests/backend",
     "tests/support",
     "backend/types/generated"

@@ -646,5 +646,3 @@ table.data th { color: var(--fg-faint); font-weight: 600; letter-spacing: 0.06em
   .kv { flex-basis: 100%; }
   .route-codes { font-size: 1.5em; }
 }
-
-#tab-replay { --replay-bg: var(--panel); --replay-fg: var(--fg); --replay-muted: var(--fg-muted); --replay-border: var(--panel-border); --replay-button: var(--bg-elevated); --replay-warn: var(--warn); --replay-focus: var(--focus); }

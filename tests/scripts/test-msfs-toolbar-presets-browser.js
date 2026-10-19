@@ -379,7 +379,6 @@ async function main() {
   const interval = setInterval(() => { if (!stale) for (const socket of wss.clients) if (socket.readyState === 1) snapshot(socket); }, 500);
   const assets = { '/toolbar/': ['toolbar/index.html', 'text/html'], '/toolbar/toolbar.js': ['toolbar/toolbar.js', 'text/javascript'],
     '/toolbar/taxi.js': ['toolbar/taxi.js', 'text/javascript'],
-    '/toolbar/replay.js': ['toolbar/replay.js', 'text/javascript'], '/toolbar/replay.css': ['toolbar/replay.css', 'text/css'],
     '/toolbar/presets.js': ['toolbar/presets.js', 'text/javascript'], '/toolbar/toolbar.css': ['toolbar/toolbar.css', 'text/css'],
     '/toolbar/voice-reference.json': ['toolbar/voice-reference.json', 'application/json'], '/assets/aircraft-presets.svg': ['assets/aircraft-presets.svg', 'image/svg+xml'] };
   const http = require('node:http').createServer((req, res) => {

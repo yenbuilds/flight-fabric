@@ -1,0 +1,958 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizeVoiceText, parseAviationNumber } from '../../src/voice/aviation-number-parser.js';
+import {
+  collectVoiceHints,
+  incompleteVoiceCommandPrompt,
+  interpretAircraftVoiceCommand,
+} from '../../src/voice/command-interpreter.js';
+
+test('complete spoken letter names work in command names, modes and units without changing numbers', () => {
+  const commands = [
+    { id: 'test.qnh', input: { kind: 'number', min: 948, max: 1084, step: 1, units: 'hpa' }, speech: { patterns: ['captain qnh {value}'] } },
+    { id: 'test.ls', input: { kind: 'boolean' }, speech: { patterns: ['captain ls {value}'] } },
+    { id: 'test.fpa', input: { kind: 'number', min: -10, max: 10, step: 0.1 }, speech: { patterns: ['set fpa {value}'] } },
+    { id: 'test.mode', input: { kind: 'enum', values: ['hdg', 'trk', 'vs', 'fpa', 'rto'] }, speech: { patterns: ['mode {value}'] } },
+    ...['lnav', 'vnav', 'flch'].map(name => ({ id: `test.${name}`, input: { kind: 'none' }, speech: { patterns: [`engage ${name}`] } })),
+  ];
+  for (const [phrase, commandId, input] of [
+    ['captain cue en aitch one zero one six', 'test.qnh', { value: 1016 }],
+    ['captain queue n haitch one zero one six aitch pee ay', 'test.qnh', { value: 1016 }],
+    ['captain Q.N.H. 1016 H.P.A.', 'test.qnh', { value: 1016 }],
+    ['captain ell ess on', 'test.ls', { value: true }],
+    ['captain L. S. off', 'test.ls', { value: false }],
+    ['set eff pee ay minus three point two', 'test.fpa', { value: -3.2 }],
+    ['mode aitch dee gee', 'test.mode', { value: 'hdg' }],
+    ['mode tee are kay', 'test.mode', { value: 'trk' }],
+    ['mode vee ess', 'test.mode', { value: 'vs' }],
+    ['mode are tee oh', 'test.mode', { value: 'rto' }],
+    ['engage ell nav', 'test.lnav', {}],
+    ['engage vee nav', 'test.vnav', {}],
+    ['engage eff ell see aitch', 'test.flch', {}],
+  ]) {
+    const result = interpretAircraftVoiceCommand(phrase, { commands });
+    assert.equal(result.ok, true, `${phrase}: ${JSON.stringify(result)}`);
+    assert.equal(result.commandId, commandId);
+    assert.deepEqual(result.input, input);
+  }
+  for (const phrase of ['captain cue en 1016', 'captain ell on', 'set eff pee minus three',
+    'captain cue en aitch one zero one you', 'captain cue en aitch 9999',
+    'do not engage vee nav', 'engage vee nav then engage ell nav']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, { commands }).ok, false, phrase);
+  }
+});
+
+test('surface aliases require the active catalogue to offer that exact selection', () => {
+  const command = (id, values, pattern) => ({ id, input: { kind: 'enum', values }, speech: { patterns: [pattern] } });
+  const commands = [command('flaps', ['up', '0', 'takeoff', '28', '35', '50'], 'flaps {value}'),
+    command('spoilers', ['retracted', 'one-third', 'two-thirds', 'full'], 'spoilers {value}')];
+  for (const [phrase, expected] of [['flaps dial a flap', 'takeoff'], ['flaps zero', '0'],
+    ['flaps twenty eight', '28'], ['spoilers one third', 'one-third'], ['spoilers two thirds', 'two-thirds']]) {
+    assert.deepEqual(interpretAircraftVoiceCommand(phrase, { commands }).input, { value: expected });
+  }
+  for (const phrase of ['flaps dial a flap', 'spoilers one third', 'spoilers two thirds']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, { commands: [
+      command('flaps', ['up', '1', '2', '3', 'full'], 'flaps {value}'),
+      command('spoilers', ['retracted', 'full'], 'spoilers {value}'),
+    ] }).ok, false, phrase);
+  }
+  for (const phrase of ['do not set flaps dial a flap', 'spoilers one third then full']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, { commands }).ok, false, phrase);
+  }
+});
+
+test('acronym repair preserves exact command precedence and rejects ambiguous repairs', () => {
+  const command = (id, pattern) => ({ id, input: { kind: 'none' }, speech: { patterns: [pattern] } });
+  const apuCommand = command('test.apu', 'start apu');
+  const literal = command('test.literal', 'start ay pee you');
+  assert.equal(interpretAircraftVoiceCommand('start ay pee you', { commands: [apuCommand, literal] }).commandId, literal.id);
+  assert.equal(interpretAircraftVoiceCommand('start aye pea ewe', {
+    commands: [apuCommand, command('test.different', 'start a p u')],
+  }).reason, 'ambiguous');
+  assert.equal(interpretAircraftVoiceCommand('start ay pee you', { commands: [] }).ok, false);
+});
+
+test('numeric minus signs survive normalization and aircraft voice command matching', () => {
+  for (const sign of ['-', '\u2212']) {
+    for (const gap of ['', ' ']) {
+      assert.equal(parseAviationNumber(`${sign}${gap}1500`), -1500);
+      for (const [text, commandId, value] of [
+        [`vertical speed ${sign}${gap}1500`, 'flightGuidance.verticalSpeed.set', -1500],
+        [`set vertical speed ${sign}${gap}500 feet per minute`, 'flightGuidance.verticalSpeed.set', -500],
+        [`set fpa ${sign}${gap}3.2`, 'flightGuidance.flightPathAngle.set', -3.2],
+      ]) {
+        const result = interpretAircraftVoiceCommand(text, fbwA32nxCatalogue);
+        assert.equal(result.ok, true, `${text}: ${JSON.stringify(result)}`);
+        assert.equal(result.commandId, commandId);
+        assert.deepEqual(result.input, { value });
+      }
+      for (const text of [`heading ${sign}${gap}270`, `speed ${sign}${gap}250`]) {
+        assert.equal(interpretAircraftVoiceCommand(text, fbwA32nxCatalogue).ok, false, text);
+      }
+    }
+  }
+  assert.equal(normalizeVoiceText('vertical-speed minus twenty-five'), 'vertical speed minus twenty five');
+  assert.equal(interpretAircraftVoiceCommand('vertical speed 1000-2000', fbwA32nxCatalogue).ok, false);
+});
+
+const catalogue = Object.freeze({
+  configurationId: 'test-aircraft',
+  commands: Object.freeze({
+    heading: Object.freeze({
+      id: 'flightGuidance.heading.set', label: 'Selected heading',
+      input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+      speech: { patterns: ['set heading {value}', 'heading {value}'], hints: ['HEADING'] },
+    }),
+    courses: Object.freeze({
+      id: 'flightGuidance.course.setBoth', label: 'Captain + FO course windows',
+      input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+      speech: {
+        patterns: [
+          'set course {value}',
+          'set courses {value}',
+          'set both course {value}',
+          'set both courses {value}',
+          'set course windows {value}',
+          'set both course windows {value}',
+        ],
+        hints: ['SET COURSE', 'SET COURSES', 'COURSE WINDOWS'],
+      },
+    }),
+    altitude: Object.freeze({
+      id: 'flightGuidance.altitude.set', label: 'Selected altitude',
+      input: { kind: 'number', min: 0, max: 60000, step: 100, units: 'feet' },
+      speech: {
+        patterns: ['set altitude {value}', 'altitude {value}', 'set flight level {value}', 'flight level {value}'],
+        hints: ['ALTITUDE', 'FLIGHT LEVEL'],
+      },
+    }),
+    speed: Object.freeze({
+      id: 'flightGuidance.speed.set', label: 'Selected speed',
+      input: { kind: 'number', min: 0, max: 999, step: 1, units: 'knots' },
+      speech: { patterns: ['set speed {value}', 'speed {value}'], hints: ['SPEED'] },
+    }),
+    mach: Object.freeze({
+      id: 'flightGuidance.mach.set', label: 'Selected Mach',
+      input: { kind: 'number', min: 0.4, max: 0.99, step: 0.01, units: 'mach' },
+      speech: { patterns: ['set mach {value}', 'mach {value}'], hints: ['MACH'] },
+    }),
+    parkingBrake: Object.freeze({
+      id: 'surfaces.parkingBrake.set', label: 'Parking brake',
+      input: { kind: 'boolean' },
+      speech: {
+        patterns: ['parking brake {value}', '{value} parking brake'],
+        hints: ['PARKING BRAKE'],
+      },
+    }),
+    spoilersArmed: Object.freeze({
+      id: 'surfaces.spoilersArmed.set', label: 'Ground spoilers',
+      input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'ground spoilers {value}',
+          '{value} ground spoilers',
+          '{value} spoilers',
+          'speed brake {value}',
+          '{value} speed brake',
+        ],
+        hints: ['GROUND SPOILERS', 'SPOILERS', 'SPEED BRAKE'],
+      },
+    }),
+    navRadios: Object.freeze({
+      id: 'radios.nav.setBothActive', label: 'NAV 1 + NAV 2 active frequency',
+      input: { kind: 'number', min: 108, max: 117.95, step: 0.05, units: 'megahertz' },
+      speech: {
+        patterns: ['set nav radios {value}', 'set both nav radios {value}', 'tune nav radios {value}'],
+        hints: ['SET NAV RADIOS', 'NAV RADIOS'],
+      },
+    }),
+    cockpitLighting: Object.freeze({
+      id: 'configuration.lighting.cockpit', label: 'Cockpit lighting',
+      input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
+      speech: {
+        patterns: [
+          'set cockpit lighting {value}',
+          'set cockpit lights {value}',
+          'set all cockpit lights {value}',
+        ],
+        hints: ['SET COCKPIT LIGHTING', 'COCKPIT LIGHTS'],
+      },
+    }),
+    flaps: Object.freeze({
+      id: 'surfaces.flaps.set', label: 'Flaps',
+      input: { kind: 'enum', values: ['up', '1', '5', '25', '30'] },
+      speech: { patterns: ['flaps {value}'], hints: ['FLAPS'] },
+    }),
+    takeoffLights: Object.freeze({
+      id: 'configuration.lights.takeoff', label: 'Takeoff lights',
+      input: { kind: 'none' },
+      speech: {
+        patterns: [
+          'set lights for takeoff', 'set lights for take off',
+          'set lights for a takeoff', 'set lights for a take off',
+          'set takeoff lights', 'set take off lights',
+          'takeoff lights', 'take off lights',
+        ],
+        hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
+      },
+    }),
+  }),
+});
+
+const fenixCatalogue = Object.freeze({
+  configurationId: 'fenix-a32x',
+  commands: Object.freeze([
+    {
+      id: 'flightGuidance.autopilot1.set', label: 'Autopilot 1', input: { kind: 'boolean' },
+      speech: { patterns: ['autopilot one {value}', '{value} autopilot one'] },
+    },
+    {
+      id: 'flightGuidance.speedMode.set', label: 'Speed guidance mode',
+      input: { kind: 'enum', values: ['selected', 'managed'] },
+      speech: { patterns: ['set speed mode {value}', 'speed mode {value}'] },
+    },
+    {
+      id: 'flightGuidance.altitudeHundred.set', label: 'Selected altitude (100-foot mode)',
+      input: { kind: 'number', min: 0, max: 49000, step: 100, units: 'feet' },
+      speech: {
+        patterns: [
+          'set altitude {value} in hundreds',
+          'altitude {value} in hundreds',
+          'set flight level {value} in hundreds',
+          'flight level {value} in hundreds',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.altitudeThousand.set', label: 'Selected altitude (1,000-foot mode)',
+      input: { kind: 'number', min: 0, max: 49000, step: 1000, units: 'feet' },
+      speech: {
+        patterns: [
+          'set altitude {value} in thousands',
+          'altitude {value} in thousands',
+          'set flight level {value} in thousands',
+          'flight level {value} in thousands',
+        ],
+      },
+    },
+    {
+      id: 'propulsion.throttleDetent.set', label: 'Throttle detent',
+      input: { kind: 'enum', values: ['idle', 'climb', 'flex', 'toga'] },
+      speech: { patterns: ['set throttles {value}', 'throttles {value}', 'set throttle detent {value}'] },
+    },
+    {
+      id: 'lights.noseMode.set', label: 'Nose light',
+      input: { kind: 'enum', values: ['off', 'taxi', 'takeoff'] },
+      speech: { patterns: ['nose light {value}', 'nose lights {value}'] },
+    },
+  ]),
+});
+
+const fbwA32nxCatalogue = Object.freeze({
+  configurationId: 'fbw-a32nx',
+  commands: Object.freeze([
+    {
+      id: 'flightGuidance.speed.set', label: 'Selected speed',
+      input: { kind: 'number', min: 100, max: 399, step: 1, units: 'knots' },
+      speech: { patterns: ['set speed {value}', 'speed {value}'] },
+    },
+    {
+      id: 'flightGuidance.mach.set', label: 'Selected Mach',
+      input: { kind: 'number', min: 0.4, max: 0.99, step: 0.01, units: 'mach' },
+      speech: { patterns: ['set mach {value}', 'mach {value}'] },
+    },
+    {
+      id: 'flightGuidance.heading.set', label: 'Selected heading',
+      input: { kind: 'number', min: 0, max: 359, step: 1, units: 'degrees' },
+      speech: { patterns: ['set heading {value}', 'heading {value}'] },
+    },
+    {
+      id: 'flightGuidance.altitude.set', label: 'Selected altitude',
+      input: { kind: 'number', min: 100, max: 49000, step: 100, units: 'feet' },
+      speech: {
+        patterns: ['set altitude {value}', 'altitude {value}', 'set flight level {value}', 'flight level {value}'],
+      },
+    },
+    {
+      id: 'flightGuidance.verticalSpeed.set', label: 'Selected vertical speed',
+      input: { kind: 'number', min: -6000, max: 6000, step: 100, units: 'feet-per-minute' },
+      speech: { patterns: ['set vertical speed {value}', 'vertical speed {value}'] },
+    },
+    {
+      id: 'flightGuidance.flightPathAngle.set', label: 'Selected flight path angle',
+      input: { kind: 'number', min: -9.9, max: 9.9, step: 0.1, units: 'degrees' },
+      speech: { patterns: ['set flight path angle {value}', 'flight path angle {value}', 'set fpa {value}', 'fpa {value}'] },
+    },
+    {
+      id: 'flightGuidance.autopilot1.set', label: 'Autopilot 1', input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'autopilot one {value}', '{value} autopilot one',
+          'ap one {value}', '{value} ap one',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.autopilot2.set', label: 'Autopilot 2', input: { kind: 'boolean' },
+      speech: { patterns: ['autopilot two {value}', '{value} autopilot two', 'ap two {value}', '{value} ap two'] },
+    },
+    {
+      id: 'flightGuidance.autothrust.set', label: 'Autothrust', input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'autothrust {value}', '{value} autothrust',
+          'a thrust {value}', '{value} a thrust',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.localizer.set', label: 'Localizer mode', input: { kind: 'boolean' },
+      speech: { patterns: ['localizer {value}', 'loc {value}'] },
+    },
+    {
+      id: 'flightGuidance.approach.set', label: 'Approach mode', input: { kind: 'boolean' },
+      speech: { patterns: ['approach mode {value}', 'approach {value}', 'app {value}'] },
+    },
+    ...[
+      ['speed', 'Speed guidance mode'],
+      ['heading', 'Heading guidance mode'],
+      ['altitude', 'Altitude guidance mode'],
+    ].map(([selector, label]) => ({
+      id: `flightGuidance.${selector}Mode.set`, label,
+      input: { kind: 'enum', values: ['selected', 'managed'] },
+      speech: { patterns: [`set ${selector} mode {value}`, `${selector} mode {value}`] },
+    })),
+    {
+      id: 'propulsion.throttleDetent.set', label: 'Throttle detent',
+      input: { kind: 'enum', values: ['idle', 'climb', 'flex', 'toga'] },
+      speech: { patterns: ['set throttles {value}', 'throttles {value}', 'set throttle detent {value}'] },
+    },
+    {
+      id: 'surfaces.spoilersArmed.set', label: 'Ground spoilers', input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'ground spoilers {value}', '{value} ground spoilers',
+          '{value} spoilers', 'speed brake {value}', '{value} speed brake',
+        ],
+      },
+    },
+    {
+      id: 'lights.strobeMode.set', label: 'Strobe lights',
+      input: { kind: 'enum', values: ['off', 'auto', 'on'] },
+      speech: { patterns: ['strobe lights {value}', 'strobe light {value}'] },
+    },
+    {
+      id: 'lights.noseMode.set', label: 'Nose light',
+      input: { kind: 'enum', values: ['off', 'taxi', 'takeoff'] },
+      speech: { patterns: ['nose light {value}', 'nose lights {value}'] },
+    },
+  ]),
+});
+
+const pmdg777Catalogue = Object.freeze({
+  configurationId: 'pmdg-777',
+  commands: Object.freeze([
+    {
+      id: 'flightGuidance.altitude.set', label: 'Selected altitude',
+      input: { kind: 'number', min: 0, max: 50000, step: 100, units: 'feet' },
+      speech: {
+        patterns: ['set altitude {value}', 'altitude {value}', 'set flight level {value}', 'flight level {value}'],
+      },
+    },
+    {
+      id: 'flightGuidance.flightPathAngle.set', label: 'Selected flight path angle',
+      input: { kind: 'number', min: -9.9, max: 9.9, step: 0.1, units: 'degrees' },
+      speech: {
+        patterns: [
+          'set flight path angle {value}', 'flight path angle {value}',
+          'set fpa {value}', 'fpa {value}', 'set f p a {value}', 'f p a {value}',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.autopilot1.engage', label: 'Autopilot 1', input: { kind: 'none' },
+      speech: {
+        patterns: [
+          'engage autopilot one', 'engage auto pilot one',
+          'engage autopilot left', 'engage auto pilot left',
+          'engage left autopilot', 'engage left auto pilot', 'command a',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.autopilot2.engage', label: 'Autopilot 2', input: { kind: 'none' },
+      speech: {
+        patterns: [
+          'engage autopilot two', 'engage auto pilot two',
+          'engage autopilot right', 'engage auto pilot right',
+          'engage right autopilot', 'engage right auto pilot',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.flightDirectorCaptain.set', label: 'Captain flight director', input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'captain flight director {value}', '{value} captain flight director',
+          'left flight director {value}', '{value} left flight director', 'flight director left {value}',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.autothrottleArmLeft.set', label: 'Left autothrottle arm', input: { kind: 'boolean' },
+      speech: {
+        patterns: [
+          'left autothrottle arm {value}', '{value} left autothrottle arm',
+          'left auto throttle arm {value}', '{value} left auto throttle arm',
+        ],
+      },
+    },
+    {
+      id: 'flightGuidance.lnav.engage', label: 'LNAV', input: { kind: 'none' },
+      speech: { patterns: ['engage lnav', 'lnav', 'engage l nav', 'l nav', 'engage l n a b', 'l n a b'] },
+    },
+    {
+      id: 'flightGuidance.vnav.engage', label: 'VNAV', input: { kind: 'none' },
+      speech: { patterns: ['engage vnav', 'vnav', 'engage v nav', 'v nav'] },
+    },
+    {
+      id: 'flightGuidance.flightLevelChange.engage', label: 'Level change', input: { kind: 'none' },
+      speech: { patterns: ['engage level change', 'engage flch', 'flch', 'engage f l c h', 'f l c h'] },
+    },
+    {
+      id: 'flightGuidance.localizer.engage', label: 'VOR/LOC', input: { kind: 'none' },
+      speech: { patterns: ['engage vor loc', 'engage localizer', 'engage loc', 'loc'] },
+    },
+    {
+      id: 'flightGuidance.approach.engage', label: 'Approach mode', input: { kind: 'none' },
+      speech: { patterns: ['engage approach mode', 'engage approach', 'approach', 'engage app', 'app'] },
+    },
+    {
+      id: 'flightGuidance.headingReference.set', label: 'Heading reference',
+      input: { kind: 'enum', values: ['hdg', 'trk'] },
+      speech: { patterns: ['set heading reference {value}', 'heading reference {value}'] },
+    },
+    {
+      id: 'flightGuidance.verticalReference.set', label: 'Vertical reference',
+      input: { kind: 'enum', values: ['vs', 'fpa'] },
+      speech: { patterns: ['set vertical reference {value}', 'vertical reference {value}'] },
+    },
+    {
+      id: 'surfaces.flaps.set', label: 'Flap detent',
+      input: { kind: 'enum', values: ['up', '1', '5', '15', '20', '25', '30'] },
+      speech: { patterns: ['set flaps {value}', 'flaps {value}'] },
+    },
+    {
+      id: 'surfaces.autobrake.set', label: 'Autobrake',
+      input: { kind: 'enum', values: ['rto', 'off', 'disarm', '1', '2', 'max'] },
+      speech: {
+        patterns: [
+          'set autobrake {value}', 'autobrake {value}',
+          'set auto brake {value}', 'auto brake {value}',
+          'set otto brake {value}', 'otto brake {value}',
+        ],
+      },
+    },
+  ]),
+});
+
+test('aviation number parser accepts digit sequences, cardinal values, flight levels, and decimals', () => {
+  assert.equal(parseAviationNumber('two seven zero'), 270);
+  assert.equal(parseAviationNumber('zero niner zero'), 90);
+  assert.equal(parseAviationNumber('tree fife zero'), 350);
+  assert.equal(parseAviationNumber('one twenty'), 120);
+  assert.equal(parseAviationNumber('one twenty five'), 125);
+  assert.equal(parseAviationNumber('two fifty'), 250);
+  assert.equal(parseAviationNumber('two seventy'), 270);
+  assert.equal(parseAviationNumber('1 20'), 120);
+  assert.equal(parseAviationNumber('2 50'), 250);
+  assert.equal(parseAviationNumber('1 2 5'), 125);
+  assert.equal(parseAviationNumber('one hundred twenty'), 120);
+  assert.equal(parseAviationNumber('ten thousand five hundred'), 10500);
+  assert.equal(parseAviationNumber('one two thousand'), 12000);
+  assert.equal(parseAviationNumber('flight level two five zero'), 25000);
+  assert.equal(parseAviationNumber('minus one thousand'), -1000);
+  assert.equal(parseAviationNumber('point seven eight', { units: 'mach' }), 0.78);
+  assert.equal(parseAviationNumber('one twenty degrees', { units: 'degrees' }), 120);
+  assert.equal(parseAviationNumber('two fifty knots', { units: 'knots' }), 250);
+  assert.equal(parseAviationNumber('one one zero decimal three megahertz', { units: 'megahertz' }), 110.3);
+  assert.equal(parseAviationNumber('five thousand feet', { units: 'feet' }), 5000);
+  assert.equal(parseAviationNumber('minus five hundred feet per minute', { units: 'feet-per-minute' }), -500);
+  assert.equal(parseAviationNumber('fifty percent', { units: 'percent' }), 50);
+  assert.equal(parseAviationNumber('seventy five per cent', { units: 'percent' }), 75);
+  assert.equal(parseAviationNumber('one twenty feet', { units: 'degrees' }), null);
+});
+
+test('ambiguous leading to cannot remove a spoken digit from numeric targets', () => {
+  const explicitConnective = { commands: [{
+    ...catalogue.commands.altitude,
+    speech: { patterns: ['set altitude to {value}'] },
+  }] };
+  for (const active of [catalogue, explicitConnective]) {
+    for (const phrase of [
+      'set altitude to zero zero zero',
+      'set altitude to one zero zero zero',
+      'set altitude to one zero zero zero feet',
+      'set altitude to one zero zer',
+      'set altitude to one zero nearer',
+      "set altitude to one's zero zero",
+      'set altitude to one zero zer feet',
+    ]) assert.equal(interpretAircraftVoiceCommand(phrase, active).ok, false, phrase);
+  }
+  for (const phrase of ['set speed to eight zero', 'said altitude to zero zero zero']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, catalogue).ok, false, phrase);
+  }
+  for (const [phrase, value] of [
+    ['set altitude two zero zero zero', 2000],
+    ['set altitude to ten thousand', 10000],
+    ['set altitude to 10000', 10000],
+    ['set heading to zero seven zero', 70],
+    ['set heading to two seven zero', 270],
+    ['set speed to one eight zero', 180],
+    ['set speed to one zero zer', 100],
+  ]) assert.deepEqual(interpretAircraftVoiceCommand(phrase, catalogue).input, { value }, phrase);
+});
+
+test('interpreter resolves only exact active-catalogue patterns', () => {
+  assert.deepEqual(interpretAircraftVoiceCommand('Set heading two seven zero', catalogue), {
+    ok: true, transcript: 'set heading two seven zero', commandId: 'flightGuidance.heading.set',
+    input: { value: 270 }, label: 'Selected heading',
+  });
+  assert.equal(interpretAircraftVoiceCommand('could you set heading two seven zero please', catalogue).ok, false);
+  assert.equal(interpretAircraftVoiceCommand('turn on a random thing', catalogue).reason, 'unmatched');
+  assert.deepEqual(interpretAircraftVoiceCommand('heading one twenty', catalogue).input, { value: 120 });
+  assert.deepEqual(interpretAircraftVoiceCommand('heading 1 20', catalogue).input, { value: 120 });
+  assert.deepEqual(interpretAircraftVoiceCommand('heading one twenty degrees', catalogue).input, { value: 120 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set courses two seven zero', catalogue), {
+    ok: true,
+    transcript: 'set courses two seven zero',
+    commandId: 'flightGuidance.course.setBoth',
+    input: { value: 270 },
+    label: 'Captain + FO course windows',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('set course one two zero', catalogue), {
+    ok: true,
+    transcript: 'set course one two zero',
+    commandId: 'flightGuidance.course.setBoth',
+    input: { value: 120 },
+    label: 'Captain + FO course windows',
+  });
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('set both course windows three five niner degrees', catalogue).input,
+    { value: 359 },
+  );
+  assert.equal(interpretAircraftVoiceCommand('set courses three six zero', catalogue).ok, false);
+  assert.equal(interpretAircraftVoiceCommand('set courses two seven zero point five', catalogue).ok, false);
+  assert.deepEqual(interpretAircraftVoiceCommand('set nav radios one one zero decimal three', catalogue), {
+    ok: true,
+    transcript: 'set nav radios one one zero decimal three',
+    commandId: 'radios.nav.setBothActive',
+    input: { value: 110.3 },
+    label: 'NAV 1 + NAV 2 active frequency',
+  });
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('tune nav radios one seventeen decimal niner five megahertz', catalogue).input,
+    { value: 117.95 },
+  );
+  assert.equal(interpretAircraftVoiceCommand('set nav radios one zero seven decimal niner five', catalogue).ok, false);
+  assert.equal(interpretAircraftVoiceCommand('set nav radios one one zero decimal three two', catalogue).ok, false);
+  assert.deepEqual(interpretAircraftVoiceCommand('set cockpit lighting fifty percent', catalogue), {
+    ok: true,
+    transcript: 'set cockpit lighting fifty percent',
+    commandId: 'configuration.lighting.cockpit',
+    input: { value: 50 },
+    label: 'Cockpit lighting',
+  });
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('set all cockpit lights to seventy five percent', catalogue).input,
+    { value: 75 },
+  );
+  assert.equal(interpretAircraftVoiceCommand('set cockpit lights one hundred one percent', catalogue).ok, false);
+  assert.equal(interpretAircraftVoiceCommand('set cockpit lights forty point five percent', catalogue).ok, false);
+});
+
+test('interpreter applies only bounded command-word corrections after exact matching fails', () => {
+  assert.deepEqual(interpretAircraftVoiceCommand('seth mak zero point eight five', catalogue), {
+    ok: true,
+    transcript: 'seth mak zero point eight five',
+    interpretedTranscript: 'set mach zero point eight five',
+    commandId: 'flightGuidance.mach.set',
+    input: { value: 0.85 },
+    label: 'Selected Mach',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('said heading two seven zero', catalogue), {
+    ok: true,
+    transcript: 'said heading two seven zero',
+    interpretedTranscript: 'set heading two seven zero',
+    commandId: 'flightGuidance.heading.set',
+    input: { value: 270 },
+    label: 'Selected heading',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('SET HEADING TWO EIGHTY ZER', catalogue), {
+    ok: true,
+    transcript: 'set heading two eighty zer',
+    interpretedTranscript: 'set heading two eighty zero',
+    commandId: 'flightGuidance.heading.set',
+    input: { value: 280 },
+    label: 'Selected heading',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('SET HEADING TWO EIGHTY ZER DEGREES', catalogue), {
+    ok: true,
+    transcript: 'set heading two eighty zer degrees',
+    interpretedTranscript: 'set heading two eighty zero degrees',
+    commandId: 'flightGuidance.heading.set',
+    input: { value: 280 },
+    label: 'Selected heading',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('set heading eighty', catalogue).input, { value: 80 });
+  assert.deepEqual(interpretAircraftVoiceCommand('said course one two zero', catalogue), {
+    ok: true,
+    transcript: 'said course one two zero',
+    interpretedTranscript: 'set course one two zero',
+    commandId: 'flightGuidance.course.setBoth',
+    input: { value: 120 },
+    label: 'Captain + FO course windows',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('o set heading to one eight zero', catalogue), {
+    ok: true,
+    transcript: 'o set heading to one eight zero',
+    interpretedTranscript: 'set heading one eight zero',
+    commandId: 'flightGuidance.heading.set',
+    input: { value: 180 },
+    label: 'Selected heading',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand("SET SPEED TWO ONE'S NEARER", catalogue), {
+    ok: true,
+    transcript: 'set speed two ones nearer',
+    interpretedTranscript: 'set speed two one zero',
+    commandId: 'flightGuidance.speed.set',
+    input: { value: 210 },
+    label: 'Selected speed',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand("SET ALTITUDE TWO ONE'S NEARER", catalogue), {
+    ok: true,
+    transcript: 'set altitude two ones nearer',
+    interpretedTranscript: 'set altitude two one zero',
+    commandId: 'flightGuidance.altitude.set',
+    input: { value: 21000 },
+    label: 'Selected altitude',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('SAID ALTITUDE ONE TO ZERO', catalogue), {
+    ok: true,
+    transcript: 'said altitude one to zero',
+    interpretedTranscript: 'set altitude one two zero',
+    commandId: 'flightGuidance.altitude.set',
+    input: { value: 12000 },
+    label: 'Selected altitude',
+  });
+  assert.deepEqual(interpretAircraftVoiceCommand('SAID ALTITUDE ONE TO ZERO FEET', catalogue), {
+    ok: false,
+    reason: 'invalid-value',
+    transcript: 'said altitude one to zero feet',
+    interpretedTranscript: 'set altitude one two zero feet',
+  });
+  assert.equal(interpretAircraftVoiceCommand('random set heading two seven zero', catalogue).reason, 'unmatched');
+  assert.equal(interpretAircraftVoiceCommand('seth random zero point eight five', catalogue).reason, 'unmatched');
+});
+
+test('valid numeric and enum values win before any recognition alias', () => {
+  for (const [word, value] of [
+    ['ten', 10], ['twenty', 20], ['thirty', 30], ['forty', 40], ['fifty', 50],
+    ['sixty', 60], ['seventy', 70], ['eighty', 80], ['ninety', 90],
+  ]) {
+    assert.deepEqual(
+      interpretAircraftVoiceCommand(`set heading ${word}`, catalogue).input,
+      { value },
+      `${word} must retain its literal numeric meaning`,
+    );
+  }
+
+  const exactEnumCatalogue = {
+    commands: [{
+      id: 'test.mode.set',
+      label: 'Test mode',
+      input: { kind: 'enum', values: ['one', '1'] },
+      speech: { patterns: ['mode {value}'] },
+    }],
+  };
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('mode one', exactEnumCatalogue).input,
+    { value: 'one' },
+    'a valid enum value must not be replaced by its fallback alias',
+  );
+
+  const exactLiteralCatalogue = {
+    commands: [
+      {
+        id: 'test.literal-said',
+        label: 'Literal said phrase',
+        input: { kind: 'none' },
+        speech: { patterns: ['said heading two seven zero'] },
+      },
+      catalogue.commands.heading,
+    ],
+  };
+  assert.equal(
+    interpretAircraftVoiceCommand('said heading two seven zero', exactLiteralCatalogue).commandId,
+    'test.literal-said',
+    'an exact catalogue phrase must win before a literal command-word alias',
+  );
+});
+
+test('interpreter rejects incomplete or invalid corrected values without guessing digits', () => {
+  assert.equal(interpretAircraftVoiceCommand('set heading two seven', catalogue).reason, 'unmatched');
+  assert.deepEqual(interpretAircraftVoiceCommand('set heading twenty seven', catalogue).input, { value: 27 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set heading 27', catalogue).input, { value: 27 });
+  assert.equal(interpretAircraftVoiceCommand('seth mak zero point', catalogue).reason, 'invalid-value');
+  assert.equal(interpretAircraftVoiceCommand('seth mak zero point nine nine nine', catalogue).reason, 'invalid-value');
+  assert.equal(interpretAircraftVoiceCommand('set altitude nearer', catalogue).reason, 'unmatched');
+  assert.equal(interpretAircraftVoiceCommand('set altitude two nearer', catalogue).reason, 'unmatched');
+  assert.equal(interpretAircraftVoiceCommand('set altitude two nearer one', catalogue).reason, 'unmatched');
+  assert.equal(interpretAircraftVoiceCommand('set altitude two hundred nearer', catalogue).reason, 'unmatched');
+  assert.equal(interpretAircraftVoiceCommand('set heading zer eight zero', catalogue).reason, 'unmatched');
+});
+
+test('interpreter validates typed boolean, enum, altitude, and Mach inputs', () => {
+  assert.deepEqual(interpretAircraftVoiceCommand('parking brake set', catalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('parking brake released', catalogue).input, { value: false });
+  assert.deepEqual(interpretAircraftVoiceCommand('set parking brake', catalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('release parking brake', catalogue).input, { value: false });
+  assert.deepEqual(interpretAircraftVoiceCommand('arm spoilers', catalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('disarm spoilers', catalogue).input, { value: false });
+  assert.deepEqual(interpretAircraftVoiceCommand('speed brake armed', catalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('flaps twenty five', catalogue).input, { value: '25' });
+  assert.deepEqual(interpretAircraftVoiceCommand('altitude flight level two five zero', catalogue).input, { value: 25000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('flight level three five zero', catalogue).input, { value: 35000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set flight level two fifty', catalogue).input, { value: 25000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude one two zero', catalogue).input, { value: 12000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude 150', catalogue).input, { value: 15000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude one fifty', catalogue).input, { value: 15000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude one twenty five', catalogue).input, { value: 12500 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude two eighty zero', catalogue).input, { value: 28000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude three zero zero', catalogue).input, { value: 30000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude three hundred', catalogue).input, { value: 300 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set altitude 300 feet', catalogue).input, { value: 300 });
+  assert.equal(interpretAircraftVoiceCommand('set altitude one hundred fifty', catalogue).ok, false);
+  assert.equal(interpretAircraftVoiceCommand('set altitude 150 feet', catalogue).ok, false);
+  assert.deepEqual(interpretAircraftVoiceCommand('mach point seven eight', catalogue).input, { value: 0.78 });
+  assert.equal(interpretAircraftVoiceCommand('heading three six zero', catalogue).ok, false);
+  assert.equal(interpretAircraftVoiceCommand('altitude one thousand fifty', catalogue).ok, false);
+});
+
+test('interpreter routes a no-input aircraft preset through its canonical command', () => {
+  assert.deepEqual(interpretAircraftVoiceCommand('set lights for takeoff', catalogue), {
+    ok: true,
+    transcript: 'set lights for takeoff',
+    commandId: 'configuration.lights.takeoff',
+    input: {},
+    label: 'Takeoff lights',
+  });
+  assert.equal(interpretAircraftVoiceCommand('set takeoff lights', catalogue).commandId, 'configuration.lights.takeoff');
+  assert.equal(interpretAircraftVoiceCommand('set take off lights', catalogue).commandId, 'configuration.lights.takeoff');
+  assert.equal(interpretAircraftVoiceCommand('takeoff lights', catalogue).commandId, 'configuration.lights.takeoff');
+  assert.equal(
+    interpretAircraftVoiceCommand('set lights for a take off', catalogue).commandId,
+    'configuration.lights.takeoff',
+  );
+});
+
+test('interpreter resolves Fenix FCU, managed-mode, throttle, and selector-aware altitude phrases', () => {
+  assert.deepEqual(interpretAircraftVoiceCommand('engage autopilot one', fenixCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('disengage autopilot one', fenixCatalogue).input, { value: false });
+  assert.deepEqual(interpretAircraftVoiceCommand('set speed mode managed', fenixCatalogue).input, { value: 'managed' });
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('set altitude one two thousand five hundred in hundreds', fenixCatalogue),
+    {
+      ok: true,
+      transcript: 'set altitude one two thousand five hundred in hundreds',
+      commandId: 'flightGuidance.altitudeHundred.set',
+      input: { value: 12500 },
+      label: 'Selected altitude (100-foot mode)',
+    },
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('set altitude one two thousand five hundred in thousands', fenixCatalogue).ok,
+    false,
+    'the thousand-foot command must reject an off-step target',
+  );
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('flight level two five zero in thousands', fenixCatalogue).input,
+    { value: 25000 },
+  );
+  assert.deepEqual(interpretAircraftVoiceCommand('set throttles flex mct', fenixCatalogue).input, { value: 'flex' });
+  assert.deepEqual(interpretAircraftVoiceCommand('throttles clb', fenixCatalogue).input, { value: 'climb' });
+  assert.deepEqual(interpretAircraftVoiceCommand('nose light take off', fenixCatalogue).input, { value: 'takeoff' });
+  assert.equal(
+    interpretAircraftVoiceCommand('set altitude one two thousand five hundred', fenixCatalogue).reason,
+    'unmatched',
+    'Fenix altitude voice must name the live hundred/thousand selector mode',
+  );
+});
+
+test('interpreter resolves FlyByWire A32NX FCU targets and flight-deck phrases', () => {
+  assert.deepEqual(interpretAircraftVoiceCommand('engage ap one', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('disengage ap one', fbwA32nxCatalogue).input, { value: false });
+  assert.deepEqual(interpretAircraftVoiceCommand('engage ap two', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('a thrust on', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('loc on', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('app off', fbwA32nxCatalogue).input, { value: false });
+  assert.deepEqual(interpretAircraftVoiceCommand('throttles clb', fbwA32nxCatalogue).input, { value: 'climb' });
+  assert.deepEqual(interpretAircraftVoiceCommand('set throttles flex mct', fbwA32nxCatalogue).input, { value: 'flex' });
+  assert.deepEqual(interpretAircraftVoiceCommand('arm spoilers', fbwA32nxCatalogue).input, { value: true });
+  assert.deepEqual(interpretAircraftVoiceCommand('strobe lights auto', fbwA32nxCatalogue).input, { value: 'auto' });
+  assert.deepEqual(interpretAircraftVoiceCommand('nose lights take off', fbwA32nxCatalogue).input, { value: 'takeoff' });
+  assert.deepEqual(interpretAircraftVoiceCommand('set speed two five zero', fbwA32nxCatalogue).input, { value: 250 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set mach point seven eight', fbwA32nxCatalogue).input, { value: 0.78 });
+  assert.deepEqual(interpretAircraftVoiceCommand('set heading two seven zero', fbwA32nxCatalogue).input, { value: 270 });
+  assert.deepEqual(interpretAircraftVoiceCommand('flight level two five zero', fbwA32nxCatalogue).input, { value: 25000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('vertical speed minus one thousand', fbwA32nxCatalogue).input, { value: -1000 });
+  assert.deepEqual(interpretAircraftVoiceCommand('fpa minus two point five', fbwA32nxCatalogue).input, { value: -2.5 });
+  assert.deepEqual(interpretAircraftVoiceCommand('heading mode managed', fbwA32nxCatalogue).input, { value: 'managed' });
+  assert.equal(interpretAircraftVoiceCommand('disconnect parking brake', catalogue).reason, 'unmatched');
+  assert.equal(interpretAircraftVoiceCommand('beacon lights disconnect', catalogue).reason, 'unmatched');
+});
+
+test('interpreter resolves PMDG 777 MCP, AFDS, selector, and configuration phrases', () => {
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('said altitude one to zero', pmdg777Catalogue),
+    {
+      ok: true,
+      transcript: 'said altitude one to zero',
+      interpretedTranscript: 'set altitude one two zero',
+      commandId: 'flightGuidance.altitude.set',
+      input: { value: 12000 },
+      label: 'Selected altitude',
+    },
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage autopilot left', pmdg777Catalogue).commandId,
+    'flightGuidance.autopilot1.engage',
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage autopilot one', pmdg777Catalogue).commandId,
+    'flightGuidance.autopilot1.engage',
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage auto pilot left', pmdg777Catalogue).commandId,
+    'flightGuidance.autopilot1.engage',
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage right autopilot', pmdg777Catalogue).commandId,
+    'flightGuidance.autopilot2.engage',
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage autopilot two', pmdg777Catalogue).commandId,
+    'flightGuidance.autopilot2.engage',
+  );
+  assert.equal(
+    interpretAircraftVoiceCommand('engage autopilot', pmdg777Catalogue).reason,
+    'unmatched',
+  );
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('captain flight director on', pmdg777Catalogue).input,
+    { value: true },
+  );
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('left flight director on', pmdg777Catalogue).input,
+    { value: true },
+  );
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('disarm left autothrottle arm', pmdg777Catalogue).input,
+    { value: false },
+  );
+  assert.equal(interpretAircraftVoiceCommand('lnav', pmdg777Catalogue).commandId, 'flightGuidance.lnav.engage');
+  assert.equal(interpretAircraftVoiceCommand('l nav', pmdg777Catalogue).commandId, 'flightGuidance.lnav.engage');
+  assert.equal(interpretAircraftVoiceCommand('l n a b', pmdg777Catalogue).commandId, 'flightGuidance.lnav.engage');
+  assert.equal(interpretAircraftVoiceCommand('engage vnav', pmdg777Catalogue).commandId, 'flightGuidance.vnav.engage');
+  assert.equal(interpretAircraftVoiceCommand('f l c h', pmdg777Catalogue).commandId, 'flightGuidance.flightLevelChange.engage');
+  assert.equal(interpretAircraftVoiceCommand('loc', pmdg777Catalogue).commandId, 'flightGuidance.localizer.engage');
+  assert.equal(interpretAircraftVoiceCommand('app', pmdg777Catalogue).commandId, 'flightGuidance.approach.engage');
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('set heading reference trk', pmdg777Catalogue).input,
+    { value: 'trk' },
+  );
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('set heading reference t r k', pmdg777Catalogue).input,
+    { value: 'trk' },
+  );
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('vertical reference fpa', pmdg777Catalogue).input,
+    { value: 'fpa' },
+  );
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('set fpa minus two point five', pmdg777Catalogue).input,
+    { value: -2.5 },
+  );
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('set f p a minus two point five', pmdg777Catalogue).input,
+    { value: -2.5 },
+  );
+  assert.deepEqual(interpretAircraftVoiceCommand('flaps twenty', pmdg777Catalogue).input, { value: '20' });
+  assert.deepEqual(interpretAircraftVoiceCommand('autobrake one', pmdg777Catalogue).input, { value: '1' });
+  assert.deepEqual(interpretAircraftVoiceCommand('set autobrake rto', pmdg777Catalogue).input, { value: 'rto' });
+  assert.deepEqual(interpretAircraftVoiceCommand('set autobrake r t o', pmdg777Catalogue).input, { value: 'rto' });
+  assert.deepEqual(
+    interpretAircraftVoiceCommand('said otto brake our ta', pmdg777Catalogue),
+    {
+      ok: true,
+      transcript: 'said otto brake our ta',
+      interpretedTranscript: 'set otto brake our ta',
+      commandId: 'surfaces.autobrake.set',
+      input: { value: 'rto' },
+      label: 'Autobrake',
+    },
+  );
+  assert.equal(interpretAircraftVoiceCommand('flaps ten', pmdg777Catalogue).ok, false);
+  assert.equal(interpretAircraftVoiceCommand('fpa minus ten', pmdg777Catalogue).ok, false);
+});
+
+test('interpreter fails closed when multiple commands expose the same phrase', () => {
+  const ambiguous = {
+    commands: [
+      ...Object.values(catalogue.commands),
+      {
+        id: 'other.heading.set',
+        label: 'Other heading',
+        input: catalogue.commands.heading.input,
+        speech: { patterns: ['set heading {value}', 'heading {value}'] },
+      },
+    ],
+  };
+  assert.equal(interpretAircraftVoiceCommand('heading two seven zero', ambiguous).reason, 'ambiguous');
+  assert.equal(interpretAircraftVoiceCommand('said heading two seven zero', ambiguous).reason, 'ambiguous');
+});
+
+test('incomplete literal commands get bounded retry guidance without guessing', () => {
+  assert.equal(
+    incompleteVoiceCommandPrompt('engage autopilot', pmdg777Catalogue),
+    'Please finish with “one”, “left”, “two”, or “right”.',
+  );
+  assert.equal(incompleteVoiceCommandPrompt('engage', pmdg777Catalogue), '');
+  assert.equal(incompleteVoiceCommandPrompt('engage autopilot one', pmdg777Catalogue), '');
+  assert.equal(incompleteVoiceCommandPrompt('set heading two eight', catalogue), '');
+  assert.equal(incompleteVoiceCommandPrompt('unrelated speech', pmdg777Catalogue), '');
+});
+
+test('voice hints are deduplicated from the active catalogue', () => {
+  assert.deepEqual(collectVoiceHints(catalogue), [
+    'HEADING',
+    'SET COURSE',
+    'SET COURSES',
+    'COURSE WINDOWS',
+    'ALTITUDE',
+    'FLIGHT LEVEL',
+    'SPEED',
+    'MACH',
+    'PARKING BRAKE',
+    'GROUND SPOILERS',
+    'SPOILERS',
+    'SPEED BRAKE',
+    'SET NAV RADIOS',
+    'NAV RADIOS',
+    'SET COCKPIT LIGHTING',
+    'COCKPIT LIGHTS',
+    'FLAPS',
+    'TAKEOFF LIGHTS',
+    'LIGHTS FOR TAKEOFF',
+  ]);
+});

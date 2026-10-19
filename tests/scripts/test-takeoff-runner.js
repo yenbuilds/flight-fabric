@@ -518,7 +518,7 @@ test('takeoff:final payload carries every critical CSV mapping into a TAKEOFF ro
   // Recorded results remain readable even if capture is disabled again later.
   for (const enabled of [true, false]) {
     withMockRunwayProvider({}, () => {
-      assert.equal(require(schemaFieldMapPath).getV1Columns().length, enabled ? 352 : 331);
+      assert.equal(require(schemaFieldMapPath).getV1Columns().length, enabled ? 324 : 303);
       const { rows, payload } = historical;
       const generated = generateTimelineFromRows('C:/tmp/takeoff-test/telemetry.csv', rows);
       const events = generated?.timeline?.events || generated?.events || [];

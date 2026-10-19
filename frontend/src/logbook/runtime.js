@@ -54,6 +54,12 @@ export function initLogbookRuntime({
 
   if (typeof subscribeWsMessageSignal === 'function') {
     cleanupFns.push(subscribeWsMessageSignal((message) => {
+      if (message?.type === 'deleteFlightCsvResult' && message.success === true && typeof message.filePath === 'string') {
+        // The flight row is removed separately; refresh scored history and its
+        // all-time statistics in every connected, authorized window too.
+        requestLogbook();
+        return;
+      }
       if (message?.type !== 'authorizationScope' || message.scope !== 'full-control') return;
       requestLogbook();
       requestHistoryIndexStatus();

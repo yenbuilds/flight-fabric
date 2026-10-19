@@ -9,6 +9,7 @@ import { baroResultText } from './baro.js';
 import { flapResultText } from './flap-controls.js';
 import { gearResultText } from './gear-controls.js';
 import { spoilerObservationFailureText } from './spoiler-controls.js';
+import { flightGuidanceObservationFailureText } from './flight-guidance-controls.js';
 
 export function createAircraftControlController({
   WebSocketRef = WebSocket,
@@ -377,6 +378,15 @@ export function createAircraftControlController({
       ? `${completedStepCount} of ${stepCount} steps`
       : '';
 
+    const guidanceUnconfirmed = flightGuidanceObservationFailureText(msg);
+    if (guidanceUnconfirmed) {
+      const routeText = msg.error || '';
+      setFeedback({ actionText: guidanceUnconfirmed, routeText, profileText: profileKey,
+        status: 'unconfirmed', commandKey: pending?.pendingKey || getAircraftControlRequestPendingKey(msg?.request) });
+      emitToast('warning', guidanceUnconfirmed, routeText, { durationMs: 6000 });
+      notifyResult(pending, msg);
+      return;
+    }
     const spoilerUnconfirmed = spoilerObservationFailureText(msg);
     if (spoilerUnconfirmed) {
       const routeText = [msg.error, 'Check the spoiler lever in the cockpit.'].filter(Boolean).join(' \u00b7 ');

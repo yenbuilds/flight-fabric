@@ -330,6 +330,8 @@ function buildInflightViolations(summary) {
   }
 
   for (const violation of summary?.violations || []) {
+    // Old summaries may still contain this retired diagnostic.
+    if ((violation.rule_id ?? violation.ruleId) === VIOLATION_RULE.CONVECTIVE_EXPOSURE) continue;
     const fallbackLabel = violation.rule_id === VIOLATION_RULE.LATE_GO_AROUND || violation.ruleId === VIOLATION_RULE.LATE_GO_AROUND
       ? 'Possible late go-around'
       : (violation.rule_id || violation.ruleId || 'Violation');
@@ -385,6 +387,7 @@ function isExplicitTrue(value) {
 
 function violationCountsAsFlightUpset(violation) {
   if (!violation || typeof violation !== 'object') return false;
+  if ((violation.rule_id ?? violation.ruleId) === VIOLATION_RULE.CONVECTIVE_EXPOSURE) return false;
   const explicit = violation.counts_as_upset ?? violation.countsAsUpset;
   if (isExplicitFalse(explicit)) return false;
   if (isExplicitTrue(explicit)) return true;

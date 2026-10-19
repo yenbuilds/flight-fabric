@@ -19,6 +19,7 @@ export const VIOLATION_RULE: {
   readonly GFORCE_NEGATIVE: 'gforce_negative';
   readonly APPROACH_OVERSPEED: 'approach_overspeed';
   readonly SPEEDBRAKE_DEPLOYED_IN_FLIGHT: 'speedbrake_deployed_in_flight';
+  /** Retired; recognized only to suppress legacy recording and cached-summary rows. */
   readonly CONVECTIVE_EXPOSURE: 'convective_exposure';
 };
 

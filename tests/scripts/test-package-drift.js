@@ -424,6 +424,14 @@ test('update checker only starts in desktop launch modes', () => {
 
 console.log('\n--- MSG enum parity ---');
 
+test('released replay message identifier remains available to existing telemetry clients', () => {
+  // Published before the experimental producer was retired; removing both
+  // declarations together must not evade the parity checks below.
+  for (const map of [getBackendMsgMap(), getEnumsTsMsgMap()]) {
+    assert(map.get('IN_SIM_REPLAY_STATE') === 'inSimReplayState', 'released MSG.IN_SIM_REPLAY_STATE compatibility identifier is missing');
+  }
+});
+
 test('enums.ts MSG and message-types.js MSG have exactly the same keys (bidirectional)', () => {
   const backendKeys = getBackendMsgKeys();
   const tsKeys      = getEnumsTsMsgKeys();

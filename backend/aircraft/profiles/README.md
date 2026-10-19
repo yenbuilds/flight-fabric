@@ -145,11 +145,14 @@ metadata, and older recordings. Transport scoring ignores bands for individual
 airliners, so changing a transport profile's stability block does not change
 its live score.
 
-`vref` ranges are metadata. FlightFabric does not calculate the selected Vref
-or Vapp from weight and flap state, and it does not yet have a verified target
-speed signal. The speed check uses IAS at the stability gate. A profile should
-claim authoritative Vref data only when a verified source has been added and
-tested.
+`vref` ranges are metadata. FlightFabric does not calculate the pilot's briefed
+Vref or Vapp from weight and flap state. The transport assessment uses a recorded
+selected-speed target only when the automation source is reliable and
+autothrottle is active; gate IAS alone does not establish a target. Selected
+speed remains advisory evidence, not proof of the correct Vref/Vapp. See
+`backend/stability/approach-assessment.ts` and its regressions under
+`backend/tests/stability/`. A profile should claim authoritative Vref data only
+when its exact source has been verified and tested.
 
 ## Telemetry source preference
 
@@ -326,8 +329,12 @@ appropriate. To allow only standard gear and flap controls, use
 
 Public MSFS profile action types are `key-event`, `input-event`, `html-event`,
 `lvar`, and `simvar`. The current MSFS runtime written in Rust supports
-`key-event`, `lvar`, and `simvar`. List `input-event` and B-var support only
-with a fallback until the provider supports them.
+`key-event`, `lvar`, and `simvar`. It also exposes `input-event` when the live
+sidecar advertises Input Event support; dispatch still requires the current
+aircraft identity and profile generation. `html-event` remains unsupported for
+external writes. An accepted profile action shape does not establish that the
+active provider can execute it; use the published transport capabilities. See
+[the transport guide](../../../docs/AIRCRAFT-INTEGRATION-TRANSPORTS.md).
 
 Aircraft integration actions are not public profile action types. Their routes
 are selected only after exact profile and provider checks. Do not place
@@ -367,8 +374,8 @@ Selection precedence is intentionally fail-closed:
    candidate.
 4. An ambiguous result uses the simulator's bundled generic profile.
 
-For MSFS, `TITLE` is the implementation-specific aircraft identity Flight
-Fabric reads on every normal SimConnect connection. `AircraftLoaded` is
+For MSFS, `TITLE` is the implementation-specific aircraft identity FlightFabric
+reads on every normal SimConnect connection. `AircraftLoaded` is
 documented as an `.AIR` flight-dynamics path, so treat a path received from it
 as a supplemental hint, not a universal `aircraft.cfg` or base-aircraft key.
 Structured `aircraft.cfg` matching applies only when the loader is given the

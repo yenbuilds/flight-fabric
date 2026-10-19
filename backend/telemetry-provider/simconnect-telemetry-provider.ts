@@ -359,7 +359,7 @@ const SIMCONNECT_VARS: SimConnectVarDefinition[] = [
   // SDK: "INCIDENCE BETA - Sideslip angle. Native unit: Radians"
   { name: 'sideslip', simvar: 'INCIDENCE BETA', unit: 'degrees' },
   
-  // Body-axis acceleration (for braking/energy management and convective/turbulence analysis)
+  // Body-axis acceleration for braking and energy-management analysis
   // SDK: "ACCELERATION BODY X - Acceleration relative to aircraft X axis. Unit: Feet per second squared"
   // SDK: "ACCELERATION BODY Z - Acceleration relative to aircraft Z axis. Unit: Feet per second squared"
   { name: 'accelLateral', simvar: 'ACCELERATION BODY X', unit: 'feet per second squared' },
@@ -578,8 +578,8 @@ const SIMCONNECT_VARS: SimConnectVarDefinition[] = [
   { name: 'visibilityM', simvar: 'AMBIENT VISIBILITY', unit: 'meters' },
   // SDK: "SEA LEVEL PRESSURE - Barometric pressure at sea level. Unit: Millibars"
   { name: 'seaLevelPressureMb', simvar: 'SEA LEVEL PRESSURE', unit: 'millibars' },
-  // First-priority convective-risk weather probes. Downstream code treats them
-  // as nullable diagnostics because MSFS weather SimVars can be source-specific.
+  // Shared weather observations for display, recording and post-flight insights.
+  // Values remain nullable because MSFS weather SimVars can be source-specific.
   { name: 'precipRateMm', simvar: 'AMBIENT PRECIP RATE', unit: 'millimeters of water' },
   { name: 'precipState', simvar: 'AMBIENT PRECIP STATE', unit: 'mask' },
   { name: 'inCloud', simvar: 'AMBIENT IN CLOUD', unit: 'bool' },
@@ -630,7 +630,7 @@ const SIMCONNECT_VARS: SimConnectVarDefinition[] = [
   // Control surfaces (3 vars): aileron/elevator/rudder position
   // Trim (3 vars): aileron/elevator/rudder trim
   // Cabin (2 vars): target, dump switch
-  // Weather display extras beyond the restored convective-risk probes
+  // Weather display extras beyond the shared weather observations
   // Slew (1 var): slewAllowed  (removed; slewActive covers active use; pressureAlt added for sparkline baro-spike fix)
   // Misc (2 vars): barberPoleMach, machMaxOperate
   //

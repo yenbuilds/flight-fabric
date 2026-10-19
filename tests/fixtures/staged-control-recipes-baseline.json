@@ -2749,8 +2749,8 @@
     "sourceCommit": "82c9b99ea9b44a65c2358782626e0b4158ba142a",
     "method": "Explicit transcription of the pre-extraction controller sampling, limits, stage semantics and messages; existing operation/code arrays retained unchanged.",
     "independentBehaviorOracles": [
-      "backend/aircraft/baro-execution-parity.test.ts",
-      "backend/aircraft/baro.test.ts",
+      "backend/tests/aircraft/baro-execution-parity.test.ts",
+      "backend/tests/aircraft/baro.test.ts",
       "tests/scripts/test-fenix-baro-controls.js"
     ],
     "scope": "Only the 18 named stagedControl recipe additions and the 9 Fenix mode renames are projected for historical catalogue comparison. Existing data is compared to the original unchanged baseline.",

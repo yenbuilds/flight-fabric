@@ -6,6 +6,7 @@ import {
   getFiniteFuelBurnGal,
 } from '../utils/formatting.js';
 import { alertTone } from './alert-presentation.js';
+import { VIOLATION_RULE } from './constants.js';
 
 export { formatDuration };
 
@@ -188,8 +189,17 @@ export function normalizeTimelineForUI(timeline) {
     };
   }
 
-  const events = timeline.events.map(normalizeEvent).filter(Boolean);
+  const normalizedEvents = timeline.events.map(normalizeEvent).filter(Boolean);
+  // Saved analysis snapshots can bypass CSV readers' retired-rule filtering.
+  // Hide their legacy events without rewriting the snapshot or its scores.
+  const events = normalizedEvents.filter(event => (event.ruleId ?? event.rule_id) !== VIOLATION_RULE.CONVECTIVE_EXPOSURE);
+  const removedRetiredEvents = events.length !== normalizedEvents.length;
   let worstMoment = timeline.worstMoment;
+
+  if (removedRetiredEvents && worstMoment?.index != null) {
+    const index = events.indexOf(normalizedEvents[worstMoment.index]);
+    worstMoment = index >= 0 ? { ...worstMoment, index } : null;
+  }
 
   if (worstMoment && (worstMoment.index === undefined || worstMoment.index === null)) {
     const eventId = worstMoment.eventId || worstMoment.event_id || worstMoment.worst_event_id;
@@ -197,6 +207,8 @@ export function normalizeTimelineForUI(timeline) {
       const idx = events.findIndex((event) => event.id === eventId);
       if (idx >= 0) {
         worstMoment = { ...worstMoment, index: idx };
+      } else if (removedRetiredEvents) {
+        worstMoment = null;
       }
     }
   }
@@ -204,7 +216,7 @@ export function normalizeTimelineForUI(timeline) {
   return {
     ...timeline,
     events,
-    eventCount: timeline.eventCount ?? timeline.event_count ?? events.length,
+    eventCount: removedRetiredEvents ? events.length : (timeline.eventCount ?? timeline.event_count ?? events.length),
     worstMoment,
   };
 }

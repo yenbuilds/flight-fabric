@@ -103,6 +103,47 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
     await click('[data-close-intro]');
   }
 
+  for (const choice of ['waiting', 'keep', 'back']) {
+    await load('delayVoice=1&firstVoicePreference=1&toolbar=1');
+    assert(await evaluate(`return document.querySelector(${JSON.stringify(keepVoice)}).checked;`), 'pending desktop preferences keep the current choice');
+    if (choice === 'keep') await click(keepVoice);
+    if (choice === 'back') {
+      await click(next);
+      await click(back);
+    }
+    await evaluate('workbenchTest.voice.applyRuntimeInfo({enabled:false,needsInitialPreference:true,available:false}); await workbenchTest.nextTick();');
+    assert.equal(await evaluate(`return document.querySelector(${JSON.stringify(voiceOn)}).checked;`), choice === 'waiting', `late voice reply must preserve an explicit Keep current or Next/Back choice (${choice})`);
+    assert.equal(await evaluate('return workbenchTest.voice.runtime.enabled;'), false, 'a late default selection cannot activate recognition');
+    await toolbarStep();
+    await click(next);
+    assert.deepEqual(await evaluate('return workbenchTest.setupFixture.voiceWrites;'), [
+      { value: choice === 'waiting', options: { requestMicrophoneAccess: false } },
+    ], 'finishing saves the reviewed choice after a delayed desktop reply');
+    await evaluate('await workbenchTest.completeSetupSave();');
+  }
+
+  await load('firstVoicePreference=1&toolbar=1');
+  await toolbarStep();
+  await evaluate('workbenchTest.setupFixture.deferVoiceSave=true;');
+  await click(next, false, 2);
+  await key('Enter', 13);
+  await evaluate('document.querySelector(".onboarding-form").dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})); await workbenchTest.nextTick();');
+  assert.equal(await evaluate('return workbenchTest.setupFixture.voiceWrites.length;'), 1, 'slow initial enablement admits only one save across clicks, Enter and submit');
+  assert.equal(await evaluate('return workbenchTest.setupFixture.requests.length;'), 0, 'completion waits for the pending native preference save');
+  assert(await evaluate(`return document.querySelector(${JSON.stringify(back)}).disabled;`), 'Back cannot change the draft while the voice save is pending');
+  await evaluate('workbenchTest.voice.applyRuntimeInfo({enabled:true,needsInitialPreference:false,available:true}); await workbenchTest.nextTick();');
+  assert(await isOpen(), 'an early runtime broadcast does not finish setup');
+  assert.equal(await evaluate('return workbenchTest.settingsUi.initialSetupReady;'), false, 'recognition becoming ready cannot unlock input before completion');
+  await evaluate('workbenchTest.setupFixture.finishVoiceSave();');
+  for (let attempt = 0; attempt < 100 && !await evaluate('return workbenchTest.setupFixture.requests.length;'); attempt++) await wait(10);
+  assert.equal(await evaluate('return workbenchTest.setupFixture.requests.length;'), 1, 'the completed native save advances to one backend save');
+  await evaluate('await workbenchTest.completeSetupSave(false);');
+  assert(await isOpen(), 'a later backend failure leaves setup open');
+  await click(next);
+  assert.equal(await evaluate('return workbenchTest.setupFixture.voiceWrites.length;'), 1, 'retrying completion does not repeat the successful native enablement');
+  await evaluate('await workbenchTest.completeSetupSave();');
+  assert.equal(await isOpen(), false);
+
   // Hold startup replies independently. Native input must not reach the app
   // before we know whether this PC still needs its initial preferences.
   for (const [name, width, height, touch] of [['desktop', 1440, 900, false], ['phone', 320, 700, true]]) {
@@ -283,11 +324,12 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
     ['desktop', 1440, 900, false], ['phone', 390, 844, true], ['phone-narrow', 320, 700, true], ['landscape', 700, 360, true],
   ]) {
     const existing = name === 'desktop';
-    await load(existing ? 'toolbar=1&voiceEnabled=1&autoStart=0' : 'toolbar=1', width, height);
+    await load(existing ? 'toolbar=1&voiceEnabled=1&autoStart=0' : 'toolbar=1&firstVoicePreference=1', width, height);
     assert(await isOpen(), `${name}: incomplete setup is mandatory`);
     assert.equal(await evaluate("return localStorage.getItem('ff_whats_new_seen_v1');"), null, 'other welcome cards wait for setup');
     assert.equal(await evaluate('return document.activeElement.id;'), 'onboarding-title');
-    assert(await evaluate(`return document.querySelector(${JSON.stringify(existing ? voiceOn : voiceOff)}).checked;`), 'voice defaults off on a fresh install and preserves an existing saved choice');
+    assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOn)}).checked;`), 'voice is recommended on a fresh install and preserves saved On');
+    assert.equal(await evaluate('return workbenchTest.voice.runtime.enabled;'), existing, 'a proposed default cannot activate voice before finishing');
     await key('Escape', 27);
     assert(await isOpen(), 'Escape cannot dismiss setup');
     for (const type of ['mousePressed', 'mouseReleased']) await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type, x: 1, y: 1, button: 'left', clickCount: 1 });
@@ -352,24 +394,59 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
 
   // Accepting the proposed defaults still requires all three screens and a
   // confirmed final save. Existing preferences must not be reset by defaults.
-  for (const existing of [false, true]) {
-    await load(existing ? 'voiceEnabled=1&autoStart=0&toolbar=1' : 'toolbar=1');
-    for (const [choice, title] of [[existing ? voiceOn : voiceOff, /Fly with your voice/],
-      [existing ? manual : automatic, /Choose how flights are recorded/], [toolbarLater, /MSFS/]]) {
+  for (const [query, enabled, autoStart, needsInitialPreference] of [
+    ['firstVoicePreference=1', true, true, true],
+    ['voiceEnabled=0', false, true, false],
+    ['voiceEnabled=1&autoStart=0', true, false, false],
+  ]) {
+    await load(`${query}&toolbar=1`);
+    for (const [choice, title] of [[enabled ? voiceOn : voiceOff, /Fly with your voice/],
+      [autoStart ? automatic : manual, /Choose how flights are recorded/], [toolbarLater, /MSFS/]]) {
       assert(await isOpen(), 'preselected preferences never dismiss mandatory setup');
       assert.match(await evaluate('return document.getElementById("onboarding-title").textContent;'), title);
       assert(await evaluate(`return document.querySelector(${JSON.stringify(choice)}).checked;`));
       assert.equal(await evaluate('return workbenchTest.setupFixture.requests.length;'), 0, 'visiting a step does not write completion');
+      assert.deepEqual(await evaluate('return workbenchTest.setupFixture.voiceWrites;'), [], 'visiting a step does not activate voice or save a preference');
       await click(next);
     }
     assert(await isOpen(), 'finishing with defaults waits for the save acknowledgement');
     assert.deepEqual(await evaluate('return workbenchTest.setupFixture.requests.map(request=>request.patch);'), [{ onboarding: { completed: true } }], 'accepting current preferences saves only completion');
-    assert.deepEqual(await evaluate('return workbenchTest.setupFixture.voiceWrites;'), [], 'accepting saved voice does not rewrite it');
+    assert.deepEqual(await evaluate('return workbenchTest.setupFixture.voiceWrites;'), needsInitialPreference
+      ? [{ value: true, options: { requestMicrophoneAccess: false } }] : [], 'only a new voice default is saved; existing choices are preserved');
     assert.deepEqual(await evaluate('return workbenchTest.toolbarFixture.writes;'), [], 'the toolbar default never installs implicitly');
     await evaluate('await workbenchTest.completeSetupSave();');
     assert.equal(await isOpen(), false);
-    await assertSavedSettings(existing, !existing);
+    await assertSavedSettings(enabled, autoStart);
   }
+
+  await load('firstVoicePreference=1&toolbar=1', 320, 700);
+  await click(voiceOff, true);
+  await toolbarStep();
+  await click(next, true);
+  assert.deepEqual(await evaluate('return workbenchTest.setupFixture.voiceWrites;'), [
+    { value: false, options: { requestMicrophoneAccess: false } },
+  ], 'choosing Off on first setup persists the choice even though recognition has not started');
+  await evaluate('await workbenchTest.completeSetupSave();');
+  await assertSavedSettings(false, true);
+
+  await load('voiceUnavailable=1&firstVoicePreference=1&toolbar=1');
+  await click(next);
+  await evaluate('workbenchTest.voice.setBridgeAvailable(true); workbenchTest.voice.applyRuntimeInfo({enabled:false,needsInitialPreference:true,available:false}); await workbenchTest.nextTick();');
+  await click(back);
+  assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOff)}).checked;`), 'a late first preference cannot enable voice after the user continued with Keep current');
+  await toolbarStep();
+  await click(next);
+  assert.deepEqual(await evaluate('return workbenchTest.setupFixture.voiceWrites;'), [
+    { value: false, options: { requestMicrophoneAccess: false } },
+  ], 'the late first preference saves Off without microphone access');
+  await evaluate('await workbenchTest.completeSetupSave();');
+
+  await load('firstVoicePreference=1&completed=1&voiceUnavailable=1');
+  await evaluate("workbenchTest.whatsNew.dismiss(); await workbenchTest.open('settings');");
+  await click('#settings-show-intro');
+  await evaluate('workbenchTest.voice.setBridgeAvailable(true); workbenchTest.voice.applyRuntimeInfo({enabled:false,needsInitialPreference:true,available:false}); await workbenchTest.nextTick();');
+  assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOff)}).checked;`), 'replay preserves current Off even when previously absent voice settings arrive late');
+  await click('[data-close-intro]');
 
   // Exercise every independent boolean combination, starting from its opposite
   // so the UI must actually send both changes. Check normal Settings and a new
@@ -672,12 +749,12 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
     assert.equal(await evaluate('return workbenchTest.settingsForm.pendingVisible;'), false, 'confirmed restart save clears the draft');
   }
 
-  await load();
-  await click(voiceOn);
+  await load('firstVoicePreference=1');
+  await click(voiceOff);
   await click(next);
-  await load();
+  await load('firstVoicePreference=1');
   assert(await isOpen(), 'unfinished setup returns after relaunch');
-  assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOff)}).checked;`), 'relaunch restores the saved default instead of an unfinished choice');
+  assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOn)}).checked;`), 'relaunch restores the proposed default instead of an unsaved choice');
   await load('completed=1');
   assert.equal(await isOpen(), false, 'completion restored from app settings suppresses setup after relaunch');
   assert.equal(await evaluate('return workbenchTest.settingsUi.initialSetupReady;'), true, 'returning users can use voice after saved completion loads');

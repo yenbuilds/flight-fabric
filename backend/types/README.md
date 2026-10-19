@@ -24,8 +24,10 @@ module.
 7. Stage related runtime assets beside the compiled backend. The current roots
    are `dist/shared/` and `dist/frontend/`.
 8. Check backend tests and support files with
-   `npm run typecheck:backend:tests`. They may also compile into
-   `dist/backend/` for tests that run against built code.
+   `npm run typecheck:backend:tests`. Unit tests live in `backend/tests/` and
+   compile to `dist/backend/tests/`; shared integration tests live in
+   `tests/backend/` and compile to `dist/tests/backend/`. The production
+   typecheck and declaration build exclude these test folders.
 
 ## Why
 
@@ -37,3 +39,13 @@ Current layout:
 - `backend/` contains TypeScript source.
 - `dist/backend/` contains runnable JavaScript.
 - `backend/types/generated/` contains generated declarations.
+
+This folder's ambient declarations and generated output have different owners
+and build rules. The current handwritten shim is `ws.d.ts`;
+do not edit files under `generated/` to repair a runtime type. Change the owning
+source and use the declaration build. Review generated changes before staging
+them; declaration output is a developer aid and does not replace the runtime
+build or dedicated test typecheck.
+
+See [the test layout](../../docs/DEVELOPMENT-TOOLS.md#test-layout) and
+[architecture](../../architecture.md) for the broader boundaries.

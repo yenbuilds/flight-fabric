@@ -10,7 +10,7 @@ Windows SAPI, Microsoft David Desktop (English, United States), rate 0,
 
 The previous LibriSpeech-only Zipformer model with eight active decoder paths transcribes the
 prefix as “SET IN A RADIOS” on both recordings. Sixteen paths preserve the
-complete NAV command. The native regression in `electron/voice-runtime.test.js`
+complete NAV command. The native regression in `electron/tests/voice-runtime.test.js`
 decodes both recordings through the production engine and follows them with
 silence to check session isolation and false command output.
 

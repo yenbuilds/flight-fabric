@@ -16,6 +16,7 @@ const { PHASES } = require('../lifecycle/phases.js') as {
  * @enum {string}
  */
 const MSG = Object.freeze({
+  // Deprecated compatibility identifier; the experimental producer is retired.
   IN_SIM_REPLAY_STATE: 'inSimReplayState',
   AUTOTAXI_STATE: 'autotaxiState',
   PUSHBACK_STATE: 'pushbackState',

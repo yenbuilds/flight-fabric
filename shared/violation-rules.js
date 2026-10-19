@@ -32,7 +32,7 @@
       GFORCE_HIGH: 'gforce_high',
       GFORCE_NEGATIVE: 'gforce_negative',
       APPROACH_OVERSPEED: 'approach_overspeed',
-      // Retained only to recognize and suppress legacy recorded events.
+      // Retired rules, retained only to recognize and suppress legacy recorded events.
       SPEEDBRAKE_DEPLOYED_IN_FLIGHT: 'speedbrake_deployed_in_flight',
       CONVECTIVE_EXPOSURE: 'convective_exposure',
     });

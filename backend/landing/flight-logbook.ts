@@ -166,11 +166,6 @@ type LogbookState = {
   version: number;
 };
 
-type TrendsOptions = {
-  aircraft?: string | null;
-  windowSize?: number;
-};
-
 type GroupTrendSummary = {
   key: string;
   label: string;
@@ -877,11 +872,6 @@ function getEntries(): LandingEntry[] {
   return readLogbook().entries;
 }
 
-function getStats(): GenericRecord {
-  const entries = readLogbook().entries;
-  return computeStatsFromEntries(entries);
-}
-
 function linearSlope(values: Array<number | null | undefined>): number | null {
   const valid = values.filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value));
   const length = valid.length;
@@ -906,7 +896,6 @@ function linearTrend(values: Array<number | null | undefined>, metric: string): 
   if (slope === null) return null;
   const threshold = 0.03;
   if (metric === 'vs') return slope > threshold ? 'improving' : slope < -threshold ? 'regressing' : 'stable';
-  if (metric === 'gforce') return slope < -threshold ? 'improving' : slope > threshold ? 'regressing' : 'stable';
   if (metric === 'stability') return slope > threshold ? 'improving' : slope < -threshold ? 'regressing' : 'stable';
   return 'stable';
 }
@@ -981,53 +970,6 @@ function computeGroupTrendRows(
       return (right.latestTimestampMs ?? 0) - (left.latestTimestampMs ?? 0);
     })
     .slice(0, limit);
-}
-
-function getTrends(options?: TrendsOptions): GenericRecord {
-  const aircraft = options && typeof options.aircraft === 'string' && options.aircraft ? options.aircraft : null;
-  const windowSize = options && Number.isInteger(options.windowSize) && (options.windowSize as number) >= 0
-    ? (options.windowSize as number)
-    : 20;
-
-  const all = readLogbook().entries;
-  const aircraftNames = [...new Set(all.map((entry) => entry.aircraft).filter(Boolean))].sort();
-  const pool = aircraft ? all.filter((entry) => entry.aircraft === aircraft) : all;
-  const chronoWindow = (windowSize === 0 ? pool.slice() : pool.slice(0, windowSize)).reverse();
-
-  if (chronoWindow.length === 0) {
-    return { points: [], aircraftNames, trendVs: null, trendGforce: null, trendStability: null };
-  }
-
-  const points = chronoWindow.map((entry) => ({
-    timestampMs: entry.timestampMs,
-    vsFpm: descendingLandingRateOrNull(entry.vsFpm),
-    gforce: entry.gforce,
-    stabilityScore: entry.stabilityScore,
-    stabilityVerdict: resolveLandingEntryStabilityVerdict(entry),
-    grade: entry.vsFpm !== null && entry.vsFpm !== undefined && !isDescendingLandingRate(entry.vsFpm)
-      ? null
-      : entry.grade,
-    icao: entry.icao,
-    aircraft: entry.aircraft,
-  }));
-
-  return {
-    points,
-    aircraftNames,
-    trendVs: linearTrend(points.map((point) => point.vsFpm), 'vs'),
-    trendGforce: linearTrend(points.map((point) => point.gforce), 'gforce'),
-    trendStability: linearTrend(points.map((point) => point.stabilityScore), 'stability'),
-  };
-}
-
-function deleteEntry(id: string | null | undefined): boolean {
-  if (!id) return false;
-  const logbook = readLogbook();
-  const before = logbook.entries.length;
-  logbook.entries = logbook.entries.filter((entry) => entry.id !== id);
-  if (logbook.entries.length === before) return false;
-  writeLogbook(logbook);
-  return true;
 }
 
 function clearAll(): void {
@@ -1619,12 +1561,9 @@ const flightLogbookApi = {
   addEntry,
   clearAll,
   computeStatsFromEntries,
-  deleteEntry,
   getEntries,
   getLandingsFromCsvFile,
   getLandingsFromCSVs,
-  getStats,
-  getTrends,
   listLogbookCsvFiles,
   logbookOutcomeGrade,
   materializeFlightAnalysisLandings,

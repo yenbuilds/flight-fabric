@@ -2047,8 +2047,6 @@ async function startBackendOnce(attemptId) {
     // The backend may treat EOF on this pipe as proof that Electron crashed.
     // Keep the behavior opt-in so CLI/daemon launches can safely ignore stdin.
     FF_PARENT_STDIN_LIFELINE: lifecycleSmokeConfig?.action === 'hard-death' ? '0' : '1',
-    STABILITY_DEBUG_LOG: '0',
-    STABILITY_DEBUG_ALWAYS_ACTIVE: '0',
   };
 
   debugLog('NODE_PATH set to:', NODE_MODULES_PATH);

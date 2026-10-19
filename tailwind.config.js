@@ -13,6 +13,7 @@ module.exports = {
       './frontend/*.html',
       './frontend/*.js',
       './frontend/src/**/*.{js,vue,ts}',
+      './frontend/tests/**/*.{js,ts}',
     ],
   },
   theme: {

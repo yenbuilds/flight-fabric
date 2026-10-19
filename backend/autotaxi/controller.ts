@@ -6,14 +6,6 @@ export type TaxiInput = { throttle: number; brake: number; steering: number };
 export type TaxiStatus = 'taxiing' | 'stopping' | 'holding' | 'stopped' | 'fault';
 /** steeringSign: +1 when positive AXIS_STEERING_SET turns right as documented, -1 when reversed, null/absent when unknown. */
 export type TaxiControllerOptions = { steeringSign?: 1 | -1 | null; handling?: TaxiHandling };
-/** The internals of one update, for the session log. Fields stay null on the paths that never compute them. */
-export type TaxiTrace = {
-  dtS: number; sampleAgeMs: number; movedM: number; turnedDeg: number; segment: number; remainingM: number;
-  crossTrackM: number | null; limitM: number | null; headingErrorDeg: number | null; target: Point | null;
-  demand: number | null; steering: number; targetKts: number | null; excessKts: number | null; throttle: number;
-  accelerationKtsS: number; brake: number;
-  probe: { yaw: number; travelledM: number; direction: 1 | -1 | null } | null; steeringSign: 1 | -1 | null; evidence: number;
-};
 export const STOP_INPUT: TaxiInput = Object.freeze({ throttle: 0, brake: 1, steering: 0 });
 const PROBE_DEMAND = 0.25;
 const PROBE_DEMAND_MAX = 0.4;
@@ -62,7 +54,6 @@ export function createTaxiController(route: TaxiRoute, options: TaxiControllerOp
   // something else is steering; stop and forget the learned direction.
   let intended = 0;
   let evidence = 0;
-  let trace: TaxiTrace | null = null;
   // A stop after the aircraft has already stopped, held or faulted keeps that state and its reason.
   function stop(message = 'Stop requested') { if (status === 'taxiing') { status = 'stopping'; reason = message; } }
   function resetRest() { restSince = null; settled = false; }
@@ -77,12 +68,6 @@ export function createTaxiController(route: TaxiRoute, options: TaxiControllerOp
     const dt = previous ? (sample.timeMs - previous.timeMs) / 1000 : 0.25;
     const moved = previous ? distance(previous, sample) : 0;
     const turned = previous ? angle(sample.headingDeg - previous.headingDeg) : 0;
-    // Create a fresh trace even for a rejected sample; never log the preceding
-    // successful tick as the explanation for a timing/telemetry fault.
-    const t: TaxiTrace = trace = { dtS: dt, sampleAgeMs: now - sample.timeMs, movedM: moved, turnedDeg: turned, segment, remainingM,
-      crossTrackM: null, limitM: null, headingErrorDeg: null, target: null, demand: null, steering,
-      targetKts: null, excessKts: null, throttle: 0, brake: 1, accelerationKtsS: acceleration,
-      probe: probe ? { ...probe } : null, steeringSign, evidence };
     const valid = sample.ready && [sample.timeMs, sample.x, sample.z, sample.headingDeg, sample.speedKts, now].every(Number.isFinite)
       && sample.speedKts >= 0 && now - sample.timeMs >= 0 && now - sample.timeMs <= 1000;
     if (!valid) { fault(sample.reason || 'Telemetry unavailable or stale. Take control.'); return STOP_INPUT; }
@@ -107,12 +92,10 @@ export function createTaxiController(route: TaxiRoute, options: TaxiControllerOp
       const measured = clamp((sample.speedKts - previous.speedKts) / dt, -4, 4);
       acceleration += (measured - acceleration) * dt / (1 + dt);
     }
-    t.accelerationKtsS = acceleration;
     previous = { ...sample };
     if (steeringSign && sample.speedKts >= 1 && Math.abs(intended) >= 0.15) {
       evidence = Math.min(8, evidence + Math.max(-5, Math.min(5, turned)) * Math.sign(intended));
-      t.evidence = evidence;
-      if (evidence <= -8) { steeringSign = null; t.steeringSign = null; fault('Steering response contradicts the learned direction. Take control.'); return STOP_INPUT; }
+      if (evidence <= -8) { steeringSign = null; fault('Steering response contradicts the learned direction. Take control.'); return STOP_INPUT; }
     }
     const points = route.points;
     let projection = project(sample, points[segment], points[segment + 1]);
@@ -129,7 +112,6 @@ export function createTaxiController(route: TaxiRoute, options: TaxiControllerOp
     for (let i = segment + 1; i < points.length - 1; i++) remainingM += distance(points[i], points[i + 1]);
     const starting = route.lengthM - remainingM < START_M || (segment === 0 && route.joinM > 0);
     const limitM = starting ? START_DEVIATION_M : DEVIATION_M;
-    t.segment = segment; t.remainingM = remainingM; t.crossTrackM = projection.distance; t.limitM = limitM;
     if (projection.distance > limitM) { fault(`More than ${limitM} m from the planned ${route.joinM > 0 && segment === 0 ? 'line to the taxiway' : 'centreline'}. Take control.`); return STOP_INPUT; }
     if (remainingM < 1.5) {
       if (rest(sample)) { status = 'holding'; reason = route.kind === 'stand' ? `Parked at ${route.label}.` : `Holding short of runway ${route.runway}.`; }
@@ -147,7 +129,6 @@ export function createTaxiController(route: TaxiRoute, options: TaxiControllerOp
       lookahead -= length; target = points[i]; from = points[i];
     }
     const error = angle(bearing(sample, target) - sample.headingDeg);
-    t.headingErrorDeg = error; t.target = target;
     if (Math.abs(error) > 100) { fault('Route is behind the aircraft. Take control.'); return STOP_INPUT; }
     const wheelAngle = Math.atan2(2 * wheelbaseM * Math.sin(error * Math.PI / 180), Math.max(3, distance(sample, target)));
     let demand = clamp(wheelAngle / (maxSteeringDeg * Math.PI / 180), -steeringLimitDeg / maxSteeringDeg, steeringLimitDeg / maxSteeringDeg);
@@ -159,7 +140,6 @@ export function createTaxiController(route: TaxiRoute, options: TaxiControllerOp
         // Written raw, so yaw in the written direction means the axis is as documented.
         steeringSign = (probe.yaw > 0 ? 1 : -1) * (probe.direction ?? 1) > 0 ? 1 : -1;
         probe = null;
-        t.steeringSign = steeringSign;
       } else if (probe.travelledM > PROBE_TRAVEL_M) {
         fault(`Steering had no effect over ${PROBE_TRAVEL_M} m. Check the aircraft steering-axis configuration and take control.`);
         return STOP_INPUT;
@@ -172,8 +152,6 @@ export function createTaxiController(route: TaxiRoute, options: TaxiControllerOp
         demand = probe.direction * Math.min(PROBE_DEMAND_MAX, steeringLimitDeg / maxSteeringDeg, Math.max(PROBE_DEMAND, demand * probe.direction));
       }
     }
-    t.probe = probe ? { ...probe } : null;
-    t.demand = demand;
     steering += Math.max(-dt * 0.8, Math.min(dt * 0.8, demand - steering));
     // A small centreline correction is not a tight bend. Limit speed smoothly
     // with curvature (0.2 m/s² lateral acceleration), retaining the configured
@@ -222,11 +200,8 @@ export function createTaxiController(route: TaxiRoute, options: TaxiControllerOp
     if (brake > 0 || excess > 0.2) throttle = 0;
     else throttle += clamp(clamp(desiredThrottle, 0, maxThrottle) - throttle, -dt * 0.12, dt * 0.02);
     intended = probe ? 0 : steering;
-    t.steering = steering; t.targetKts = targetKts; t.excessKts = excess; t.throttle = throttle; t.brake = brake;
     return { throttle, brake, steering: probe ? steering : steering * steeringSign! };
   }
   return { update, stop, fault,
-    getState: () => ({ status, reason, remainingM, runway: route.runway, settled, steeringSign, probing: !!probe }),
-    /** Internals of the most recent update, or null before the first valid sample. */
-    trace: () => trace };
+    getState: () => ({ status, reason, remainingM, runway: route.runway, settled, steeringSign, probing: !!probe }) };
 }

@@ -206,7 +206,7 @@ rules:
     paths:
       include: ["/electron/**"]
       exclude:
-        - /electron/test-electron.js
+        - /electron/tests/test-electron.js
     pattern: $CONTENTS.executeJavaScript(...)
 
   - id: ff.electron.permission-handler-unconditional-allow
@@ -446,7 +446,7 @@ rules:
       exclude:
         - /electron/after-pack.js
         - /electron/build-electron.js
-        - /electron/test-electron.js
+        - /electron/tests/test-electron.js
         - "**/*.test.js"
         - "**/*.test.ts"
     pattern-either:

@@ -4,11 +4,8 @@ setlocal EnableDelayedExpansion
 REM Jump to repo root (this .bat's directory)
 cd /d "%~dp0"
 
-REM Local launcher runs should not write stability debug files, even if a
-REM developer shell has inherited troubleshooting env vars.
+REM Mark this backend as a local batch launch.
 set "FF_LOCAL_BAT_LAUNCH=1"
-set "STABILITY_DEBUG_LOG=0"
-set "STABILITY_DEBUG_ALWAYS_ACTIVE=0"
 
 REM ========================================
 REM Preflight checks (fail fast on fresh PCs)

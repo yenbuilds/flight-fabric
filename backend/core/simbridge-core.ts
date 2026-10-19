@@ -37,7 +37,6 @@ const { TAKEOFF_SCORING_ENABLED } = require('../../shared/app-settings-shared.js
   TAKEOFF_SCORING_ENABLED: boolean;
 };
 const { createFlightViolationRunner } = require('../flight-violations/flight-violation-runner');
-const { createConvectiveRiskRunner } = require('../flight-violations/convective-risk-runner');
 const { makeFlapsObj, makeFlapsObjFromLvar } = require('../aircraft/flaps');
 const {
   LifecycleState,
@@ -142,7 +141,6 @@ const { createWsServer } = require('./ws-bootstrap');
 const { createDevicePairingManager } = require('./device-pairing');
 const { createBroadcast } = require('./ws-broadcaster');
 const { startHttpServer } = require('./http-server');
-const { createReplaySession } = require('../replay/replay-session') as typeof import('../replay/replay-session');
 const {
   createCabinAnnouncementsController,
   resolveCabinAnnouncementsReconfigureSettings,
@@ -581,7 +579,6 @@ async function runSimbridgeCore({
   let updateCheckerHandle = null;
   let flightCsvStore: AnyRecord | null = null;
   let coreShutdownStarted = false;
-  let inSimReplay: ReturnType<typeof createReplaySession> | null = null;
   let activeUpdateBoundaryRequests = 0;
   let updateObservedAt = 0;
 
@@ -821,27 +818,8 @@ async function runSimbridgeCore({
       try {
       if (!isClientMessageAuthorized(ws, msg?.type)) {
         // Preserve the standard command-specific denial envelopes without
-        // constructing replay/storage/provider context for a denied command.
+        // constructing storage/provider context for a denied command.
         await handleClientMessageImpl(ws, msg, { Debug });
-        return;
-      }
-      if (msg.type === 'inSimReplay') {
-        try { await inSimReplay?.request(msg, ws.__ffPrivilegedClient === true); }
-        catch (error) {
-          ws.send(JSON.stringify({ ...(inSimReplay?.snapshot() || { type: 'inSimReplayState', state: 'idle' }),
-            error: error instanceof Error ? error.message : 'Replay request failed.' }));
-          return;
-        }
-        ws.send(JSON.stringify(inSimReplay?.snapshot() || { type: 'inSimReplayState', state: 'idle', error: 'Replay is starting up. Try again shortly.' }));
-        return;
-      }
-      if (msg.type === 'requestState' && inSimReplay) ws.send(JSON.stringify(inSimReplay.snapshot()));
-      if (inSimReplay?.isBlocking() && ['startRecording', 'lvarDebugWatch', 'sendCduKey', 'pushback', 'autotaxi', 'executeAircraftCommand', 'executeAircraftControl'].includes(msg.type)) {
-        const resultType = { startRecording: 'startFlightResult', sendCduKey: 'cduState', pushback: 'pushbackState', autotaxi: 'autotaxiState',
-          executeAircraftCommand: 'aircraftCommandResult', executeAircraftControl: 'aircraftControlResult' }[msg.type] || 'inSimReplayState';
-        ws.send(JSON.stringify({ ...(resultType === 'inSimReplayState' ? inSimReplay.snapshot() : {}),
-          type: resultType, requestId: msg.requestId, commandId: msg.commandId, controlId: msg.controlId,
-          ok: false, success: false, error: 'Finish replay and reload recovery before using live aircraft controls or recording.' }));
         return;
       }
       if (msg.type === 'requestDevicePairingRequests') {
@@ -1234,7 +1212,6 @@ async function runSimbridgeCore({
 
   // Flight violation runner (in-flight upset detection, entire flight)
   const flightViolationRunner = createFlightViolationRunner();
-  const convectiveRiskRunner = createConvectiveRiskRunner();
 
   // Subscribe to aircraft changes for STATE RESET
   // When user changes aircraft (e.g., via menu), reset transient scoring/tracking state.
@@ -1278,7 +1255,6 @@ async function runSimbridgeCore({
 
       // Reset flight violation runner (clears any in-progress upset state)
       flightViolationRunner.reset();
-      convectiveRiskRunner.reset();
 
       // Reset phase detection state (prevents carryover of flight phase from old aircraft)
       try {
@@ -1378,17 +1354,6 @@ async function runSimbridgeCore({
     },
   };
   flightCsvStore = createFlightCsvStore({ flightCsvWriter, recordingBundleGuard, Debug });
-  inSimReplay = createReplaySession({
-    enabled: config.inSimReplay.enabled,
-    prepareClip: (file, landing) => flightCsvStore!.prepareInSimReplayClip(file, landing),
-    suspend: async () => { await provider.stop(); },
-    resume: async () => { if (!coreShutdownStarted) await provider.start(); },
-    entryBlocker: () => capabilities.isMock ? 'Replay needs a live MSFS 2024 connection.'
-      : (flightActive || flightCsvWriter.isRecording?.() || getRecordingFinalizationBlocker())
-        ? 'End your current FlightFabric flight recording and wait for it to finish saving before checking the replay aircraft.' : '',
-    publish: (message) => broadcast(message),
-  });
-
   if (!capabilities.isMock) {
     // Write TAKEOFF rows to the authoritative flight CSV. The payload is the
     // canonical takeoff:final result; the CSV contract names the fields that
@@ -1709,12 +1674,6 @@ async function runSimbridgeCore({
             runwayId,
             glidepathAngle,
           });
-          Debug.log('landing', 'Current approach ultimateStabilityScore broadcast', {
-            score: stabScore.score,
-            samples: stabScore.samples,
-            gateStable: stabScore.gateStable,
-            approachProfilePoints: approachProfile.length,
-          });
         } else if (currentApproachScorer && !currentApproachScorer.hasScored) {
           // Resolve the runway elevation reference FIRST so the scorer uses
           // runway-relative height for gate detection (fixes high-elevation
@@ -1786,12 +1745,6 @@ async function runSimbridgeCore({
             runwayId,
             glidepathAngle,
           });
-          Debug.log('landing', 'Current approach ultimateStabilityScore broadcast', {
-            score: stabScore.score,
-            samples: stabScore.samples,
-            gateStable: stabScore.gateStable,
-            approachProfilePoints: approachProfile.length,
-          });
         }
       } catch (e) {
         console.error('[landing] Current approach stability score broadcast failed:', e.message);
@@ -1818,11 +1771,6 @@ async function runSimbridgeCore({
           raFt: payload?.altitude_ft,
           vsFpm: payload?.vs_fpm,
         }, { force: true });
-        Debug.log('stability', 'Stability reset on go-around', {
-          aircraft: payload?.aircraft,
-          altitude_ft: payload?.altitude_ft,
-          previous_phase: payload?.previous_phase,
-        });
       } catch (e) {
         console.error('[stability] Reset on go-around failed:', e.message);
       }
@@ -2031,7 +1979,7 @@ async function runSimbridgeCore({
   }
   try {
     await Promise.all([wsListeningPromise, httpListeningPromise]);
-    if (!inSimReplay.isBlocking()) await provider.start();
+    await provider.start();
   } catch (error) {
     // Startup is transactional. Several optional components start before the
     // telemetry provider so they can serve the first connected client; none of
@@ -2774,7 +2722,6 @@ async function runSimbridgeCore({
   }
 
   function getRecordingStartBlocker() {
-    if (inSimReplay?.isBlocking()) return 'Finish replay and reload recovery before recording.';
     const bundleBlocker = recordingBundleLifecycle.getRecordingBundleStartBlocker();
     if (bundleBlocker) return bundleBlocker;
     const finalizationBlocker = getRecordingFinalizationBlocker();
@@ -3328,7 +3275,6 @@ async function runSimbridgeCore({
   async function shutdownCore() {
     if (coreShutdownStarted) return;
     coreShutdownStarted = true;
-    inSimReplay?.stop();
 
     const reason = getShutdownReason(shutdownSignal);
     const strict = reason === 'desktop_update';
@@ -3505,7 +3451,7 @@ async function runSimbridgeCore({
     );
   }
 
-  function updateLandingRunnerIfEnabled(frame, xwind, stability, nowEpochMs, timestampIso, phaseHint = null, hdgMagDeg = null, hdgTrueDeg = null, convectiveContext = null, sampleDtMs = null, flapsForScoring = null) {
+  function updateLandingRunnerIfEnabled(frame, xwind, stability, nowEpochMs, timestampIso, phaseHint = null, hdgMagDeg = null, hdgTrueDeg = null, sampleDtMs = null, flapsForScoring = null) {
     if (!capabilities.enableLandingRunner || !flightActive) return;
 
     const sc = frame && frame.simconnect;
@@ -3649,27 +3595,6 @@ async function runSimbridgeCore({
       broadcast,
       { nowEpochMs, nowIso: timestampIso },
       { phase, flightCsvWriter, warmup: telemetryWarmup }
-    );
-
-    const convectivePitchBankDeg = normalizePitchBankDegrees({
-      pitch: convectiveContext?.pitchDeg,
-      bank: convectiveContext?.bankDeg,
-    });
-
-    convectiveRiskRunner.update(
-      frame,
-      broadcast,
-      { nowEpochMs, nowIso: timestampIso },
-      {
-        phase,
-        flightCsvWriter,
-        iasKts: convectiveContext?.iasKts,
-        vsFpm: convectiveContext?.vsFpm,
-        pitchDeg: convectivePitchBankDeg.pitchDeg,
-        bankDeg: convectivePitchBankDeg.bankDeg,
-        pitchRateDeg: convectiveContext?.pitchRateDeg,
-        bankRateDeg: convectiveContext?.bankRateDeg,
-      }
     );
   }
 
@@ -4725,7 +4650,6 @@ async function runSimbridgeCore({
         || automationJsonlRecorder.isRecording?.() === true || aircraftSpecificJsonlRecorder.isRecording?.() === true,
       finalizing: Boolean(getRecordingFinalizationBlocker() || recordingBundleFailureHandling
         || recordingBundleAggregateFinalizingSessionId || pendingRecordingBundleStartupErrors.size),
-      replay: inSimReplay?.isBlocking() === true,
       requests: activeUpdateBoundaryRequests,
       shuttingDown: coreShutdownStarted || isShutdownRequested(shutdownSignal),
     }));
@@ -4743,10 +4667,7 @@ async function runSimbridgeCore({
     isFirstIteration = false;
     if (isShutdownRequested(shutdownSignal)) break;
 
-    if (inSimReplay?.isBlocking()) continue;
-    const replayGeneration = inSimReplay?.generation();
     const acquisition = await waitForNextFrameOrShutdown(provider, shutdownSignal);
-    if (inSimReplay?.isBlocking() || replayGeneration !== inSimReplay?.generation()) continue;
     if (acquisition.status === 'shutdown' || isShutdownRequested(shutdownSignal)) break;
 
     const rawFrame = acquisition.frame;
@@ -4948,7 +4869,6 @@ async function runSimbridgeCore({
       phase,
       hdgMagDegStream,
       hdgTrueDegStream,
-      { iasKts: iasKnots, vsFpm: vsFeetPerMin, pitchDeg: pitch, bankDeg: bank, pitchRateDeg, bankRateDeg },
       stabilityDtMs,
       flapsView,
     );

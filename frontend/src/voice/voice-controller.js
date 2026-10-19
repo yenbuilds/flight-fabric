@@ -15,6 +15,7 @@ import { comRadioResultText } from '../aircraft/com-radio.js';
 import { flapResultText } from '../aircraft/flap-controls.js';
 import { gearResultText } from '../aircraft/gear-controls.js';
 import { spoilerObservationFailureText } from '../aircraft/spoiler-controls.js';
+import { flightGuidanceObservationFailureText } from '../aircraft/flight-guidance-controls.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } from './state-queries.js';
 import { answerFlightPlanQuery, flightPlanQueryExamples } from './flight-plan-queries.js';
@@ -311,6 +312,13 @@ export function createVoiceControlController({
     if (pendingCommand !== command) return;
     pendingCommand = null;
     resultHeld = true;
+    const guidanceUnconfirmed = flightGuidanceObservationFailureText(result, command);
+    if (guidanceUnconfirmed) {
+      const detail = typeof result.error === 'string' && result.error.trim() ? ` ${result.error.trim()}` : '';
+      voiceStore.setState('error', `${guidanceUnconfirmed}${detail}`);
+      speakReadback(guidanceUnconfirmed);
+      return;
+    }
     const spoilerUnconfirmed = spoilerObservationFailureText(result, command);
     if (spoilerUnconfirmed) {
       const detail = typeof result.error === 'string' && result.error.trim() ? ` ${result.error.trim()}` : '';
@@ -985,6 +993,7 @@ export function createVoiceControlController({
       available: voiceStore.runtime.available,
       development: voiceStore.runtime.development,
       enabled: voiceStore.runtime.enabled,
+      needsInitialPreference: voiceStore.runtime.needsInitialPreference,
       error: voiceStore.runtime.error,
       engine: { modelId: voiceStore.runtime.modelId, state: voiceStore.runtime.engineState },
       modelBundled: voiceStore.runtime.modelBundled,

@@ -33,7 +33,6 @@ const EXPECTED_FS_BOUNDARIES = [
   // are covered by aircraft-config.test.ts. No simulator package writes.
   ['backend/autotaxi/aircraft-config.ts', 'bounded-installed-aircraft-config', 'closeSync=1,existsSync=10,fstatSync=1,opendirSync=1,openSync=1,readSync=1,realpathSync=9'],
   ['backend/aircraft/control-evidence.ts', 'guarded-diagnostics', 'promises.appendFile=1,promises.mkdir=1,promises.rename=1,promises.stat=1'],
-  ['backend/autotaxi/recorder.ts', 'guarded-diagnostics', 'appendFileSync=1,mkdirSync=1'],
   ['backend/core/destination-target-store.ts', 'guarded-settings', 'existsSync=1,readFileSync=1'],
   ['backend/core/http-server.ts', 'validated-static-assets', 'close=2,createReadStream=1,existsSync=2,fstat=1,lstatSync=2,open=1,readFile=1,realpathSync=2'],
   ['backend/core/user-settings.ts', 'guarded-settings', 'existsSync=2,readFileSync=1'],
@@ -48,8 +47,7 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/flight-recording/flight-csv-writer.ts', 'recording-storage', 'closeSync=2,createWriteStream=1,existsSync=3,fdatasync=1,fdatasyncSync=1,fstatSync=2,lstatSync=3,openSync=2,rmdirSync=1,statSync=3,unlinkSync=2,writeSync=1'],
   ['backend/flight-recording/flight-analysis-rescore-sidecar.ts', 'recording-storage', 'closeSync=1,fstatSync=2,lstatSync=5,openSync=1,readSync=1'],
   ['backend/flight-recording/read-flight-summary.ts', 'recording-storage', 'readFileSync=1,statSync=1'],
-  // Direct replay reads additionally reject linked bundle directories/members.
-  ['backend/flight-recording/recording-bundle-layout.ts', 'recording-storage', 'existsSync=2,lstatSync=4,readdirSync=1'],
+  ['backend/flight-recording/recording-bundle-layout.ts', 'recording-storage', 'existsSync=2,lstatSync=2,readdirSync=1'],
   ['backend/flight-recording/recording-bundle-lease.ts', 'recording-storage', 'closeSync=3,fdatasyncSync=1,fstatSync=2,futimesSync=1,linkSync=1,lstatSync=2,mkdirSync=1,openSync=2,readSync=1,readdirSync=1,unlinkSync=2,writeSync=1'],
   ['backend/flight-recording/recording-bundle-lifecycle.ts', 'recording-storage', 'existsSync=5,linkSync=2,lstatSync=3,readdirSync=2,rmdirSync=1,unlinkSync=5'],
   ['backend/flight-recording/recording-bundle-status.ts', 'recording-storage', 'closeSync=6,existsSync=2,fstatSync=6,fsyncSync=2,linkSync=1,lstatSync=10,openSync=5,promises.lstat=2,promises.open=2,readSync=3,unlinkSync=1,writeSync=1'],
@@ -61,12 +59,6 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/history-index/sqlite-runtime.ts', 'recording-storage', 'existsSync=6,renameSync=2'],
   ['backend/landing/flight-logbook.ts', 'recording-storage', 'existsSync=1,lstatSync=3,promises.open=1,promises.readFile=1,readFileSync=1'],
   ['backend/landing/ourairports-csv-cache.ts', 'release-owned-content', 'existsSync=1,readFileSync=1'],
-  // App-data replay session: fixed recovery journal (display-only bounded read),
-  // exclusive UUID clip creation and cleanup after worker close/launch failure.
-  // Source recordings still pass through the guarded CSV store. Session tests
-  // cover cleanup and journal-gated recovery before live mode can resume.
-  ['backend/replay/replay-session.ts', 'replay-session-storage', 'existsSync=3,mkdirSync=1,readFileSync=1,statSync=1,unlinkSync=2,writeFileSync=1'],
-  ['backend/stability/stability-debug-logger.ts', 'guarded-diagnostics', 'createWriteStream=2,existsSync=1,mkdirSync=1,renameSync=1,statSync=1'],
   // Takeoff log: reads its own app-data JSON (fixed basename under the app data
   // root); writes go through safeReplaceTextFileSync like the landing logbook.
   ['backend/takeoff/takeoff-logbook.ts', 'recording-storage', 'readFileSync=1,statSync=2'],
@@ -93,13 +85,6 @@ const EXPECTED_FS_BOUNDARIES = [
 ];
 
 const EXPECTED_NATIVE_WRITES = {
-  // Dedicated replay proof: six user-pose doubles and three explicit freeze
-  // events, behind exclusive ownership, exact identity/readback and a durable
-  // reload-recovery journal. It does not write camera or cockpit state.
-  'backend/telemetry-provider/rust-simconnect-sidecar/src/replay.rs': {
-    transmit_client_event: 1,
-    set_data_on_sim_object: 1,
-  },
   'backend/telemetry-provider/rust-simconnect-sidecar/src/event_transmit.rs': {
     transmit_client_event: 1,
     transmit_client_event_ex1: 1,

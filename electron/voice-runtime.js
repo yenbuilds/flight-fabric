@@ -84,6 +84,7 @@ function createVoiceRuntime({
   let shortcut = DEFAULT_PUSH_TO_TALK_SHORTCUT;
   let storedSettings = {};
   let recognitionEnabled = false;
+  let needsInitialPreference = false;
   let hook = null;
   let captureAuthorization = null;
   let runtimeTransition = Promise.resolve();
@@ -167,9 +168,11 @@ function createVoiceRuntime({
 
   function loadSettings() {
     let parsed = {};
+    needsInitialPreference = false;
     try {
       parsed = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
-    } catch {
+    } catch (error) {
+      needsInitialPreference = error?.code === 'ENOENT';
       parsed = {};
     }
     // Retain unknown preferences as inert data across saves, including retired settings.
@@ -208,6 +211,7 @@ function createVoiceRuntime({
       mode: 0o600,
     });
     fs.renameSync(temporary, settingsFile);
+    needsInitialPreference = false;
   }
 
   function runtimeInfo() {
@@ -215,6 +219,7 @@ function createVoiceRuntime({
     return Object.freeze({
       available: recognitionEnabled && speech.getInfo().ready,
       enabled: recognitionEnabled,
+      needsInitialPreference,
       mode,
       cloud: cloudVoiceEnabled ? { enabled: true, ...cloudSelection, revision: cloudRevision, selectionValid: !cloudSelectionError, ...credentials.info(cloudSelection.providerId),
         providerLabel: getProvider(cloudSelection.providerId).label,

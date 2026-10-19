@@ -191,7 +191,7 @@ watch(canChooseVoice, (ready) => {
   if (!ready) return;
   if (!voiceInitialized) {
     voiceInitialized = true;
-    voiceEnabled.value = voice.runtime.enabled;
+    voiceEnabled.value = voice.runtime.needsInitialPreference && !settingsUi.introOpen ? true : voice.runtime.enabled;
   }
   // Use the actual saved preference once it arrives. Until then, preserve it
   // without guessing that voice is off or writing an unavailable preference.
@@ -211,6 +211,7 @@ watch([open, required, dialog], async ([visible, , element]) => {
 
 async function changeStep(value) {
   if (busy.value || (value > step.value && !stepComplete.value)) return;
+  if (step.value === 1 && value > 1) voiceInitialized = true;
   step.value = value;
   await nextTick();
   if (main.value) main.value.scrollTop = 0;
@@ -247,7 +248,7 @@ async function finish() {
   try {
     // Keep the existing Electron preference owner. Setup does not open a
     // microphone or require working recognition hardware to finish.
-    if (canChooseVoice.value && (voice.recognitionSaveFailed || voiceEnabled.value !== voice.runtime.enabled)) {
+    if (canChooseVoice.value && (voice.recognitionSaveFailed || voice.runtime.needsInitialPreference || voiceEnabled.value !== voice.runtime.enabled)) {
       const saved = await voice.setRecognitionEnabled(voiceEnabled.value, { requestMicrophoneAccess: false });
       if (!saved) throw new Error('Your voice preference could not be saved. Try again, or go back to keep your current choice.');
     }
@@ -329,7 +330,7 @@ onBeforeUnmount(() => {
             <legend>Would you like to use voice control?</legend>
             <label class="onboarding-choice">
               <input v-model="voiceEnabled" type="radio" name="onboarding-voice" :value="true">
-              <span><strong>Enable voice control</strong><small>Talk to your aircraft using push-to-talk.</small></span>
+              <span><strong>Enable voice control (recommended)</strong><small>Use push-to-talk. Setup does not access your microphone.</small></span>
             </label>
             <label class="onboarding-choice">
               <input v-model="voiceEnabled" type="radio" name="onboarding-voice" :value="false">
@@ -340,7 +341,7 @@ onBeforeUnmount(() => {
             <legend>Voice control</legend>
             <p class="onboarding-note" role="status">{{ voice.bridgeAvailable ? 'Voice preferences are unavailable. You can check them in Settings afterwards.' : 'Voice control is available in the desktop app.' }}</p>
             <label class="onboarding-choice">
-              <input v-model="voiceEnabled" type="radio" name="onboarding-voice-unavailable" value="keep">
+              <input v-model="voiceEnabled" type="radio" name="onboarding-voice-unavailable" value="keep" @click="voiceInitialized = true">
               <span><strong>Keep my current voice preference</strong><small>Continue setup without changing voice control.</small></span>
             </label>
           </fieldset>

@@ -138,6 +138,7 @@ export function formatAviationReadback(match = {}) {
   if (commandId === 'configuration.apu.start') {
     return 'A P U start requested.';
   }
+  if (commandId === 'flightGuidance.approach.engage') return 'Approach selected. Check the flight mode annunciator.';
   if (typeof value === 'boolean') return `${label} ${value ? 'on' : 'off'}.`;
   if (hasValue) return `${label} ${String(value)}.`;
   if (commandId.endsWith('.engage')) return `${label} engaged.`;

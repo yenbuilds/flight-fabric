@@ -247,8 +247,6 @@ test('backend runtime build preserves a locked running Rust sidecar', () => {
   assert(buildRuntimeSource.includes("spawnSync(binaryPath, ['--process-guardian']"), 'runtime build guardian capability check should be bounded and non-interactive');
   assert(startSimbridgeSource.includes('node scripts\\prepare-start-runtime.js'), 'dev launcher should refresh stale built output before starting the backend');
   assert(startSimbridgeSource.includes('set "FF_LOCAL_BAT_LAUNCH=1"'), 'dev launcher should mark local batch launches for backend config');
-  assert(startSimbridgeSource.includes('set "STABILITY_DEBUG_LOG=0"'), 'dev launcher should force stability debug file logging off');
-  assert(startSimbridgeSource.includes('set "STABILITY_DEBUG_ALWAYS_ACTIVE=0"'), 'dev launcher should force always-active stability debug mode off');
   assert(startSimbridgeSource.includes(':classify_flight_fabric_backend_pid'), 'dev launcher should classify port-owner identity before taskkill');
   assert(startSimbridgeSource.includes("core[\\\\/]+simbridge\\.js"), 'dev launcher port-owner verification should match the backend entrypoint');
   assert(startSimbridgeSource.includes('--ff-launch-owner=batch'), 'dev launcher should mark standalone batch-owned backends');

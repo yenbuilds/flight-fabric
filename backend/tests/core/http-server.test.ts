@@ -1,0 +1,523 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const http = require('node:http') as typeof import('node:http');
+const https = require('node:https') as typeof import('node:https');
+const { EventEmitter, once } = require('node:events') as typeof import('node:events');
+const timeSource = require('../../core/time-source') as typeof import('../../core/time-source');
+
+const {
+  createSimbriefRequestLimiter,
+  startHttpServer,
+} = require('../../core/http-server') as typeof import('../../core/http-server');
+const { createDevicePairingManager } = require('../../core/device-pairing') as typeof import('../../core/device-pairing');
+
+class FakeOutgoingRequest extends EventEmitter {
+  destroyed = false;
+
+  destroy(): this {
+    this.destroyed = true;
+    return this;
+  }
+}
+
+class FakeIncomingResponse extends EventEmitter {
+  complete = false;
+  statusCode: number;
+
+  constructor(statusCode: number) {
+    super();
+    this.statusCode = statusCode;
+  }
+}
+
+type PendingUpstream = {
+  request: FakeOutgoingRequest;
+  url: string;
+  options: { timeout?: number };
+  openResponse: (statusCode?: number) => FakeIncomingResponse;
+  respondJson: (statusCode: number, payload: unknown) => void;
+};
+
+function installFakeHttps(): {
+  pending: PendingUpstream[];
+  restore: () => void;
+} {
+  const pending: PendingUpstream[] = [];
+  const originalGet = https.get;
+
+  (https as any).get = (
+    url: string,
+    options: { timeout?: number },
+    callback: (response: FakeIncomingResponse) => void,
+  ) => {
+    const request = new FakeOutgoingRequest();
+    let responseOpened = false;
+    const openResponse = (statusCode = 200): FakeIncomingResponse => {
+      assert.equal(responseOpened, false, 'fixture response should be opened only once');
+      responseOpened = true;
+      const response = new FakeIncomingResponse(statusCode);
+      callback(response);
+      return response;
+    };
+    pending.push({
+      request,
+      url: String(url),
+      options,
+      openResponse,
+      respondJson(statusCode, payload) {
+        const response = openResponse(statusCode);
+        response.emit('data', Buffer.from(JSON.stringify(payload)));
+        response.complete = true;
+        response.emit('end');
+        response.emit('close');
+      },
+    });
+    return request;
+  };
+
+  return {
+    pending,
+    restore() {
+      (https as any).get = originalGet;
+    },
+  };
+}
+
+function requireLease(result: ReturnType<ReturnType<typeof createSimbriefRequestLimiter>['acquire']>) {
+  assert.equal(result.allowed, true);
+  if (result.allowed === false) throw new Error(result.error);
+  return result;
+}
+
+function requireRejection(result: ReturnType<ReturnType<typeof createSimbriefRequestLimiter>['acquire']>) {
+  assert.equal(result.allowed, false);
+  if (result.allowed === true) throw new Error('expected limiter rejection');
+  return result;
+}
+
+function requestText(port: number, pathname: string, headers: Record<string, string> = {}): Promise<{
+  statusCode: number | undefined;
+  headers: import('node:http').IncomingHttpHeaders;
+  body: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: pathname,
+      method: 'GET',
+      headers,
+    }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        body += chunk;
+      });
+      response.once('end', () => {
+        resolve({ statusCode: response.statusCode, headers: response.headers, body });
+      });
+    });
+    request.once('error', reject);
+    request.end();
+  });
+}
+
+function openAbortableRequest(port: number, pathname: string): {
+  request: import('node:http').ClientRequest;
+  settled: Promise<void>;
+} {
+  let request: import('node:http').ClientRequest;
+  const settled = new Promise<void>((resolve) => {
+    request = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: pathname,
+      method: 'GET',
+    }, (response) => {
+      response.resume();
+      response.once('end', resolve);
+      response.once('error', resolve);
+    });
+    request.once('error', () => resolve());
+    request.end();
+  });
+  return { request: request!, settled };
+}
+
+async function waitFor(predicate: () => boolean, message: string): Promise<void> {
+  const deadline = timeSource.now() + 2_000;
+  while (!predicate()) {
+    if (timeSource.now() >= deadline) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+async function startTestServer(isShuttingDown = () => false): Promise<{
+  server: import('node:http').Server;
+  port: number;
+}> {
+  const { httpServer: server } = startHttpServer({
+    isShuttingDown,
+    wsPort: 9199,
+    httpPort: 0,
+    remoteAccessEnable: false,
+    Debug: { log() {} },
+  });
+  if (!server.listening) await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('test HTTP server did not bind a TCP port');
+  return { server, port: address.port };
+}
+
+async function closeServer(server: import('node:http').Server): Promise<void> {
+  if (!server.listening) return;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+function requestPairingEndpoint(port: number, method: 'GET' | 'POST', pathname: string, includePairingHeader = true): Promise<{
+  body: Record<string, unknown>;
+  headers: import('node:http').IncomingHttpHeaders;
+  statusCode: number | undefined;
+}> {
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      hostname: '127.0.0.1',
+      headers: method === 'POST' && includePairingHeader
+        ? { 'X-Flight-Fabric-Pairing': '1' }
+        : {},
+      method,
+      path: pathname,
+      port,
+    }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { body += chunk; });
+      response.once('end', () => {
+        resolve({
+          body: JSON.parse(body || '{}'),
+          headers: response.headers,
+          statusCode: response.statusCode,
+        });
+      });
+    });
+    request.once('error', reject);
+    request.end();
+  });
+}
+
+test('camera-less device pairing requires PC approval and returns only an HttpOnly session cookie', async () => {
+  const pairing = createDevicePairingManager();
+  const { httpServer: server } = startHttpServer({
+    wsPort: 9199,
+    httpPort: 0,
+    remoteAccessEnable: true,
+    devicePairing: pairing,
+    Debug: { log() {} },
+  });
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('test HTTP server did not bind a TCP port');
+
+  try {
+    const shortEntry = await requestText(address.port, '/phone');
+    assert.equal(shortEntry.statusCode, 302);
+    assert.equal(shortEntry.headers.location, '/remote?wsPort=9199');
+
+    const crossSiteCompatiblePost = await requestPairingEndpoint(
+      address.port,
+      'POST',
+      '/api/device-pairing/request',
+      false,
+    );
+    assert.equal(crossSiteCompatiblePost.statusCode, 403);
+    assert.equal(crossSiteCompatiblePost.body.error, 'pairing_request_not_allowed');
+
+    const requested = await requestPairingEndpoint(address.port, 'POST', '/api/device-pairing/request');
+    assert.equal(requested.statusCode, 201);
+    assert.equal(typeof requested.body.requestId, 'string');
+    assert.equal(typeof requested.body.confirmationCode, 'string');
+    const pending = await requestPairingEndpoint(
+      address.port,
+      'GET',
+      `/api/device-pairing/status?requestId=${encodeURIComponent(String(requested.body.requestId))}`,
+    );
+    assert.equal(pending.statusCode, 200);
+    assert.equal(pending.body.status, 'pending');
+    assert.equal(typeof pending.body.expiresAt, 'number');
+    assert.equal(pending.headers['set-cookie'], undefined);
+    assert.equal(pairing.claimApprovedRequest(requested.body.requestId, '127.0.0.1'), null);
+    assert.equal(pairing.approveRequest(requested.body.requestId, requested.body.confirmationCode), true);
+
+    const approved = await requestPairingEndpoint(
+      address.port,
+      'GET',
+      `/api/device-pairing/status?requestId=${encodeURIComponent(String(requested.body.requestId))}`,
+    );
+    assert.equal(approved.statusCode, 200);
+    assert.equal(approved.body.status, 'approved');
+    const cookie = Array.isArray(approved.headers['set-cookie']) ? approved.headers['set-cookie'][0] : '';
+    assert.match(cookie, /^ff_aircraft_pair=/);
+    assert.match(cookie, /HttpOnly/);
+    assert.match(cookie, /SameSite=Strict/);
+    assert.match(cookie, /Max-Age=43200/);
+    assert.deepEqual(approved.body, { ok: true, status: 'approved' });
+
+    const consumed = await requestPairingEndpoint(
+      address.port,
+      'GET',
+      `/api/device-pairing/status?requestId=${encodeURIComponent(String(requested.body.requestId))}`,
+    );
+    assert.equal(consumed.body.status, 'expired');
+  } finally {
+    await closeServer(server);
+  }
+});
+
+test('SimBrief limiter reserves usernames before I/O and cooldowns failed attempts', () => {
+  let now = 1_000;
+  const limiter = createSimbriefRequestLimiter({
+    now: () => now,
+    cooldownMs: 30_000,
+    retentionMs: 60_000,
+    maxKeys: 20,
+    maxInFlight: 8,
+    maxInFlightPerClient: 2,
+  });
+
+  const first = requireLease(limiter.acquire('pilot', '127.0.0.1'));
+  const duplicate = requireRejection(limiter.acquire('pilot', '127.0.0.1'));
+  assert.equal(duplicate.statusCode, 429);
+  assert.match(duplicate.error, /already in progress/i);
+
+  first.release();
+  first.release();
+  const afterFailure = requireRejection(limiter.acquire('pilot', '127.0.0.1'));
+  assert.equal(afterFailure.statusCode, 429);
+  assert.equal(afterFailure.retryAfterSeconds, 30);
+
+  now += 30_000;
+  const afterCooldown = requireLease(limiter.acquire('pilot', '127.0.0.1'));
+  afterCooldown.release();
+});
+
+test('SimBrief limiter enforces normalized per-client and global concurrency caps', () => {
+  const perClientLimiter = createSimbriefRequestLimiter({
+    now: () => 1_000,
+    maxInFlight: 8,
+    maxInFlightPerClient: 2,
+  });
+  const first = requireLease(perClientLimiter.acquire('one', '127.0.0.1'));
+  const second = requireLease(perClientLimiter.acquire('two', '::ffff:127.0.0.1'));
+  const third = requireRejection(perClientLimiter.acquire('three', '127.0.0.1'));
+  assert.equal(third.statusCode, 429);
+  assert.match(third.error, /from this client/i);
+
+  first.release();
+  first.release();
+  const afterRelease = requireLease(perClientLimiter.acquire('three', '127.0.0.1'));
+  second.release();
+  afterRelease.release();
+
+  const globalLimiter = createSimbriefRequestLimiter({
+    now: () => 1_000,
+    maxInFlight: 3,
+    maxInFlightPerClient: 3,
+  });
+  const leases = [
+    requireLease(globalLimiter.acquire('a', '10.0.0.1')),
+    requireLease(globalLimiter.acquire('b', '10.0.0.2')),
+    requireLease(globalLimiter.acquire('c', '10.0.0.3')),
+  ];
+  const busy = requireRejection(globalLimiter.acquire('d', '10.0.0.4'));
+  assert.equal(busy.statusCode, 503);
+  leases[0].release();
+  requireLease(globalLimiter.acquire('d', '10.0.0.4')).release();
+  leases.slice(1).forEach((lease) => lease.release());
+});
+
+test('SimBrief limiter bounds accepted upstream attempts over time', () => {
+  let now = 1_000;
+  const limiter = createSimbriefRequestLimiter({
+    now: () => now,
+    cooldownMs: 30_000,
+    maxInFlight: 8,
+    maxInFlightPerClient: 8,
+    attemptWindowMs: 60_000,
+    maxAttemptsPerWindow: 3,
+    maxAttemptsPerClientWindow: 2,
+  });
+
+  requireLease(limiter.acquire('one', '10.0.0.1')).release();
+  requireLease(limiter.acquire('two', '10.0.0.1')).release();
+  const perClientRate = requireRejection(limiter.acquire('three', '10.0.0.1'));
+  assert.equal(perClientRate.statusCode, 429);
+  assert.equal(perClientRate.retryAfterSeconds, 60);
+
+  requireLease(limiter.acquire('three', '10.0.0.2')).release();
+  const globalRate = requireRejection(limiter.acquire('four', '10.0.0.3'));
+  assert.equal(globalRate.statusCode, 429);
+
+  now += 60_000;
+  requireLease(limiter.acquire('four', '10.0.0.3')).release();
+});
+
+test('SimBrief HTTP proxy releases capacity across failures and disconnects', { timeout: 10_000 }, async () => {
+  const fakeHttps = installFakeHttps();
+  const { server, port } = await startTestServer();
+
+  try {
+    const alicePromise = requestText(port, '/api/simbrief?username=Alice');
+    await waitFor(() => fakeHttps.pending.length === 1, 'first SimBrief request did not reach HTTPS');
+    assert.match(fakeHttps.pending[0].url, /username=alice/);
+    assert.equal(fakeHttps.pending[0].options.timeout, 15_000);
+
+    const duplicate = await requestText(port, '/api/simbrief?username=ALICE');
+    assert.equal(duplicate.statusCode, 429);
+    assert.equal(fakeHttps.pending.length, 1, 'same username must not start a second HTTPS request');
+
+    const bobPromise = requestText(port, '/api/simbrief?username=bob');
+    await waitFor(() => fakeHttps.pending.length === 2, 'second per-client request did not reach HTTPS');
+    const capacityRejected = await requestText(port, '/api/simbrief?username=charlie');
+    assert.equal(capacityRejected.statusCode, 429);
+    assert.match(capacityRejected.body, /from this client/i);
+    assert.equal(fakeHttps.pending.length, 2);
+
+    fakeHttps.pending[0].request.emit('error', new Error('fixture connection failure'));
+    assert.equal((await alicePromise).statusCode, 502);
+    const failedUsernameCooldown = await requestText(port, '/api/simbrief?username=alice');
+    assert.equal(failedUsernameCooldown.statusCode, 429);
+
+    const charliePromise = requestText(port, '/api/simbrief?username=charlie');
+    await waitFor(() => fakeHttps.pending.length === 3, 'capacity rejection incorrectly consumed username cooldown');
+
+    fakeHttps.pending[1].request.emit('timeout');
+    const bobResult = await bobPromise;
+    assert.equal(bobResult.statusCode, 504);
+    assert.equal(fakeHttps.pending[1].request.destroyed, true);
+
+    const deltaPromise = requestText(port, '/api/simbrief?username=delta');
+    await waitFor(() => fakeHttps.pending.length === 4, 'timeout did not release per-client capacity');
+    fakeHttps.pending[2].respondJson(200, { fetch: { status: 'Success' }, id: 'charlie' });
+    fakeHttps.pending[3].respondJson(200, { fetch: { status: 'Success' }, id: 'delta' });
+    assert.equal((await charliePromise).statusCode, 200);
+    assert.equal((await deltaPromise).statusCode, 200);
+
+    const echoPromise = requestText(port, '/api/simbrief?username=echo');
+    await waitFor(() => fakeHttps.pending.length === 5, 'upstream abort fixture did not start');
+    const abortedResponse = fakeHttps.pending[4].openResponse(200);
+    abortedResponse.emit('aborted');
+    abortedResponse.emit('close');
+    assert.equal((await echoPromise).statusCode, 502);
+    assert.equal(fakeHttps.pending[4].request.destroyed, true);
+
+    const disconnecting = openAbortableRequest(port, '/api/simbrief?username=foxtrot');
+    await waitFor(() => fakeHttps.pending.length === 6, 'client disconnect fixture did not start');
+    disconnecting.request.destroy();
+    await disconnecting.settled;
+    await waitFor(() => fakeHttps.pending[5].request.destroyed, 'client disconnect did not destroy upstream request');
+
+    const golfPromise = requestText(port, '/api/simbrief?username=golf');
+    const hotelPromise = requestText(port, '/api/simbrief?username=hotel');
+    await waitFor(() => fakeHttps.pending.length === 8, 'client disconnect did not release per-client capacity');
+    const finalCapacityRejection = await requestText(port, '/api/simbrief?username=india');
+    assert.equal(finalCapacityRejection.statusCode, 429);
+    fakeHttps.pending[6].respondJson(200, { fetch: { status: 'Success' }, id: 'golf' });
+    fakeHttps.pending[7].respondJson(200, { fetch: { status: 'Success' }, id: 'hotel' });
+    assert.equal((await golfPromise).statusCode, 200);
+    assert.equal((await hotelPromise).statusCode, 200);
+  } finally {
+    fakeHttps.restore();
+    await closeServer(server);
+  }
+});
+
+test('MSFS toolbar page is served under a frameable CSP with an allowlisted file set', async () => {
+  const { httpServer: server } = startHttpServer({
+    wsPort: 9199,
+    httpPort: 0,
+    remoteAccessEnable: false,
+    wsAuthToken: 'top-secret-ws-token',
+    aircraftControlToken: 'top-secret-control-token',
+    Debug: { log() {} },
+  });
+  if (!server.listening) await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('test HTTP server did not bind a TCP port');
+  const port = address.port;
+  try {
+    for (const pathname of ['/toolbar', '/toolbar/', '/toolbar/index.html']) {
+      const page = await requestText(port, pathname);
+      assert.equal(page.statusCode, 200, pathname);
+      assert.match(String(page.headers['content-type']), /text\/html/);
+      assert.match(String(page.headers['content-security-policy']), /frame-ancestors 'self' coui: coui:\/\/html_ui/);
+      assert.match(String(page.headers['content-security-policy']), /script-src 'self' 'nonce-/);
+      assert.match(page.body, /<script src="\/toolbar\/toolbar\.js"><\/script>/);
+    }
+
+    const script = await requestText(port, '/toolbar/toolbar.js');
+    assert.equal(script.statusCode, 200);
+    assert.match(String(script.headers['content-type']), /javascript/);
+    const taxiScript = await requestText(port, '/toolbar/taxi.js');
+    assert.equal(taxiScript.statusCode, 200);
+    assert.match(String(taxiScript.headers['content-type']), /javascript/);
+    assert.match(taxiScript.body, /FlightFabricToolbarTaxi/);
+    const sharedSettings = await requestText(port, '/shared/app-settings-shared.js');
+    assert.equal(sharedSettings.statusCode, 200, 'toolbar can load the shared release gate');
+    assert.match(String(sharedSettings.headers['content-type']), /javascript/);
+    const reference = await requestText(port, '/toolbar/voice-reference.json');
+    assert.equal(reference.statusCode, 200);
+    assert.match(String(reference.headers['content-type']), /json/);
+
+    for (const pathname of ['/toolbar/index.html.bak', '/toolbar/nested/toolbar.js', '/toolbar/main.js', '/toolbar/..%2Findex.html']) {
+      const blocked = await requestText(port, pathname);
+      assert.equal(blocked.statusCode, 404, pathname);
+    }
+    // A dot-segment normalizes away from the toolbar route entirely, so the
+    // dashboard is served under its own strict policy rather than the
+    // frameable one.
+    const escaped = await requestText(port, '/toolbar/../index.html');
+    assert.match(String(escaped.headers['content-security-policy']), /frame-ancestors 'none'/);
+
+    // Other pages keep the strict frame-ancestors policy.
+    const dashboard = await requestText(port, '/');
+    assert.match(String(dashboard.headers['content-security-policy']), /frame-ancestors 'none'/);
+
+    const bootstrap = await requestText(port, '/api/toolbar/bootstrap');
+    assert.equal(bootstrap.statusCode, 200);
+    assert.equal(bootstrap.headers['cache-control'], 'no-store, max-age=0');
+    const payload = JSON.parse(bootstrap.body) as Record<string, unknown>;
+    assert.equal(payload.ok, true);
+    assert.equal(payload.wsPort, 9199);
+    assert.equal(payload.httpPort, port);
+    assert.equal(typeof payload.appVersion, 'string');
+    assert.equal(bootstrap.body.includes('top-secret'), false, 'toolbar bootstrap never carries session tokens');
+    assert.equal('wsAuthToken' in payload, false);
+    assert.equal('aircraftControlToken' in payload, false);
+    assert.match(String(payload.toolbarPresetToken), /^[a-f0-9]{64}$/);
+    for (const origin of ['http://127.0.0.1:9999', 'http://evil.example', 'null']) {
+      const crossOrigin = await requestText(port, '/api/toolbar/bootstrap', { Origin: origin });
+      assert.equal(JSON.parse(crossOrigin.body).toolbarPresetToken, '', origin);
+    }
+  } finally {
+    await closeServer(server);
+  }
+});
+
+
+test('update shutdown refuses new HTTP work before routing or provider requests', async () => {
+  const fake = installFakeHttps();
+  let closing = false;
+  const { server, port } = await startTestServer(() => closing);
+  try {
+    closing = true;
+    const result = await requestText(port, '/api/simbrief?username=fixture');
+    assert.equal(result.statusCode, 503);
+    assert.equal(result.headers.connection, 'close');
+    assert.equal(fake.pending.length, 0);
+  } finally { fake.restore(); await closeServer(server); }
+});

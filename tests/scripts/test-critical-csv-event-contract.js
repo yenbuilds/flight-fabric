@@ -1195,118 +1195,130 @@ async function main() {
     }
   });
 
-  await testAsync('CSV replay and logbook recover critical landing diagnostics', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-critical-csv-contract-'));
-  const csvPath = path.join(tmpDir, 'contract-flight.csv');
-  const sampleRow = schemaFieldMap.buildRow({
-    _recordType: 'SAMPLE',
-    flightId: 'contract-flight',
-    timestampMs: landingPayload.timestamp_ms - 1000,
-    timestampIso: '2026-02-03T04:04:59.123Z',
-    phase: 'APPROACH',
-    onGround: false,
-    ias: 140,
-    vs: -700,
-    gs: 140,
-    ra: 100,
-    altMsl: 120,
-    lat: -33.9470,
-    lon: 151.1760,
-    hdgTrue: 344,
-    aircraft: landingPayload.aircraft,
-  });
-  const content = [
-    legacyReplayHeaders.join(','),
-    csvLine(legacyReplayHeaders, sampleRow),
-    csvLine(legacyReplayHeaders, csvLandingRow),
-  ].join('\n');
-  fs.writeFileSync(csvPath, content, 'utf8');
+  await testAsync('CSV replay and logbook preserve scoring with and without retired convective columns', async () => {
+    const retiredColumns = require('../fixtures/csv-header-v0.10.0.json').columns
+      .filter(name => name.startsWith('convective_') || name === 'risk_level' || name === 'confidence_level');
+    let expectedScoring = null;
+    for (const replayHeaders of [legacyReplayHeaders, [...legacyReplayHeaders, ...retiredColumns]]) {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-critical-csv-contract-'));
+      const csvPath = path.join(tmpDir, 'contract-flight.csv');
+      const sampleRow = schemaFieldMap.buildRow({
+        _recordType: 'SAMPLE',
+        flightId: 'contract-flight',
+        timestampMs: landingPayload.timestamp_ms - 1000,
+        timestampIso: '2026-02-03T04:04:59.123Z',
+        phase: 'APPROACH',
+        onGround: false,
+        ias: 140,
+        vs: -700,
+        gs: 140,
+        ra: 100,
+        altMsl: 120,
+        lat: -33.9470,
+        lon: 151.1760,
+        hdgTrue: 344,
+        aircraft: landingPayload.aircraft,
+      });
+      const content = [
+        replayHeaders.join(','),
+        csvLine(replayHeaders, { ...sampleRow, convective_score: 0.95, risk_level: 'HIGH', confidence_level: 'HIGH' }),
+        csvLine(replayHeaders, csvLandingRow),
+      ].join('\n');
+      fs.writeFileSync(csvPath, content, 'utf8');
 
-  try {
-    const replay = await timelineGenerator.generateFromCSV(csvPath);
-    assert(replay.success === true, `timeline replay failed: ${replay.error}`);
-    const landing = replay.timeline.events.find((event) => event.type === 'landing');
-    assert(landing, 'timeline replay did not produce landing event');
-    assert(landing.touchdownDistance, 'timeline landing is missing touchdownDistance');
-    assert(landing.touchdownDistance.distanceFt === landingPayload.touchdown_distance_ft, 'timeline lost touchdown distance');
-    assert(landing.touchdownDistance.shortLanding === true, 'timeline lost short landing flag');
-    assert(landing.touchdownDistance.zone === landingPayload.touchdown_distance_zone, 'timeline lost touchdown distance zone');
-    assert(landing.touchdownDistance.runway_condition === landingPayload.runway_condition, 'timeline lost runway condition');
-    assert(landing.touchdownDistance.lateralOffsetFt === landingPayload.lateral_offset_ft, 'timeline lost lateral offset');
-    assert(landing.touchdownDistance.lateralOffsetGrade === landingPayload.lateral_offset_grade, 'timeline lost lateral grade');
-    assert(landing.touchdownDistance.runwayWidthFt === landingPayload.runway_width_ft, 'timeline lost runway width');
-    assert(landing.touchdownDistance.runwayGeometrySource === landingPayload.runway_geometry_source, 'timeline lost runway geometry source');
-    assert(landing.touchdownDistance.runwayGeometryProviderChain === landingPayload.runway_geometry_provider_chain, 'timeline lost runway geometry provider chain');
-    assert(landing.touchdownDistance.runwayGeometryFallbackReason === landingPayload.runway_geometry_fallback_reason, 'timeline lost runway geometry fallback reason');
-    assert(
-      landing.touchdownDistance.runwayGeometryDiagnostics?.providerChain === landingPayload.runway_geometry_diagnostics.providerChain,
-      'timeline lost runway geometry diagnostics',
-    );
-    assert(landing.touchdownDistance.runwayHeadingTrueDeg === landingPayload.runway_heading_true_deg, 'timeline lost runway heading');
-    assert(landing.touchdownDistance.runwayPhysicalLengthFt === landingPayload.runway_physical_length_ft, 'timeline lost physical runway length');
-    assert(landing.touchdownDistance.runwayDisplacedThresholdFt === landingPayload.runway_displaced_threshold_ft, 'timeline lost displaced threshold');
-    assert(landing.ultimateStability, 'timeline lost ultimate stability object');
-    assert(landing.ultimateStability.scoringContext?.profile?.id === 'generic', 'timeline lost stability scoring profile context');
-    assert(landing.ultimateStability.scoringContext?.criteria?.speedPlusKts === 100, 'timeline lost stability scoring criteria context');
-    assert(landing.ultimateStability.gateStable === false, 'timeline lost string false gate-stable flag');
-    assert(landing.ultimateStability.breakdown.gear_ok === landingPayload.ultimate_stability_gear_ok_pct, 'timeline lost gear stability breakdown');
-    assert(landing.ultimateStability.breakdown.bank_ok === landingPayload.ultimate_stability_bank_ok_pct, 'timeline lost bank stability breakdown');
-    assert(landing.rolloutAnalysis?.assessment === 'caution', 'timeline lost rollout analysis');
-    for (const metricKey of extractStabilityBreakdownMetricKeys()) {
-      assert(
-        landing.ultimateStability.breakdown[metricKey] === landingPayload[flatStabilityColumn(metricKey)],
-        `timeline lost ${metricKey} stability breakdown`,
-      );
-    }
+      try {
+        const replay = await timelineGenerator.generateFromCSV(csvPath);
+        assert(replay.success === true, `timeline replay failed: ${replay.error}`);
+        const landing = replay.timeline.events.find((event) => event.type === 'landing');
+        assert(landing, 'timeline replay did not produce landing event');
+        assert(landing.touchdownDistance, 'timeline landing is missing touchdownDistance');
+        assert(landing.touchdownDistance.distanceFt === landingPayload.touchdown_distance_ft, 'timeline lost touchdown distance');
+        assert(landing.touchdownDistance.shortLanding === true, 'timeline lost short landing flag');
+        assert(landing.touchdownDistance.zone === landingPayload.touchdown_distance_zone, 'timeline lost touchdown distance zone');
+        assert(landing.touchdownDistance.runway_condition === landingPayload.runway_condition, 'timeline lost runway condition');
+        assert(landing.touchdownDistance.lateralOffsetFt === landingPayload.lateral_offset_ft, 'timeline lost lateral offset');
+        assert(landing.touchdownDistance.lateralOffsetGrade === landingPayload.lateral_offset_grade, 'timeline lost lateral grade');
+        assert(landing.touchdownDistance.runwayWidthFt === landingPayload.runway_width_ft, 'timeline lost runway width');
+        assert(landing.touchdownDistance.runwayGeometrySource === landingPayload.runway_geometry_source, 'timeline lost runway geometry source');
+        assert(landing.touchdownDistance.runwayGeometryProviderChain === landingPayload.runway_geometry_provider_chain, 'timeline lost runway geometry provider chain');
+        assert(landing.touchdownDistance.runwayGeometryFallbackReason === landingPayload.runway_geometry_fallback_reason, 'timeline lost runway geometry fallback reason');
+        assert(
+          landing.touchdownDistance.runwayGeometryDiagnostics?.providerChain === landingPayload.runway_geometry_diagnostics.providerChain,
+          'timeline lost runway geometry diagnostics',
+        );
+        assert(landing.touchdownDistance.runwayHeadingTrueDeg === landingPayload.runway_heading_true_deg, 'timeline lost runway heading');
+        assert(landing.touchdownDistance.runwayPhysicalLengthFt === landingPayload.runway_physical_length_ft, 'timeline lost physical runway length');
+        assert(landing.touchdownDistance.runwayDisplacedThresholdFt === landingPayload.runway_displaced_threshold_ft, 'timeline lost displaced threshold');
+        assert(landing.ultimateStability, 'timeline lost ultimate stability object');
+        assert(landing.ultimateStability.scoringContext?.profile?.id === 'generic', 'timeline lost stability scoring profile context');
+        assert(landing.ultimateStability.scoringContext?.criteria?.speedPlusKts === 100, 'timeline lost stability scoring criteria context');
+        assert(landing.ultimateStability.gateStable === false, 'timeline lost string false gate-stable flag');
+        assert(landing.ultimateStability.breakdown.gear_ok === landingPayload.ultimate_stability_gear_ok_pct, 'timeline lost gear stability breakdown');
+        assert(landing.ultimateStability.breakdown.bank_ok === landingPayload.ultimate_stability_bank_ok_pct, 'timeline lost bank stability breakdown');
+        assert(landing.rolloutAnalysis?.assessment === 'caution', 'timeline lost rollout analysis');
+        for (const metricKey of extractStabilityBreakdownMetricKeys()) {
+          assert(
+            landing.ultimateStability.breakdown[metricKey] === landingPayload[flatStabilityColumn(metricKey)],
+            `timeline lost ${metricKey} stability breakdown`,
+          );
+        }
 
-    const entries = flightLogbook.parseLandingsFromContent(
-      content,
-      csvPath,
-      parseCsvLine,
-      gradeLandingForRecordedProfile,
-      splitCsvLines,
-      gradeLandingForProfile,
-    );
-    assert(entries.length === 1, `expected one logbook landing, got ${entries.length}`);
-    const entry = entries[0];
-    assert(entry.assists, 'logbook lost landing assist summary');
-    assert(entry.assists.landingAssist === true, 'logbook lost landing assist flag');
-    assert(entry.assists.slewActive === false, 'logbook lost false slew assist flag');
-    assert(entry.assists.aiAntistall === landingPayload.assist_ai_antistall_state, 'logbook lost anti-stall state');
-    assert(entry.assists.realismPercent === landingPayload.assist_realism_pct, 'logbook lost realism pct');
-    assert(entry.assists.anyAssistActive === true, 'logbook lost any-assist flag');
-    assert(entry.gateStable === false, 'logbook lost string false gate-stable flag');
-    assert(entry.stabilityGateFailures?.[0] === 'speed_ok', 'logbook lost first stability gate failure reason');
-    assert(entry.stabilityGateFailures?.[1] === 'gear_ok', 'logbook lost second stability gate failure reason');
-    assert(entry.runwayExcursion === true, 'logbook lost runway excursion');
-    assert(entry.rolloutAnalysis?.assessment === 'caution', 'logbook lost rollout analysis');
-    assert(entry.shortLanding === true, 'logbook lost short landing');
-    assert(entry.runwayCondition === landingPayload.runway_condition, 'logbook lost runway condition');
-    assert(entry.runwayConditionConfident === true, 'logbook lost runway condition confidence');
-    assert(entry.lateralOffsetFt === landingPayload.lateral_offset_ft, 'logbook lost lateral offset');
-    assert(entry.lateralOffsetScore === landingPayload.lateral_offset_score, 'logbook lost lateral offset score');
-    assert(entry.runwayWidthFt === landingPayload.runway_width_ft, 'logbook lost runway width');
-    assert(entry.runwayGeometrySource === landingPayload.runway_geometry_source, 'logbook lost runway geometry source');
-    assert(entry.runwayGeometryProviderChain === landingPayload.runway_geometry_provider_chain, 'logbook lost runway geometry provider chain');
-    assert(entry.runwayGeometryFallbackReason === landingPayload.runway_geometry_fallback_reason, 'logbook lost runway geometry fallback reason');
-    assert(
-      entry.runwayGeometryDiagnostics?.providerChain === landingPayload.runway_geometry_diagnostics.providerChain,
-      'logbook lost runway geometry diagnostics',
-    );
-    assert(entry.runwayHeadingTrueDeg === landingPayload.runway_heading_true_deg, 'logbook lost runway heading');
-    assert(entry.runwayPhysicalLengthFt === landingPayload.runway_physical_length_ft, 'logbook lost physical runway length');
-    assert(entry.runwayDisplacedThresholdFt === landingPayload.runway_displaced_threshold_ft, 'logbook lost displaced threshold');
-    assert(entry.stabilityBreakdown.gear_ok === landingPayload.ultimate_stability_gear_ok_pct, 'logbook lost gear stability breakdown');
-    assert(entry.stabilityBreakdown.bank_ok === landingPayload.ultimate_stability_bank_ok_pct, 'logbook lost bank stability breakdown');
-    for (const metricKey of extractStabilityBreakdownMetricKeys()) {
-      assert(
-        entry.stabilityBreakdown[metricKey] === landingPayload[flatStabilityColumn(metricKey)],
-        `logbook lost ${metricKey} stability breakdown`,
-      );
+        const entries = flightLogbook.parseLandingsFromContent(
+          content,
+          csvPath,
+          parseCsvLine,
+          gradeLandingForRecordedProfile,
+          splitCsvLines,
+          gradeLandingForProfile,
+        );
+        assert(entries.length === 1, `expected one logbook landing, got ${entries.length}`);
+        const entry = entries[0];
+        assert(entry.assists, 'logbook lost landing assist summary');
+        assert(entry.assists.landingAssist === true, 'logbook lost landing assist flag');
+        assert(entry.assists.slewActive === false, 'logbook lost false slew assist flag');
+        assert(entry.assists.aiAntistall === landingPayload.assist_ai_antistall_state, 'logbook lost anti-stall state');
+        assert(entry.assists.realismPercent === landingPayload.assist_realism_pct, 'logbook lost realism pct');
+        assert(entry.assists.anyAssistActive === true, 'logbook lost any-assist flag');
+        assert(entry.gateStable === false, 'logbook lost string false gate-stable flag');
+        assert(entry.stabilityGateFailures?.[0] === 'speed_ok', 'logbook lost first stability gate failure reason');
+        assert(entry.stabilityGateFailures?.[1] === 'gear_ok', 'logbook lost second stability gate failure reason');
+        assert(entry.runwayExcursion === true, 'logbook lost runway excursion');
+        assert(entry.rolloutAnalysis?.assessment === 'caution', 'logbook lost rollout analysis');
+        assert(entry.shortLanding === true, 'logbook lost short landing');
+        assert(entry.runwayCondition === landingPayload.runway_condition, 'logbook lost runway condition');
+        assert(entry.runwayConditionConfident === true, 'logbook lost runway condition confidence');
+        assert(entry.lateralOffsetFt === landingPayload.lateral_offset_ft, 'logbook lost lateral offset');
+        assert(entry.lateralOffsetScore === landingPayload.lateral_offset_score, 'logbook lost lateral offset score');
+        assert(entry.runwayWidthFt === landingPayload.runway_width_ft, 'logbook lost runway width');
+        assert(entry.runwayGeometrySource === landingPayload.runway_geometry_source, 'logbook lost runway geometry source');
+        assert(entry.runwayGeometryProviderChain === landingPayload.runway_geometry_provider_chain, 'logbook lost runway geometry provider chain');
+        assert(entry.runwayGeometryFallbackReason === landingPayload.runway_geometry_fallback_reason, 'logbook lost runway geometry fallback reason');
+        assert(
+          entry.runwayGeometryDiagnostics?.providerChain === landingPayload.runway_geometry_diagnostics.providerChain,
+          'logbook lost runway geometry diagnostics',
+        );
+        assert(entry.runwayHeadingTrueDeg === landingPayload.runway_heading_true_deg, 'logbook lost runway heading');
+        assert(entry.runwayPhysicalLengthFt === landingPayload.runway_physical_length_ft, 'logbook lost physical runway length');
+        assert(entry.runwayDisplacedThresholdFt === landingPayload.runway_displaced_threshold_ft, 'logbook lost displaced threshold');
+        assert(entry.stabilityBreakdown.gear_ok === landingPayload.ultimate_stability_gear_ok_pct, 'logbook lost gear stability breakdown');
+        assert(entry.stabilityBreakdown.bank_ok === landingPayload.ultimate_stability_bank_ok_pct, 'logbook lost bank stability breakdown');
+        for (const metricKey of extractStabilityBreakdownMetricKeys()) {
+          assert(
+            entry.stabilityBreakdown[metricKey] === landingPayload[flatStabilityColumn(metricKey)],
+            `logbook lost ${metricKey} stability breakdown`,
+          );
+        }
+        const scoring = JSON.stringify({
+          vs: landing.vs, grade: landing.grade, stability: landing.ultimateStability,
+          touchdown: landing.touchdownDistance, rollout: landing.rolloutAnalysis,
+          logbookGrade: entry.grade, logbookStability: entry.stabilityBreakdown,
+        });
+        if (expectedScoring === null) expectedScoring = scoring;
+        else assert(scoring === expectedScoring, 'retired CSV columns must not change landing, stability or logbook scoring');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     }
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
   });
 
   await testAsync('timeline replay merges delayed LANDING rows back into the touchdown event', async () => {

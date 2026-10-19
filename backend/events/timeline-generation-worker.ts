@@ -16,8 +16,7 @@ async function main() {
     const csvPath = typeof workerData?.csvPath === 'string' ? workerData.csvPath : '';
     const request = workerData?.request;
     const validRequest = request?.kind === 'timeline'
-      ? request.options && typeof request.options === 'object' && !Array.isArray(request.options)
-      : request?.kind === 'replay-clip' && Number.isSafeInteger(request.landingIndex) && request.landingIndex >= 0;
+      && request.options && typeof request.options === 'object' && !Array.isArray(request.options);
     if (!csvPath || !validRequest) {
       parentPort.postMessage({ success: false, error: 'Timeline worker received an invalid request.' });
       return;

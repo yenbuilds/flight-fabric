@@ -171,7 +171,6 @@ function page({ storage = new Map(), takeoffScoringEnabled } = {}) {
     : { ...context.FlightFabricAppSettings, TAKEOFF_SCORING_ENABLED: takeoffScoringEnabled };
   vm.runInNewContext(read('frontend/toolbar/presets.js'), context);
   vm.runInNewContext(read('frontend/toolbar/taxi.js'), context);
-  vm.runInNewContext(read('frontend/toolbar/replay.js'), context);
   // Expose the shipped functions without replacing their control flow/rendering.
   vm.runInNewContext(read('frontend/toolbar/toolbar.js').replace(/\}\)\(\);\s*$/, `
     globalThis.panel = { state: state, boot: boot, connect: connect, setVisible: setVisible, selectTab: selectTab,
@@ -1125,28 +1124,17 @@ test('toolbar keeps released sections available despite old hidden-tab preferenc
   }
 });
 
-test('replay availability updates toolbar navigation without reviving stale preferences', () => {
+test('a retired toolbar opening preference falls back to Flight and keeps keyboard navigation usable', () => {
   const storage = new Map([['ff_toolbar_prefs_v1', JSON.stringify({ defaultTab: 'replay' })]]);
   const runtime = page({ storage }); runtime.api.boot();
   const tab = id => runtime.document.getElementById('tabs').children.find(node => node.id === 'tab-button-' + id);
   assert.equal(runtime.api.state.activeTab, 'flight');
-  assert.equal(tab('replay').hidden, true);
   runtime.api.selectTab('voice');
   tab('voice').fire('keydown', { key: 'ArrowRight', preventDefault() {} });
-  assert.equal(runtime.api.state.activeTab, 'taxi', 'keyboard navigation skips disabled replay');
-  const voiceButton = tab('voice');
-  runtime.api.receive({ type: 'inSimReplayState', enabled: true, state: 'idle', session: 'test' });
-  assert.equal(tab('replay').hidden, false);
-  assert.equal(tab('voice'), voiceButton, 'existing navigation nodes retain identity');
-  runtime.api.selectTab('voice');
-  tab('voice').fire('keydown', { key: 'ArrowRight', preventDefault() {} });
-  assert.equal(runtime.api.state.activeTab, 'replay');
-  runtime.api.receive({ type: 'inSimReplayState', enabled: false, blocked: true, state: 'recoveryRequired', session: 'test' });
-  assert.equal(tab('replay').hidden, false, 'recovery stays accessible with the gate off');
-  runtime.api.receive({ type: 'inSimReplayState', state: 'idle', session: 'next' });
-  assert.equal(tab('replay').hidden, true, 'missing availability fails closed');
+  assert.equal(runtime.api.state.activeTab, 'taxi');
+  tab('taxi').fire('keydown', { key: 'ArrowRight', preventDefault() {} });
   assert.equal(runtime.api.state.activeTab, 'flight');
-  assert.equal(runtime.document.activeElement, tab('flight'), 'focus returns to an available tab');
+  assert.equal(runtime.document.activeElement, tab('flight'));
 });
 
 test('toolbar renders the live landing packet, including finality, nested measurements and cautions', () => {

@@ -1,4 +1,4 @@
-import { createTaxiController, STOP_INPUT, type TaxiInput, type TaxiSample, type TaxiStatus, type TaxiTrace } from './controller.js';
+import { createTaxiController, STOP_INPUT, type TaxiInput, type TaxiSample, type TaxiStatus } from './controller.js';
 import { listParkingOptions, localPosition, normalizeRunway, planTaxiRoute, planTaxiToStand, type TaxiGraph, type TaxiRoute } from './route.js';
 import { buildTaxiScene, type TaxiRunwayRecord, type TaxiScene } from './scene.js';
 import { DEFAULT_TAXI_HANDLING, taxiHandlingKey, validateTaxiHandling, type TaxiHandling } from './handling.js';
@@ -7,18 +7,7 @@ type Position = { lat: number; lon: number };
 export type TaxiAirport = { origin: Position; graph: TaxiGraph; threshold: Position | null; reciprocal: string | null; runways?: TaxiRunwayRecord[] };
 export type TaxiObservation = TaxiSample & Position & { profileKey: string; profileRevision: number; generation: unknown;
   /** Read-only route guidance needs position/context, not engine or control readiness. */
-  guidanceReady?: boolean; guidanceReason?: string;
-  /** Extra simulator readbacks for the session log only; the controller never reads them. */
-  sim?: Record<string, number | boolean | null> };
-/** One line of the session log, in the shape of the other JSONL sidecars: a prefixed `type` and epoch `timeMs` from `deps.now`. */
-export type TaxiRecord = { timeMs: number } & (
-  | { type: 'autotaxi_session_start'; icao: string; runway: string | null; parking: string | null; profileKey: string; profileRevision: number;
-      steeringSign: 1 | -1 | null; handling: TaxiHandling; start: Position & { headingDeg: number; speedKts: number }; route: TaxiRoute; airport: { origin: Position; threshold: Position | null; reciprocal: string | null }; scene: TaxiScene }
-  | { type: 'autotaxi_tick'; sample: Position & TaxiSample & { sim?: Record<string, number | boolean | null> }; trace: TaxiTrace | null; input: TaxiInput; status: TaxiStatus;
-      writeMs: number; writeError: string | null; heartbeatAgeMs: number }
-  | { type: 'autotaxi_transition'; from: TaxiStatus | null; to: TaxiStatus; reason: string }
-  | { type: 'autotaxi_handover'; ok: boolean; error: string | null }
-  | { type: 'autotaxi_session_end'; status: TaxiStatus | null; reason: string | null; error: string | null; ticks: number; steeringSign: 1 | -1 | null });
+  guidanceReady?: boolean; guidanceReason?: string };
 export type TaxiSessionDependencies = {
   now: () => number;
   capture: () => TaxiObservation;
@@ -34,8 +23,6 @@ export type TaxiSessionDependencies = {
   park?: (sameAircraft: () => boolean) => Promise<void>;
   /** Current parking-brake lever state, or null when unknown. */
   parked?: () => boolean | null;
-  /** Session log sink. Rows are best effort: a throwing sink is ignored and never affects control. */
-  record?: (row: TaxiRecord) => void;
 };
 const RELEASE_INPUT: TaxiInput = Object.freeze({ throttle: 0, brake: 0, steering: 0 });
 // How long after the pedals go to zero the lever is watched before writes end.
@@ -76,26 +63,6 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
   let guidanceScene = false;
   // Diagram context outlives a preview so the panel can keep showing the aircraft on it.
   let scene: TaxiScene | null = null;
-  // Session log bookkeeping: one session_start per controller, transitions on status change, one session_end.
-  let recorded: { status: TaxiStatus | null; ticks: number } | null = null;
-  type Untimed<R> = R extends TaxiRecord ? Omit<R, 'timeMs'> : never;
-  function emit(row: Untimed<TaxiRecord>) {
-    if (!deps.record || !recorded) return;
-    try { deps.record({ timeMs: deps.now(), ...row } as TaxiRecord); } catch {}
-  }
-  function noteTransition() {
-    const current = controller?.getState();
-    if (!current || !recorded || current.status === recorded.status) return;
-    emit({ type: 'autotaxi_transition', from: recorded.status, to: current.status, reason: current.reason });
-    recorded.status = current.status;
-  }
-  function endRecord() {
-    if (!recorded) return;
-    noteTransition();
-    const current = controller?.getState();
-    emit({ type: 'autotaxi_session_end', status: current?.status ?? null, reason: current?.reason ?? null, error, ticks: recorded.ticks, steeringSign: current?.steeringSign ?? steeringSign });
-    recorded = null;
-  }
   function resolveHandling(): { value: TaxiHandling | null; reason: string | null } {
     try {
       const value = deps.handling ? deps.handling() : DEFAULT_TAXI_HANDLING;
@@ -131,7 +98,6 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
   }
   function clearSession() {
     clearTimer();
-    endRecord();
     controller = null; owner = null; baseline = null; baselineHandlingKey = null; route = null; airport = null; error = null; commanded = null; scene = null; sceneIdentity = null;
     ownerConnected = () => false;
     handedOver = false; handoverFailed = false; handoverAt = null;
@@ -170,12 +136,11 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
     // aircraft identity gates these writes: a stop or release arriving during
     // the lever action must not turn a set lever into a reported failure.
     try { await deps.park!(sameAircraft); }
-    catch (err) { handoverFailed = true; error = `Could not set the parking brake: ${describe(err)} Brakes are held; release controls to take over.`; emit({ type: 'autotaxi_handover', ok: false, error }); return; }
+    catch (err) { handoverFailed = true; error = `Could not set the parking brake: ${describe(err)} Brakes are held; release controls to take over.`; return; }
     try { await deps.write(RELEASE_INPUT, sameAircraft); }
-    catch (err) { handoverFailed = true; error = `Parking brake set, but the pedals could not be released: ${describe(err)} Brakes are held; release controls to take over.`; emit({ type: 'autotaxi_handover', ok: false, error }); return; }
+    catch (err) { handoverFailed = true; error = `Parking brake set, but the pedals could not be released: ${describe(err)} Brakes are held; release controls to take over.`; return; }
     commanded = { ...RELEASE_INPUT };
     handedOver = true; handoverAt = deps.now();
-    emit({ type: 'autotaxi_handover', ok: true, error: null });
     // The timer keeps running for HANDOVER_WATCH_MS so watchHandover can see
     // whether the lever survived the pedals going to zero.
   }
@@ -184,8 +149,7 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
     if (!sameAircraft()) {
       handedOver = false; handoverFailed = true; handoverAt = null;
       error = 'Aircraft, handling configuration or connection changed during handover. Writes stopped; release the session and take control.';
-      controller?.fault(error); clearTimer(); noteTransition();
-      emit({ type: 'autotaxi_handover', ok: false, error });
+      controller?.fault(error); clearTimer();
       return;
     }
     let parked: boolean | null = true;
@@ -199,7 +163,6 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
         : 'Parking-brake readback is unavailable after pedal release. Brakes are held again; check the parking brake, then release controls.';
       try { await deps.write(STOP_INPUT, sameAircraft); commanded = { ...STOP_INPUT }; }
       catch (err) { error = `${error} (${describe(err)})`; }
-      emit({ type: 'autotaxi_handover', ok: false, error });
       return;
     }
     if (deps.now() - handoverAt >= HANDOVER_WATCH_MS) { handoverAt = null; clearTimer(); }
@@ -216,7 +179,7 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
     const generation = requestGeneration;
     operation = (async () => {
       try {
-        if (!sameAircraft()) { controller!.fault('Aircraft, handling configuration or connection changed. Writes stopped; release the session and take control.'); clearTimer(); noteTransition(); return; }
+        if (!sameAircraft()) { controller!.fault('Aircraft, handling configuration or connection changed. Writes stopped; release the session and take control.'); clearTimer(); return; }
         const raw = deps.capture();
         const sample = { ...raw, ...localPosition(raw.lat, raw.lon, airport!.origin) };
         const heartbeatAgeMs = deps.now() - heartbeat;
@@ -226,25 +189,14 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
         // even if the stop write that follows it fails.
         const current = controller!.getState();
         steeringSign = current.steeringSign;
-        noteTransition();
-        const writeStarted = deps.now();
-        let writeError: string | null = null;
-        try {
-          await deps.write(input, () => {
-            if (!sameAircraft() || generation !== requestGeneration) return false;
-            if (input.throttle === 0 && input.brake === 1) return true;
-            if (!ownerConnected() || deps.now() - heartbeat > 3000) throw new Error('Control connection lost or heartbeat expired. Take control.');
-            const currentSample = deps.capture();
-            if (!currentSample.ready) throw new Error(currentSample.reason || 'Ground-control telemetry is no longer ready. Take control.');
-            return true;
-          });
-        } catch (err) { writeError = describe(err); throw err; }
-        finally {
-          if (recorded) recorded.ticks++;
-          const { timeMs, lat, lon, x, z, headingDeg, speedKts, ready, reason, sim } = sample;
-          emit({ type: 'autotaxi_tick', sample: { timeMs, lat, lon, x, z, headingDeg, speedKts, ready, ...(reason ? { reason } : {}), ...(sim ? { sim } : {}) },
-            trace: controller!.trace(), input, status: current.status, writeMs: deps.now() - writeStarted, writeError, heartbeatAgeMs });
-        }
+        await deps.write(input, () => {
+          if (!sameAircraft() || generation !== requestGeneration) return false;
+          if (input.throttle === 0 && input.brake === 1) return true;
+          if (!ownerConnected() || deps.now() - heartbeat > 3000) throw new Error('Control connection lost or heartbeat expired. Take control.');
+          const currentSample = deps.capture();
+          if (!currentSample.ready) throw new Error(currentSample.reason || 'Ground-control telemetry is no longer ready. Take control.');
+          return true;
+        });
         commanded = { ...input };
         if (current.status !== 'taxiing' && current.settled && deps.park && !handoverFailed && generation === requestGeneration) await handover();
       } catch (err) {
@@ -253,7 +205,6 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
         if (generation !== requestGeneration && controller?.getState().status !== 'taxiing') return;
         error = describe(err);
         controller?.fault('Control write failed. Take control.');
-        noteTransition();
         clearTimer();
         // Stop immediately if the transport still works. Recover only a known
         // disconnect, once, and only to send idle/brakes. Stop/release can cancel
@@ -289,14 +240,14 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
     if (message.operation === 'stop') {
       requestGeneration++;
       planning = false;
-      if (controlling()) { controller!.stop(); noteTransition(); }
+      if (controlling()) { controller!.stop(); }
       await operation;
       await tick();
       return state();
     }
     if (message.operation === 'release') {
       requestGeneration++; clearTimer(); planning = false;
-      controller?.stop('Releasing controls'); noteTransition();
+      controller?.stop('Releasing controls');
       await operation;
       // Only release axes on the same aircraft/connection that we took over.
       // After a handover the axes are already released and the parking brake stays set.
@@ -362,10 +313,6 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
       airport = data; route = planned; baseline = current; baselineHandlingKey = taxiHandlingKey(handling);
       steeringIdentity = identity(current, handling);
       controller = createTaxiController(planned, { steeringSign, handling });
-      recorded = { status: null, ticks: 0 };
-      emit({ type: 'autotaxi_session_start', icao, runway, parking: parking || null, profileKey: current.profileKey, profileRevision: current.profileRevision, steeringSign, handling,
-        start: { lat: current.lat, lon: current.lon, headingDeg: current.headingDeg, speedKts: current.speedKts }, route: planned,
-        airport: { origin: data.origin, threshold: data.threshold, reciprocal: data.reciprocal }, scene });
       timer = setInterval(() => { void tick(); }, 250); timer.unref?.();
       await tick();
       return state(true);
@@ -377,6 +324,6 @@ export function createTaxiSession(deps: TaxiSessionDependencies) {
     }
   }
   return { request, state, tick, isActive: () => controlling() || planning,
-    async dispose() { await request({ operation: 'stop' }, owner); clearTimer(); endRecord(); },
+    async dispose() { await request({ operation: 'stop' }, owner); clearTimer(); },
   };
 }

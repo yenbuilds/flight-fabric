@@ -4213,6 +4213,8 @@ async function main() {
           { rule_id: 'upset_pitch_nose_down', label: 'Pitch upset (nose-down > 10 deg)', severity: 'critical', duration_ms: 8000 },
           { rule_id: 'load_factor_advisory', label: 'Load factor advisory (> 1.8 g)', severity: 'warning', duration_ms: 1000 },
           { rule_id: 'upset_bank', label: 'Bank upset (> 45 deg)', severity: 'critical', duration_ms: 10000 },
+          { rule_id: 'convective_exposure', label: 'Retired diagnostic', severity: 'critical', counts_as_upset: true },
+          { ruleId: 'convective_exposure', label: 'Retired diagnostic alias', severity: 'critical', countsAsUpset: true },
         ],
       },
     });
@@ -4220,6 +4222,7 @@ async function main() {
     assert.equal(landing.landingCard.attitude.upsetCountText, '3', 'upset tile should count only true in-flight upset rules from the summary');
     assert.equal(landing.landingCard.attitude.upsetGradeText, '3 upset events', 'upset tile copy should match the derived count');
     assert.equal(landing.landingCard.inflight.violations.length, 4, 'lower in-flight list should still show advisory/non-upset violations');
+    assert.equal(landing.landingCard.inflight.violations.some((violation) => /Retired diagnostic/.test(violation.label)), false, 'retired convective rows must stay hidden even in older cached summaries');
   });
 
   await test('landing store derives debrief factors and confidence from landing card messages', () => {

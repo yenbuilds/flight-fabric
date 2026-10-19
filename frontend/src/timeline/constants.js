@@ -87,5 +87,4 @@ export const RULE_DESCRIPTIONS = Object.freeze({
   [VIOLATION_RULE.GFORCE_HIGH]: 'High load factor: measured vertical load factor exceeded the configured 2.5 g generic alert threshold. This is not an aircraft-specific structural-limit determination.',
   [VIOLATION_RULE.GFORCE_NEGATIVE]: 'Negative G: vertical load factor dropped below -0.3 g. Indicates a significant pushover, bunted maneuver, or severe negative turbulence. Risk of engine flameout, hydraulic issues, and physiological incapacitation.',
   [VIOLATION_RULE.APPROACH_OVERSPEED]: 'Approach overspeed: indicated airspeed exceeded the aircraft/category approach-speed envelope plus the configured buffer while descending below the approach gate.',
-  [VIOLATION_RULE.CONVECTIVE_EXPOSURE]: 'Convective exposure likelihood: confidence-based proxy using aircraft response and available simulator weather indicators. This does not claim absolute thunderstorm-cell penetration.',
 });

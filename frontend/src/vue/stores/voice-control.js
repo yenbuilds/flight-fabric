@@ -8,6 +8,7 @@ const DEFAULT_RUNTIME = Object.freeze({
   available: false,
   development: false,
   enabled: false,
+  needsInitialPreference: false,
   mode: 'offline',
   cloud: { enabled: false, keyConfigured: false, storageAvailable: false, providerId: 'openai', providerLabel: 'OpenAI', modelId: '', revision: 0, selectionValid: true, providers: [] },
   error: '',
@@ -122,6 +123,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
         available: info.available === true,
         development: info.development === true,
         enabled: info.enabled === true,
+        needsInitialPreference: info.needsInitialPreference === true,
         mode: info.mode === 'cloud' ? 'cloud' : 'offline',
         cloud: {
           enabled: info.cloud?.enabled === true,

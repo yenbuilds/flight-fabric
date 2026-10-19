@@ -2,6 +2,7 @@ import { createLandingCardRenderer, replaceLandingMessageUltimateStability } fro
 import { approachProfileApi } from './approach-profile-global.js';
 import { gradeHex, gradeSeverity, normalizeLandingData } from './scoring.js';
 import { buildLandingDetailSections } from '../timeline/landing-detail.js';
+import { VIOLATION_RULE } from '../timeline/constants.js';
 import {
   HIDDEN_STABILITY_METRICS,
   getStabilityContextSummary,
@@ -533,6 +534,7 @@ export function createLandingController({
   }
 
   function handleFlightViolationMessage(msg) {
+    if ((msg?.rule_id ?? msg?.ruleId) === VIOLATION_RULE.CONVECTIVE_EXPOSURE) return;
     if (msg?.event === 'start' && msg.counts_as_upset !== false) {
       flightUpsetCount += 1;
       getLandingStore()?.setFlightUpsetCount?.(flightUpsetCount);

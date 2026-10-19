@@ -355,11 +355,6 @@ type ApproachProfilePoint = {
   lonDeg: number | null;
 };
 
-type StabilityLoggerModule = {
-  isEnabled: () => boolean;
-  writeLog: (channel: string, message: string, payload: Record<string, unknown>) => void;
-};
-
 type ConfigModule = {
   stability?: {
     gateRaFt?: number;
@@ -1613,8 +1608,6 @@ function isImc(visibilityM: number | null | undefined): boolean | null {
   return visibilityM < VMC_VISIBILITY_THRESHOLD_M;
 }
 
-const stabilityLogger = require('./stability-debug-logger') as StabilityLoggerModule;
-
 /**
  * Primary stability-evaluation entry point.
  * Returns:
@@ -1626,50 +1619,6 @@ const stabilityLogger = require('./stability-debug-logger') as StabilityLoggerMo
  *  }
  */
 function runStability(params: StabilityRunParams): StabilityRunResult {
-  // Log a bounded sample of raw parameters before normalization.
-  // Raw stability debug samples remain altitude-gated to avoid broad high-altitude logging.
-  const rawRa = typeof params.ra === 'number' ? params.ra : Number.POSITIVE_INFINITY;
-  const shouldLogRaw = stabilityLogger.isEnabled() && Math.random() < 0.20 && rawRa < 1500;
-
-  if (shouldLogRaw) {
-    // Detailed spoiler breakdown for debugging armed vs deployed
-    const spoilerDebug = (() => {
-      const s = params.spoilers;
-      if (s && typeof s === 'object') {
-        const spoilerRecord = s as Record<string, unknown>;
-        return {
-          type: 'object',
-          state: spoilerRecord.state,
-          fraction: spoilerRecord.fraction,
-          percent: spoilerRecord.percent,
-          raw: JSON.stringify(s),
-          value: undefined,
-        };
-      }
-      return {
-        type: typeof s,
-        value: s,
-        state: undefined,
-        fraction: undefined,
-        percent: undefined,
-        raw: undefined,
-      };
-    })();
-
-    stabilityLogger.writeLog('RAW_INPUT', 'Pre-normalization params', {
-      raw_flaps: params.flaps,
-      raw_spoilers: spoilerDebug.value ?? spoilerDebug.raw,
-      spoiler_type: spoilerDebug.type,
-      spoiler_state: spoilerDebug.state,
-      raw_ias: params.ias,
-      raw_vs: params.vs,
-      raw_ra: params.ra,
-      raw_alt_msl_ft: params.alt_msl_ft,
-      raw_gearDownLocked: params.gearDownLocked,
-      raw_wow: params.wow,
-    });
-  }
-
   const imcConditions = isImc(params.visibilityM);
 
   return {

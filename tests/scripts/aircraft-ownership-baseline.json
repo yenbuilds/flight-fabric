@@ -21,12 +21,6 @@
       "aircraft-source-placement:a03ca5434797f3c49d82120c0841e1b143c9cb0c86151144618638f32a278cd4"
     ]
   },
-  "backend/replay/landing-clip.ts": {
-    "reason": "Existing two-aircraft replay qualification restriction; keep its accepted scope until replay ownership is reviewed.",
-    "accepted": [
-      "aircraft-source-placement:eef1d056882389ebcb3d72ecc178123108dc1df076e94213971eba1f03251cb6"
-    ]
-  },
   "backend/telemetry-provider/aircraft-autotaxi.ts": {
     "reason": "Legacy Autotaxi factory contains SDK and Fenix readiness/parking/throttle knowledge; pending separate behavior-preserving extraction.",
     "accepted": [
@@ -173,12 +167,6 @@
     "reason": "Checked-in generated toolbar bundle of existing preset observation rules; source changes need the same ownership review.",
     "accepted": [
       "aircraft-source-placement:efc77a843bedf37a5f465acbe60d1ccef617a759538dea7fe09ee07901292511"
-    ]
-  },
-  "frontend/toolbar/replay.js": {
-    "reason": "Existing replay eligibility message names the two qualified aircraft.",
-    "accepted": [
-      "aircraft-source-placement:5c572003d861d0d52c4c73ec2d1cd1eb202119f0adcceeb3f52b9ca03c920118"
     ]
   },
   "packages/telemetry-types/src/messages.ts": {

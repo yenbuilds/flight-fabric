@@ -82,8 +82,8 @@ This is optional and is not required to install the app.
 
 </details>
 
-Voice control is off until you enable it. Open **Settings > Voice control**
-to enable it and set a keyboard shortcut. Open
+Choose whether to enable voice control in the introduction. You can change this
+and set a keyboard shortcut in **Settings > Voice control**. Open
 **Aircraft > Voice control** to use the talk button on screen.
 When voice control is off, FlightFabric does not listen for commands or check
 for microphones.

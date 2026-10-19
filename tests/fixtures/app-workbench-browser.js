@@ -96,7 +96,8 @@ if (query.get('onboarding') === '1') {
   useSettingsUiStore().aboutVersion = '0.12.4';
   const voice = useVoiceControlStore();
   voice.setBridgeAvailable(query.get('voiceUnavailable') !== '1');
-  if (voice.bridgeAvailable) voice.applyRuntimeInfo({ enabled: query.get('voiceEnabled') === '1', available: false });
+  if (voice.bridgeAvailable && query.get('delayVoice') !== '1') voice.applyRuntimeInfo({ enabled: query.get('voiceEnabled') === '1',
+    needsInitialPreference: query.get('firstVoicePreference') === '1', available: false });
   if (query.get('autoStart') === '0') settingsValue.recording.autoStart = false;
   voice.bindRuntime({ async setRecognitionEnabled(value, options) {
     setupFixture.voiceWrites.push({ value, options });

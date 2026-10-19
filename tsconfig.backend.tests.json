@@ -4,7 +4,7 @@
     "noEmit": true
   },
   "include": [
-    "backend/**/*.test.ts",
+    "backend/tests/**/*.ts",
     "tests/backend/**/*.ts",
     "tests/support/**/*.ts",
     "backend/types/**/*.d.ts",

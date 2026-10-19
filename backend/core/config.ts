@@ -112,7 +112,6 @@ const envModeRaw = str('FLIGHT_ENV_MODE', 'auto');
 const isElectronPackaged = process.argv.includes('--ff-packaged') || bool('ELECTRON_PACKAGED', false);
 const isElectronBackend = env.FF_ELECTRON_BACKEND === '1' || env.ELECTRON_RUN_AS_NODE === '1';
 const isLocalBatchLaunch = env.FF_LOCAL_BAT_LAUNCH === '1';
-const stabilityDebugLogBlocked = isElectronPackaged || isElectronBackend || isLocalBatchLaunch;
 // pkg sets process.pkg when bundled into a standalone binary.
 const isPkgPackaged = Boolean((process as NodeJS.Process & { pkg?: unknown }).pkg);
 const envMode = envModeRaw === 'auto'
@@ -154,13 +153,6 @@ const config = Object.freeze({
     isLocalBatchLaunch, // True when started from start-simbridge.bat
     isPkgPackaged, // True only when running inside pkg-built binary
     parentStdinLifeline: bool('FF_PARENT_STDIN_LIFELINE', false),
-  }),
-
-  // Release gate: experimental replay is available only by explicit local
-  // development opt-in. Logging-mode overrides cannot enable packaged builds.
-  inSimReplay: Object.freeze({
-    enabled: !isElectronPackaged && !isPkgPackaged && envMode === 'dev'
-      && bool('FF_ENABLE_EXPERIMENTAL_REPLAY', false),
   }),
 
   // ---------------------------------------------------------------------------
@@ -336,11 +328,6 @@ const config = Object.freeze({
   // Stability Scoring
   // ---------------------------------------------------------------------------
   stability: Object.freeze({
-    debugLog: stabilityDebugLogBlocked ? false : bool('STABILITY_DEBUG_LOG', false),
-    // Disabled intentionally: stability debug logging must stay altitude-gated.
-    // Keep the exported value false so a stray environment variable cannot
-    // widen logging to every altitude.
-    debugAlwaysActive: false,
     gateRaFt: float('STABILITY_GATE_RA_FT', getSetting(userSettings, 'debrief.stabilityCriteria.gateRaFt', 'STABILITY_GATE_RA_FT', 1000)),
     speedMinusKts: float('STABILITY_SPEED_MINUS_KTS', getSetting(userSettings, 'debrief.stabilityCriteria.speedMinusKts', 'STABILITY_SPEED_MINUS_KTS', 5)),
     speedPlusKts: float('STABILITY_SPEED_PLUS_KTS', getSetting(userSettings, 'debrief.stabilityCriteria.speedPlusKts', 'STABILITY_SPEED_PLUS_KTS', 5)),

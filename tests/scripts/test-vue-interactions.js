@@ -3982,6 +3982,9 @@ async function main() {
     assert.equal(landingStore.landingCard.attitude.upsetCountText, '1', 'flight violation messages should update upset counts through the store');
     controller.handleFlightViolationMessage({ event: 'start', counts_as_upset: false });
     assert.equal(landingStore.landingCard.attitude.upsetCountText, '1', 'advisory flight violation messages should not update upset counts');
+    controller.handleFlightViolationMessage({ event: 'start', rule_id: 'convective_exposure', counts_as_upset: true });
+    controller.handleFlightViolationMessage({ event: 'start', ruleId: 'convective_exposure', counts_as_upset: true });
+    assert.equal(landingStore.landingCard.attitude.upsetCountText, '1', 'retired convective messages must not update upset counts');
 
     controller.resetSession();
     assert.equal(landingStore.cardVisible, false, 'resetSession should hide the landing card through the store');
@@ -5168,6 +5171,80 @@ async function main() {
     tabsStore.requestTabChange('timeline');
     await nextTick();
     assert.equal(countLogbookRequests(), requestsBeforeCleanupCheck, 'logbook runtime cleanup should remove signal subscriptions and tab watchers');
+  });
+
+  await test('confirmed flight deletion refreshes scored history and statistics through the message handler', async () => {
+    const documentRef = new FakeDocument();
+    const windowRef = new FakeWindow(documentRef);
+    resetGlobals(windowRef, documentRef, createStorage());
+    setActivePinia(createPinia());
+
+    const logbookStore = useLogbookStore();
+    const timelineStore = useTimelineStore();
+    const deletedPath = 'C:/Flights/2026-10-18--deleted/telemetry.csv';
+    const keptPath = 'C:/Flights/2026-10-19--kept/telemetry.csv';
+    const deletedLanding = { id: 'deleted-landing', grade: 'Good' };
+    const keptLanding = { id: 'kept-landing', grade: 'Outstanding' };
+    const sent = [];
+    let authorizationScope = 'full-control';
+    const handleMessage = createAppMessageHandler({
+      alertRef: () => {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
+      logbookStore,
+      timelineStore,
+    });
+    handleMessage({ type: 'timelineList', flights: [
+      { filePath: deletedPath, flightId: 'YMML-YSSY' },
+      { filePath: keptPath, flightId: 'YSSY-YBBN' },
+    ] });
+    handleMessage({
+      type: 'logbook', entries: [deletedLanding, keptLanding], stats: { total: 2 },
+      index: { status: { phase: 'complete', generation: 1 } },
+    });
+
+    const cleanup = initLogbookRuntime({
+      logbookStore,
+      timelineStore,
+      getAuthorizationScope: () => authorizationScope,
+      sendMessage(payload) { sent.push(payload); return true; },
+      subscribeWsMessageSignal: subscribeWsMessage,
+      windowRef,
+    });
+    try {
+      handleMessage({ type: 'deleteFlightCsvResult', success: false, filePath: deletedPath, error: 'Flight log changed on disk' });
+      assert.deepEqual(sent, [], 'refused deletion must not refresh or remove saved history');
+      assert.equal(logbookStore.stats.total, 2);
+      assert.equal(timelineStore.flights.length, 2);
+
+      // The same success message is also broadcast to other connected windows.
+      handleMessage({ type: 'deleteFlightCsvResult', success: true, filePath: deletedPath });
+      assert.deepEqual(timelineStore.flights.map(flight => flight.filePath), [keptPath]);
+      assert.deepEqual(sent, [{ type: 'requestLogbook', limit: 500 }], 'a successful delete must request authoritative scored-history totals');
+
+      // The first response may still be the prior SQLite snapshot while its
+      // reconciliation runs. Completion must fetch the new authoritative page.
+      handleMessage({
+        type: 'logbook', entries: [deletedLanding, keptLanding], stats: { total: 2 },
+        index: { status: { phase: 'checking', generation: 1 } },
+      });
+      handleMessage({ type: 'historyIndexStatus', status: { phase: 'complete', generation: 2 } });
+      await nextTick();
+      assert.deepEqual(sent, [
+        { type: 'requestLogbook', limit: 500 },
+        { type: 'requestLogbook', limit: 500 },
+      ], 'index completion must refresh the previously stale scored-history page');
+      handleMessage({ type: 'logbook', entries: [keptLanding], stats: { total: 1 } });
+      assert.deepEqual(logbookStore.entries.map(entry => entry.id), ['kept-landing']);
+      assert.equal(logbookStore.stats.total, 1, 'the deleted landing must not remain in the displayed total');
+
+      authorizationScope = 'read-only';
+      handleMessage({ type: 'deleteFlightCsvResult', success: true, filePath: keptPath });
+      assert.equal(sent.length, 2, 'read-only sessions must not request private history after a broadcast');
+    } finally {
+      cleanup();
+    }
+    emitWsMessage({ type: 'deleteFlightCsvResult', success: true, filePath: keptPath });
+    assert.equal(sent.length, 2, 'cleanup must remove the deletion refresh subscription');
   });
 
   await test('logbook runtime keeps remote sessions quiet and starts desktop requests after authorization', () => {
@@ -6708,7 +6785,8 @@ async function main() {
   });
 
   console.log('\n--- timeline inspector store bridge ---\n');
-  await test('timeline page controller publishes inspector rows and detail selection through the store', () => {
+  await test('timeline page controller hides retired saved events and preserves inspector selection', async () => {
+    const { normalizeTimelineForUI, compactTimelineEvents, buildTimelineSummaryState } = await import(toFrontendUrl('src', 'timeline', 'model.js'));
     const documentRef = new FakeDocument();
     const windowRef = new FakeWindow(documentRef);
     resetGlobals(windowRef, documentRef, createStorage());
@@ -6716,11 +6794,14 @@ async function main() {
 
     const timelineStore = useTimelineStore();
     const focusedEvents = [];
+    const renderedTimelines = [];
+    const scrubberTimelines = [];
     const timelineMapController = {
       focusEvent(event) {
         focusedEvents.push(event);
       },
-      render() {
+      render(timeline) {
+        renderedTimelines.push(timeline);
         return [];
       },
       reset() {},
@@ -6729,18 +6810,9 @@ async function main() {
     const page = createTimelinePageController({
       timelineStore,
       timelineMapController,
-      normalizeTimelineForUI: (timeline) => timeline,
-      compactTimelineEvents: (events) => events,
-      buildTimelineSummaryState: () => ({
-        visible: true,
-        eventCountText: '2',
-        violationCountText: '0',
-        durationText: '1m 0s',
-        fuelBurnText: '--',
-        fuelBurnClass: 'font-semibold text-gray-500',
-        scoreImpactText: '0',
-        scoreImpactClass: 'font-semibold text-gray-400',
-      }),
+      normalizeTimelineForUI,
+      compactTimelineEvents,
+      buildTimelineSummaryState,
       buildTimelineEventDetailState: (event) => ({
         visible: true,
         type: event.type,
@@ -6771,7 +6843,7 @@ async function main() {
       })),
       formatTimeOffset: (ms) => `${ms}ms`,
       getEventPosition: (event) => (event.hasPos ? { lat: -33.9, lon: 151.2 } : null),
-      setupTimelineScrubber: () => {},
+      setupTimelineScrubber: (timeline) => scrubberTimelines.push(timeline),
       scrubToOffset: () => {},
       getTimelineScrubberPointsLength: () => 0,
       resetScrubberUi: () => {},
@@ -6779,23 +6851,64 @@ async function main() {
       getApproachProfileApi: () => null,
     });
 
-    page.loadTimeline({
+    // A saved analysis snapshot can bypass CSV regeneration. Exercise its
+    // presentation boundary using both historical rule-id spellings.
+    const savedTimeline = {
       flightId: 'F1',
       route: 'YSSY-KJFK',
       aircraft: 'Standard Cabin',
       aircraftProfileId: 'inibuilds-tristar',
+      eventCount: 4,
+      analysisRescore: { applied: true, revision: 1, snapshotFingerprint: 'saved-analysis' },
       events: [
         { type: 'phase_start', timestampMs: 1000, newPhase: 'APPROACH', hasPos: true },
-        { type: 'landing', timestampMs: 2000, runway: { airport_icao: 'YSSY', runway_id: '34L' } },
+        { type: 'violation_start', timestampMs: 1200, ruleId: 'convective_exposure', severity: 'caution', hasPos: true },
+        { event_type: 'violation_end', timestamp_ms: 1600, rule_id: 'convective_exposure', severity: 'caution', hasPos: true },
+        { type: 'landing', timestampMs: 2000, runway: { airport_icao: 'YSSY', runway_id: '34L' }, grade: 'GOOD', ultimateStability: { score: 91 } },
       ],
       worstMoment: { index: 1 },
-    });
+    };
+    const savedBefore = JSON.stringify(savedTimeline);
+    page.loadTimeline(savedTimeline);
 
     assert.equal(timelineStore.inspectorFlightIdText, '1m 0s', 'timeline controller should publish duration without repeating the route');
     assert.equal(timelineStore.inspectorRouteText, 'YSSY-KJFK', 'timeline controller should publish route text into the store');
     assert.equal(timelineStore.loadedTimelineAircraftLabel, 'Standard Cabin', 'timeline controller should preserve the saved aircraft type for the replay header');
     assert.equal(timelineStore.loadedTimelineAircraftProfileId, 'inibuilds-tristar', 'timeline controller should preserve the recorded profile id for deterministic artwork');
     assert.equal(timelineStore.inspectorRows.length, 2, 'timeline controller should publish event rows into the store');
+    assert.deepEqual(renderedTimelines[0].events.map(event => event.type), ['phase_start', 'landing'], 'retired saved events must not reach map markers');
+    assert.equal(scrubberTimelines[0], renderedTimelines[0], 'map, scrubber and inspector must use the same filtered view');
+    const summary = buildTimelineSummaryState(renderedTimelines[0], compactTimelineEvents(renderedTimelines[0].events));
+    assert.equal(summary.eventCountText, '2', 'saved event counts must exclude retired rows');
+    assert.equal(summary.violationCountText, '0');
+    assert.equal(summary.cautionCountText, '0');
+    assert.equal(summary.scoreImpactText, '0');
+    assert.deepEqual(renderedTimelines[0].events[1], savedTimeline.events[3], 'saved landing results must remain unchanged');
+    assert.deepEqual(renderedTimelines[0].analysisRescore, savedTimeline.analysisRescore, 'applied rescore identity must remain unchanged');
+    assert.equal(renderedTimelines[0].worstMoment, null, 'a retired event must not leave a stale index');
+    assert.equal(normalizeTimelineForUI({ ...savedTimeline, worstMoment: { index: 3 } }).worstMoment.index, 1, 'retained event indices must follow the filtered view');
+    const genuineEvent = { type: 'violation_start', timestampMs: 1800, ruleId: 'upset_bank', severity: 'critical', scoreImpact: -3 };
+    const genuineTimeline = {
+      ...savedTimeline,
+      eventCount: 3,
+      events: [savedTimeline.events[0], genuineEvent, savedTimeline.events[3]],
+      worstMoment: { index: 1 },
+    };
+    assert.deepEqual(normalizeTimelineForUI(genuineTimeline), genuineTimeline, 'timelines without retired events must retain their events, counts and metadata');
+    const mixedView = normalizeTimelineForUI({
+      ...genuineTimeline,
+      eventCount: 4,
+      events: [{ type: 'violation_start', timestampMs: 1100, rule_id: 'convective_exposure', severity: 'caution' }, ...genuineTimeline.events],
+      worstMoment: { eventId: 'retired-event' },
+    });
+    assert.deepEqual(mixedView.events, genuineTimeline.events, 'retirement must not remove genuine violations or recorded landing scores');
+    const mixedSummary = buildTimelineSummaryState(mixedView, compactTimelineEvents(mixedView.events));
+    assert.equal(mixedSummary.eventCountText, '3');
+    assert.equal(mixedSummary.violationCountText, '1');
+    assert.equal(mixedSummary.cautionCountText, '0');
+    assert.equal(mixedSummary.scoreImpactText, '-3', 'genuine score impacts must remain visible');
+    assert.equal(mixedView.worstMoment, null, 'retired event-id metadata must not survive in the filtered view');
+    assert.equal(JSON.stringify(savedTimeline), savedBefore, 'opening a saved timeline must not mutate its persisted snapshot');
     assert.equal(Object.hasOwn(timelineStore.inspectorRows[1] || {}, 'isWorstMoment'), false, 'timeline controller should ignore legacy worst-moment metadata');
     assert.equal(focusedEvents[0].type, 'phase_start', 'timeline controller should still focus the first event with a position');
 

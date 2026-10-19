@@ -4,6 +4,7 @@
     ".": {
       "entry": [
         "tests/scripts/test*.js",
+        "tests/scripts/*.test.js",
         "tests/fixtures/*-browser.js",
         "tests/fixtures/runtime-owner-test-identity.js",
         "tests/backend/**/*.test.ts",
@@ -37,7 +38,7 @@
       "entry": [
         "core/simbridge.ts",
         "core/types.ts",
-        "**/*.test.ts",
+        "tests/**/*.test.ts",
         "aircraft/aircraft-profile-registry.ts",
         "events/timeline-generation-worker.ts",
         "flight-recording/csv-line-writer-worker.ts"
@@ -51,7 +52,7 @@
       "entry": [
         "preload.js",
         "before-pack.js",
-        "**/*.test.js",
+        "tests/**/*.test.js",
         "voice-speech-worker.js",
         "launcher/electron-integration.js",
         "launcher/launcher-events.js",
@@ -71,7 +72,7 @@
     "frontend": {
       "entry": [
         "src/landing/mock-runtime.js",
-        "**/*.test.js",
+        "tests/**/*.test.js",
         "flight-phases.js",
         "telemetry-ui.js",
         "toolbar/toolbar.js",

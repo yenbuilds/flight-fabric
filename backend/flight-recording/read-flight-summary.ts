@@ -21,6 +21,7 @@ const { computePostFlightInsights } = require('./post-flight-insights-summary.js
   ) => unknown | null;
 };
 
+// Recognition only: retired diagnostics in old CSVs must stay out of summaries.
 const CONVECTIVE_EXPOSURE_RULE_ID = VIOLATION_RULE.CONVECTIVE_EXPOSURE;
 const MAX_SUMMARY_CSV_BYTES = 200 * 1024 * 1024;
 
