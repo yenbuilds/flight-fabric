@@ -359,6 +359,10 @@ FlightFabric is free software, licensed under the
 `AGPL-3.0-only`. Complete corresponding source for each released version is
 available from the [FlightFabric releases page](https://github.com/yenbuilds/flight-fabric/releases).
 
+The public repository is a source mirror. Each update preserves the latest
+development commit's message and includes a `Source-Commit` reference for
+traceability.
+
 Notices, source links, and licence terms for third party components are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
