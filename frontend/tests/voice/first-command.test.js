@@ -33,6 +33,37 @@ const SPEED = {
 };
 const SILENT = { id: 'lights.strobe.on', label: 'Strobes on', input: { kind: 'boolean' } };
 
+test('first interaction prefers a fresh read-only question and falls back when its data is unavailable', async () => {
+  setActivePinia(createPinia());
+  const voice = useVoiceControlStore(), firstCommand = useVoiceFirstCommandStore();
+  const controls = useAircraftControlsStore();
+  voice.setBridgeAvailable(true);
+  seedCatalogue(controls, [HEADING]);
+  const now = Date.now();
+  const specific = reactive({ activeProfileKey: 'bundled/msfs/pmdg-737', activeProfileRevision: 8,
+    sourceStatus: 'connected', values: { 'mcp.altitudeFt': 5000 }, unavailable: [],
+    receivedAt: now, updatedAt: new Date(now).toISOString(),
+    valueUpdatedAt: { 'mcp.altitudeFt': new Date(now).toISOString() } });
+  const stop = initVoiceFirstCommandRuntime({ firstCommandStore: firstCommand, voiceStore: voice,
+    aircraftControlsStore: controls, aircraftSpecificStore: specific,
+    storage: createStorage(), windowRef: createWindow(), settleMs: 0 });
+  assert.equal(firstCommand.prompt.example, 'what is selected altitude');
+  assert.equal(firstCommand.prompt.readOnly, true);
+  specific.unavailable = ['mcp.altitudeFt'];
+  await nextTick();
+  assert.equal(firstCommand.prompt.example, 'Set heading 270');
+  assert.equal(firstCommand.prompt.readOnly, false);
+  specific.unavailable = [];
+  specific.valueUpdatedAt['mcp.altitudeFt'] = new Date(now - 60000).toISOString();
+  await nextTick();
+  assert.equal(firstCommand.prompt.readOnly, false, 'stale data cannot supply the first question');
+  firstCommand.mute();
+  specific.valueUpdatedAt['mcp.altitudeFt'] = new Date(now).toISOString();
+  await nextTick();
+  assert.equal(firstCommand.prompt, null, 'a fresh question respects the existing dismissal');
+  stop();
+});
+
 function createStorage(seed = {}) {
   const values = new Map(Object.entries(seed));
   return {

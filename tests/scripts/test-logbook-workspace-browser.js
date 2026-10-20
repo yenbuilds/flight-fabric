@@ -140,6 +140,25 @@ async function browser() {
     for (const width of [1920, 1440, 1255, 1101, 1100, 800, 390, 320]) {
       win.setContentSize(width, 1000);
       await wait(180);
+      if (width === 1440 || width === 320) {
+        assert(await evaluate("return !document.querySelector('.timeline-flight-details').open && document.querySelector('.timeline-summary-alerts').checkVisibility();"), 'secondary details start collapsed while flight warnings stay visible');
+        await evaluate("document.querySelector('.timeline-flight-details > summary').focus();");
+        for (const type of ['keyDown', 'char', 'keyUp']) win.webContents.sendInputEvent({ type, keyCode: 'Return' });
+        await wait(80);
+        assert(await evaluate("return document.querySelector('.timeline-flight-details').open && document.getElementById('timeline-mobile-viewer-recording-time').checkVisibility();"), 'keyboard expands the complete labelled flight clocks');
+        assert(await evaluate("return document.documentElement.scrollWidth<=innerWidth && document.querySelector('#timeline-events').getBoundingClientRect().height>100;"), 'expanded flight details leave usable event space');
+        fs.writeFileSync(path.join(OUTPUT, `flight-details-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        await evaluate("document.getElementById('timeline-open-analysis-rescore-btn').focus();");
+        for (const type of ['keyDown', 'char', 'keyUp']) win.webContents.sendInputEvent({ type, keyCode: 'Return' });
+        await wait(80);
+        assert(await evaluate("return logbookTest.timeline.analysisRescoreModalOpen && document.getElementById('timeline-analysis-rescore-modal').contains(document.activeElement);"), 'scoring comparison remains reachable inside flight details');
+        for (const type of ['keyDown', 'keyUp']) win.webContents.sendInputEvent({ type, keyCode: 'Escape' });
+        await wait(80);
+        assert(await evaluate("return !logbookTest.timeline.analysisRescoreModalOpen && document.activeElement.id==='timeline-open-analysis-rescore-btn';"), 'comparison closes back to its visible action');
+        await evaluate("document.querySelector('.timeline-flight-details > summary').focus();");
+        for (const type of ['keyDown', 'char', 'keyUp']) win.webContents.sendInputEvent({ type, keyCode: 'Return' });
+        await wait(80);
+      }
       const state = await evaluate(`const viewer = document.querySelector('.timeline-split'); const list = document.querySelector('#vue-timeline-flights-root');
         return { overflow: document.documentElement.scrollWidth > innerWidth, modal: viewer.getAttribute('aria-modal'),
           selected: logbookTest.timeline.loadedTimelineFlightId, listRight: list.getBoundingClientRect().right, reviewLeft: viewer.getBoundingClientRect().left,
@@ -153,7 +172,7 @@ async function browser() {
       assert.equal(state.overflow, false, `${width}: no horizontal overflow`);
       assert.deepEqual(state.duplicates, [], `${width}: unique runtime IDs`);
       assert.equal(state.selected, 'RECORDED-0', `${width}: rotation retains selected flight`);
-      assert(await evaluate("return document.getElementById('timeline-open-analysis-rescore-btn').textContent.includes('Compare scoring rules') && document.getElementById('timeline-analysis-rescore-applied-badge').textContent==='Saved';"), 'saved scoring is visible without changing the comparison action label');
+      assert(await evaluate("return document.getElementById('timeline-open-analysis-rescore-btn').textContent.includes('Compare scoring rules') && document.getElementById('timeline-analysis-rescore-applied-badge').textContent==='Scoring saved';"), 'saved scoring is visible without changing the comparison action label');
       assert.equal(state.search, 'YSSY', `${width}: review and resizing retain flight search`);
       assert(state.eventsVisible, `${width}: events have usable space`);
       assert(state.summaryWidth >= (width > 1100 ? state.viewerWidth : state.contentWidth) - 2, `${width}: summary fills the available review width without collapsing measurements`);

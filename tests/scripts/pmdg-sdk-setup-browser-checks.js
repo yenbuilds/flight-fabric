@@ -104,8 +104,9 @@ module.exports = async function ({ win, evaluate, ready, settled, output }) {
   await evaluate(`document.querySelector('.pmdg-sdk-summary').focus();`);
   const healthy = await settled(`const el = document.querySelector('[data-pmdg-sdk-setup]'); el.scrollIntoView({ block: 'start', behavior: 'instant' });
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const box = el.getBoundingClientRect(); return { top: box.top, bottom: box.bottom, height: box.height, viewportHeight: innerHeight };`, box => box.top >= 0 && box.bottom < box.viewportHeight);
-  assert(healthy.top >= 0 && healthy.bottom < healthy.viewportHeight, 'healthy setup is in the screenshot viewport');
+    const box = el.getBoundingClientRect(); return { top: box.top, bottom: box.bottom, height: box.height, viewportHeight: innerHeight };`, box => box.top >= -1 && box.bottom <= box.viewportHeight + 1);
+  // scrollIntoView rounds scroll offsets; fractional layout can place the border a fraction of a pixel above zero.
+  assert(healthy.top >= -1 && healthy.bottom <= healthy.viewportHeight + 1, `healthy setup is in the screenshot viewport: ${JSON.stringify(healthy)}`);
   assert(healthy.height < 80, 'healthy connection remains compact on a narrow phone');
   fs.writeFileSync(path.join(output, 'pmdg-connected-320.png'), (await win.webContents.capturePage()).toPNG());
   await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r', unmodifiedText: '\r' });

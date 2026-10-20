@@ -37,23 +37,24 @@ export const useVoiceFirstCommandStore = defineStore('voiceFirstCommand', () => 
 
   // Returns true when the card opened. Showing counts against the session
   // budget once per session, even if the aircraft changes and it reopens.
-  function open({ example = '', aircraftName = '' } = {}) {
+  function open({ example = '', aircraftName = '', readOnly = false } = {}) {
     if (prompt.value || !eligible.value || !example) return false;
     if (!shownThisSession.value) {
       shownThisSession.value = true;
       record.value = { ...record.value, sessionsShown: record.value.sessionsShown + 1 };
     }
-    prompt.value = { stage: 'try', example: String(example), aircraftName: String(aircraftName || '') };
+    prompt.value = { stage: 'try', example: String(example), aircraftName: String(aircraftName || ''), readOnly };
     prompts.request(VOICE_FIRST_COMMAND_PROMPT_ID);
     return true;
   }
 
-  function updateContext({ example = '', aircraftName = '' } = {}) {
+  function updateContext({ example = '', aircraftName = '', readOnly = false } = {}) {
     if (!prompt.value || prompt.value.stage !== 'try') return;
     prompt.value = {
       ...prompt.value,
       example: String(example || prompt.value.example),
       aircraftName: String(aircraftName || ''),
+      readOnly,
     };
   }
 

@@ -65,7 +65,7 @@ const voice = target => target === 'cockpit' ? 'set cockpit lighting fifty perce
       Set the cockpit lighting, then adjust the flight displays to their own brightness.
     </p>
     <div class="grid gap-3" :class="{ 'lg:grid-cols-2': targets.length > 1 }">
-      <form v-for="target in targets" :key="target" class="min-w-0 rounded-lg border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
+      <form v-for="target in targets" :key="target" class="min-w-0 rounded border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
         :data-lighting-preset="target" @submit.prevent="apply(target)">
         <div class="flex items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-gray-100">{{ label(target) }}</h3>

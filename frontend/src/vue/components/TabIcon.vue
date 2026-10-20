@@ -20,6 +20,18 @@ defineProps({
     <circle cx="12" cy="12" r="2" stroke-width="2" />
     <circle cx="16" cy="18" r="2" stroke-width="2" />
   </svg>
+  <svg v-else-if="kind === 'voice'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="9" y="2.5" width="6" height="12" rx="3" stroke-width="1.8" />
+    <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" stroke-width="1.8" stroke-linecap="round" />
+  </svg>
+  <svg v-else-if="kind === 'phone'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="6" y="2" width="12" height="20" rx="2.5" stroke-width="2" />
+    <path d="M10 5h4M11 18.5h2" stroke-width="2" stroke-linecap="round" />
+  </svg>
+  <svg v-else-if="kind === 'setup'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="3" stroke-width="2" />
+    <path d="m7 8 1.5 1.5L11 7M13 8h4m-10 6 1.5 1.5L11 13m2 1h4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
   <svg v-else-if="kind === 'dispatch'" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
   </svg>

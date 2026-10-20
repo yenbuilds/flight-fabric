@@ -81,6 +81,18 @@ const settingsValue = window.FlightFabricAppSettings.normalizeAppSettings({ onbo
 const setupFixture = { requests: [], voiceWrites: [], voiceSaveOk: true, mutateVoiceOnFailure: false,
   deferVoiceSave: false, finishVoiceSave: null, reconnects: 0, restarts: 0,
   authorizationDelivered: query.get('delayAuthorization') !== '1' && !disconnected, settingsDelivered: false };
+const phoneFixture = { active: false, controls: true, requests: [], approvals: [], holdApproval: false };
+if (query.get('phoneSetup') === '1') window.electronAPI = {
+  ...window.electronAPI,
+  getBackendStatus: async () => ({ status: 'running' }),
+  getSettings: async () => ({ settings: { remoteAccess: settingsValue.network.remoteAccess } }),
+  getNetworkInfo: async () => ({ ips: ['192.168.1.42'], httpPort: 8100, wsPort: 8099 }),
+  getBackendBootstrap: async () => ({ ok: true, body: {
+    remoteAccessEnabled: phoneFixture.active,
+    aircraftControlToken: phoneFixture.active && phoneFixture.controls ? 'fixture-private-phone-token' : '',
+  } }),
+  restartApp: async () => { setupFixture.restarts++; return { ok: true }; },
+};
 function deliverAuthorization(nextScope = scope, pairing = 'not-requested') {
   scope = nextScope;
   setupFixture.authorizationDelivered = true;
@@ -173,12 +185,27 @@ const recorded = { ...flights[0], startTime: new Date(startedAt).toISOString(), 
 const sent = [];
 function send(message) {
   sent.push(message);
-  if (scope !== 'full-control' && ['requestTimelineList', 'requestTimeline', 'saveAppSettings', 'requestAppSettings', 'setDestinationTarget', 'setOriginTarget'].includes(message.type)) return false;
+  if (scope !== 'full-control' && ['listProfiles', 'requestTimelineList', 'requestTimeline', 'saveAppSettings', 'requestAppSettings', 'setDestinationTarget', 'setOriginTarget'].includes(message.type)) return false;
   if (message.type === 'requestTimelineList') queueMicrotask(() => {
     const payload = { type: 'timelineList', requestId: message.requestId, flights };
     timeline.ingestMessage(payload); emitWsMessage(payload);
   });
   else if (message.type === 'requestTimeline') queueMicrotask(() => emitWsMessage({ type: 'timeline', requestId: message.requestId, timeline: recorded }));
+  else if (message.type === 'listProfiles') queueMicrotask(() => emitWsMessage({ type: 'profileList', profiles: fixture.profiles }));
+  else if (query.get('phoneSetup') === '1' && scope === 'full-control' && message.type === 'saveAppSettings') {
+    setupFixture.requests.push({ patch: message.settings, requestId: message.requestId });
+  }
+  else if (query.get('phoneSetup') === '1' && scope === 'full-control' && message.type === 'requestDevicePairingRequests') {
+    queueMicrotask(() => emitWsMessage({ type: 'devicePairingRequests', enabled: phoneFixture.controls, requests: phoneFixture.requests }));
+  }
+  else if (query.get('phoneSetup') === '1' && scope === 'full-control' && message.type === 'approveDevicePairingRequest') {
+    phoneFixture.approvals.push(message);
+    if (!phoneFixture.holdApproval) queueMicrotask(() => {
+      phoneFixture.requests = [];
+      emitWsMessage({ type: 'devicePairingApprovalResult', requestId: message.requestId, ok: true });
+      emitWsMessage({ type: 'devicePairingRequests', enabled: phoneFixture.controls, requests: [] });
+    });
+  }
   else return false;
   return true;
 }
@@ -237,8 +264,8 @@ for (const point of (disconnected ? [] : track.slice(0, 30))) {
 if (scope === 'full-control') timeline.ingestMessage({ type: 'timelineList', flights });
 else timeline.markListRestricted();
 const telemetryTimer = setInterval(publishTelemetry, 800);
-window.workbenchTest = { tabs, status, flight, controls, takeoff: useTakeoffStore(), profiles: useProfilesStore(), timeline, shell: useShellStore(), sent, nextTick,
-  settings, setupFixture, serviceFixture, deliverSettings, deliverAuthorization, emitAppSettingsSaved,
+window.workbenchTest = { tabs, status, flight, controls, specific, stopTelemetry: () => clearInterval(telemetryTimer), takeoff: useTakeoffStore(), profiles: useProfilesStore(), timeline, shell: useShellStore(), sent, nextTick,
+  settings, setupFixture, serviceFixture, phoneFixture, deliverSettings, deliverAuthorization, emitAppSettingsSaved, emitWsMessage,
   emitWsClose() {
     // Match the connection owner: later telemetry must not restore the grant
     // that was revoked before its close signal was published.

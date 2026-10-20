@@ -1,11 +1,12 @@
 'use strict';
 const assert = require('node:assert/strict');
 
-module.exports = async function checkSettingsNavigation({ win, evaluate, capture, wait }) {
+module.exports = async function checkSettingsNavigation({ win, evaluate, capture, wait, pointerActivate }) {
   const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
   fixtureUrl.search = '?desktop=1&toolbar=1';
   for (const width of [1440, 1280, 900, 320]) {
     win.setContentSize(width, width === 1280 ? 720 : 900);
+    await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: width === 320, maxTouchPoints: 5 });
     await win.loadURL(fixtureUrl.href);
     for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
     assert(await evaluate('return Boolean(window.workbenchTest);'), 'settings fixture mounted');
@@ -55,8 +56,12 @@ module.exports = async function checkSettingsNavigation({ win, evaluate, capture
     assert(await evaluate("return document.activeElement.id==='settings-voice-control' && getComputedStyle(document.getElementById('voice-settings-configuration')).display!=='none';"), 'existing Voice shortcut reveals setup and focuses its section');
     await evaluate("workbenchTest.voice.voiceTest.phase='listening'; await workbenchTest.nextTick();");
     assert(await evaluate("return document.querySelector('[data-voice-configuration-toggle]').disabled;"), 'an active voice test cannot be hidden by collapsing setup');
-    await evaluate("workbenchTest.voice.voiceTest.phase='idle';document.querySelector('[data-voice-open-test]').click();await workbenchTest.nextTick();");
-    assert.equal(await evaluate('return workbenchTest.voice.voiceTest.phase;'), 'idle', 'Test voice opens the controls without recording automatically');
+    assert(await evaluate("return !document.querySelector('[data-voice-open-test]') && document.querySelector('[data-voice-test]').contains(document.getElementById('voice-input-device'));"), 'expanded setup has one microphone test action beside its input selection');
+    await evaluate("workbenchTest.voice.voiceTest.phase='idle';await workbenchTest.nextTick();document.querySelector('[data-voice-configuration-toggle]').click();await workbenchTest.nextTick();");
+    await pointerActivate('[data-voice-open-test]', width === 320);
+    assert.equal(await evaluate('return workbenchTest.voice.voiceTest.phase;'), 'idle', 'Test microphone opens the controls without recording automatically');
+    assert(await evaluate("return document.activeElement.matches('[data-voice-test-start]');"), 'opening the microphone test restores focus after its shortcut disappears');
+    await capture(`settings-navigation-${width}-microphone`);
     await evaluate(`
       const {focusToolbarPanelSettings}=await import('/frontend/src/vue/settings-navigation.js');
       await focusToolbarPanelSettings(workbenchTest.tabs);

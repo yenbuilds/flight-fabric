@@ -5,6 +5,7 @@ import AircraftTabShell from '../../frontend/src/vue/components/AircraftTabShell
 import { useAircraftControlsStore } from '../../frontend/src/vue/stores/aircraft-controls.js';
 import { useFlightStore } from '../../frontend/src/vue/stores/flight.js';
 import { useTabsStore } from '../../frontend/src/vue/stores/tabs.js';
+import { useStatusStore } from '../../frontend/src/vue/stores/status.js';
 import '../../frontend/index.css';
 
 const pinia = createPinia();
@@ -33,6 +34,8 @@ window.navTest = {
   async settle() { await nextTick(); },
 };
 if (genericPage) {
+  useStatusStore().updateAircraftProfile({ profile: { id: params.get('profile') || 'generic', name: 'Wide-body aircraft', aircraftTitle: 'Boeing 767-300ER' } });
+  useStatusStore().ingestMessage({ type: 'simState', simconnectConnected: true, inMenu: false });
   controls.setAvailability({ enabled: true, reason: 'Ready.' });
   controls.updateAutopilot({ master: true, spdTarget: 220, hdgTarget: 87, altTarget: 12000, vsTarget: -700 });
   const flight = useFlightStore();

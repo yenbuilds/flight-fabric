@@ -40,3 +40,30 @@ export async function openVoiceSettings(tabs, voice, { fromAircraft = false } = 
   await focusVoiceSettings(tabs);
   return true;
 }
+
+export async function openPhoneSettings(tabs) {
+  if (tabs.activeTabId !== 'settings' && !tabs.requestTabChange('settings')) return false;
+  tabs.closeMoreSheet();
+  await nextTick();
+  await nextTick();
+  if (tabs.activeTabId !== 'settings') return false;
+  await focusSettingsSection('settings-phone-tablet-access');
+  return true;
+}
+
+// Release the narrow More sheet before the native intro takes focus. Keep the
+// current page and let the shared replay owner recheck saved/draft state.
+export async function openSetup(tabs, settingsUi) {
+  if (settingsUi.introOpen || settingsUi.introBlockedReason) return false;
+  const originTab = tabs.activeTabId;
+  tabs.closeMoreSheet();
+  await nextTick();
+  await nextTick();
+  if (tabs.activeTabId !== originTab || tabs.moreSheetOpen) return false;
+  if (document.activeElement === document.body) {
+    [...document.querySelectorAll('[data-setup-navigation], #mobile-more-btn, #vue-main-root')]
+      .find(element => element.getClientRects().length && !element.disabled && !element.closest('[inert]'))
+      ?.focus({ preventScroll: true });
+  }
+  return settingsUi.requestIntro();
+}

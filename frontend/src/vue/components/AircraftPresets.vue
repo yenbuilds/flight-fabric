@@ -41,11 +41,9 @@ const available = computed(() => Object.values(controls.aircraftCommandCatalogue
   isolation: isolate;
   padding: 1rem;
   border: 1px solid rgb(var(--color-accent) / 0.32);
-  border-radius: 0.75rem;
-  background:
-    radial-gradient(ellipse at 100% 0%, rgb(var(--color-accent) / 0.09), transparent 65%),
-    rgb(var(--color-surface-50) / 0.35);
-  box-shadow: inset 3px 0 0 rgb(var(--color-accent) / 0.55);
+  border-left: 3px solid rgb(var(--color-accent) / 0.55);
+  border-radius: 3px;
+  background: rgb(var(--color-surface-50) / 0.35);
 }
 .aircraft-presets__art {
   position: absolute;
@@ -80,7 +78,7 @@ const available = computed(() => Object.values(controls.aircraftCommandCatalogue
   flex: 0 0 2.5rem;
   height: 2.5rem;
   border: 1px solid rgb(var(--color-accent) / 0.3);
-  border-radius: 0.625rem;
+  border-radius: 3px;
   background: rgb(var(--color-accent) / 0.08);
   color: rgb(var(--color-accent));
 }

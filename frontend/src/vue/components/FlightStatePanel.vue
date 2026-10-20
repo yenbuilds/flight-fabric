@@ -12,7 +12,6 @@ const flight = useFlightStore();
     aria-live="polite"
     :hidden="!flight.flightStateVisible"
   >
-    <div class="flight-state-eyebrow">Flight Feed</div>
     <div id="flight-state-title" class="flight-state-title">{{ flight.title }}</div>
     <div id="flight-state-copy" class="flight-state-copy">{{ flight.copy }}</div>
   </div>

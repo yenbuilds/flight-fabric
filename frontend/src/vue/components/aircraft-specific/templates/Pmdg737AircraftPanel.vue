@@ -811,8 +811,7 @@ const {
         <article class="rounded-xl border border-surface-200 bg-surface-50 p-3">
           <div class="mb-2 flex items-center justify-between gap-2">
             <div>
-              <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Electrical</div>
-              <h5 class="mt-0.5 text-xs font-semibold text-gray-200">Common electrical starting point</h5>
+              <h5 class="text-xs font-semibold text-gray-200">Common electrical starting point</h5>
             </div>
             <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
           </div>
@@ -845,8 +844,7 @@ const {
         <article class="rounded-xl border border-surface-200 bg-surface-50 p-3">
           <div class="mb-2 flex items-start justify-between gap-2">
             <div>
-              <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">Power source</div>
-              <h5 class="mt-0.5 text-xs font-semibold text-gray-200">Use ground power or the APU as appropriate</h5>
+              <h5 class="text-xs font-semibold text-gray-200">Use ground power or the APU as appropriate</h5>
             </div>
             <span class="pmdg-location-tag" data-pmdg-location="forward-overhead">FORWARD OVERHEAD</span>
           </div>
@@ -903,8 +901,7 @@ const {
         <article class="rounded-xl border border-surface-200 bg-surface-50 p-3">
           <div class="mb-2 flex items-start justify-between gap-2">
             <div>
-              <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-gray-500">IRS</div>
-              <h5 class="mt-0.5 text-xs font-semibold text-gray-200">Mode selectors and alignment indications</h5>
+              <h5 class="text-xs font-semibold text-gray-200">IRS selectors and alignment indications</h5>
             </div>
             <span class="pmdg-location-tag" data-pmdg-location="aft-overhead">AFT OVERHEAD</span>
           </div>

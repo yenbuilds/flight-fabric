@@ -17,11 +17,12 @@
 .settings-page .settings-panel-header { margin-bottom: .75rem; }
 .settings-page .settings-panel > .settings-section-watermark { max-height: 5.5rem; opacity: .4; }
 .settings-page .settings-option-row { display: flex; align-items: center; gap: .75rem; padding-block: .8rem; border-top: 1px solid rgb(var(--border) / .5); }
-.settings-page .settings-option-row > input[type="checkbox"] { order: 2; flex: none; width: 1.125rem; height: 1.125rem; margin-left: auto; }
+.settings-page .settings-option-row > input[type="checkbox"] { flex: none; width: 1.125rem; height: 1.125rem; margin: 0; }
 .settings-page .settings-option-row > div { flex: 1; }
+.settings-page .settings-option-row { max-width: 44rem; }
 .settings-page .settings-option-row.flex-col { align-items: stretch; }
 .settings-page #settings-show-intro { min-height: 2.75rem; }
-.settings-page .settings-runtime-connection { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 26rem); align-items: center; gap: 1rem; padding-block: .5rem 1rem; }
+.settings-page .settings-runtime-connection { display: grid; grid-template-columns: minmax(0, 18rem) minmax(12rem, 24rem); max-width: 44rem; align-items: center; gap: 1rem; padding-block: .5rem 1rem; }
 .settings-page .settings-label-row { min-width: 0; }
 .settings-page #settings-cabin-audio > .mt-4 { max-width: 40rem; }
 .settings-voice-summary { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding-top: .85rem; }

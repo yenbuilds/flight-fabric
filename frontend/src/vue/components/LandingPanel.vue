@@ -220,7 +220,6 @@ const bounceDetailVisible = computed(() => {
     aria-live="polite"
   >
     <div class="landing-waiting-copy">
-      <div class="landing-waiting-kicker">Landing Capture</div>
       <div class="landing-waiting-title">Ready for the next arrival</div>
       <div class="landing-waiting-description">No scored landing in this session yet.</div>
     </div>

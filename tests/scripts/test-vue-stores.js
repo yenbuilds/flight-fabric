@@ -251,7 +251,7 @@ async function main() {
       assert.equal(await store.refresh(), true, 'loopback browser refresh should use backend bootstrap');
       assert.equal(
         store.remoteBrowserUrl,
-        'http://192.168.50.49:8100/remote?wsPort=9199&aircraftControlToken=browser-aircraft-token',
+        'http://192.168.50.49:8100/remote?wsPort=9199&aircraftControlToken=browser-aircraft-token&tab=autopilot',
         'loopback browser should render the LAN URL with only the scoped pairing token',
       );
       assert.equal(
@@ -261,7 +261,7 @@ async function main() {
       );
       assert.equal(
         store.remoteControlPairingUrl,
-        'http://192.168.50.49:8100/remote?wsPort=9199&aircraftControlToken=browser-aircraft-token',
+        'http://192.168.50.49:8100/remote?wsPort=9199&aircraftControlToken=browser-aircraft-token&tab=autopilot',
         'loopback browser should expose the existing session-scoped control URL separately',
       );
       assert.equal(store.remoteBrowserUrl.includes('desktop-privileged-token'), false, 'phone URL must never contain the privileged desktop token');
@@ -351,9 +351,9 @@ async function main() {
     assert.equal(store.frontendPort, 8123, 'frontend port should populate from IPC');
     assert.equal(store.backendWsPort, 9199, 'backend WS port should populate from IPC');
     assert.equal(store.backendHttpPort, 8100, 'backend HTTP port should populate from IPC');
-    assert.equal(store.remoteBrowserUrl, 'http://192.168.1.42:8100/remote?wsPort=9199&aircraftControlToken=fixture-aircraft-token', 'mobile URL should prefer a 192.168 LAN IP and carry the custom WebSocket port plus scoped pairing token');
+    assert.equal(store.remoteBrowserUrl, 'http://192.168.1.42:8100/remote?wsPort=9199&aircraftControlToken=fixture-aircraft-token&tab=autopilot', 'mobile URL should prefer a 192.168 LAN IP and carry the custom WebSocket port plus scoped pairing token');
     assert.equal(store.remoteViewerUrl, 'http://192.168.1.42:8100/remote?wsPort=9199', 'desktop host should expose a stable viewer URL without a control token');
-    assert.equal(store.remoteControlPairingUrl, 'http://192.168.1.42:8100/remote?wsPort=9199&aircraftControlToken=fixture-aircraft-token', 'desktop host should expose the current backend-session pairing URL');
+    assert.equal(store.remoteControlPairingUrl, 'http://192.168.1.42:8100/remote?wsPort=9199&aircraftControlToken=fixture-aircraft-token&tab=autopilot', 'desktop host should expose the current backend-session pairing URL');
     assert.equal(store.shareAircraftControlPaired, true, 'mobile URL should report its session pairing state');
     assert.equal(store.alternateIpsLabel, '10.0.0.5', 'alternate LAN IPs should be summarized');
     assert.equal(store.settingsFile, 'C:\\Users\\Pilot\\settings.json', 'settings path should populate from IPC');
@@ -396,6 +396,14 @@ async function main() {
     assert.equal(store.remoteViewerUrl, '', 'inactive LAN access should withhold the viewer URL');
     assert.equal(store.remoteControlPairingUrl, '', 'inactive LAN access should withhold the pairing URL');
     assert.equal(store.remoteBrowserUrl, '', 'inactive LAN access should withhold the QR value');
+
+    for (const bootstrap of [async () => null, async () => { throw new Error('Restarting'); }]) {
+      store.remoteAccessEnabled = true;
+      globalThis.electronAPI.getBackendBootstrap = bootstrap;
+      await store.refresh();
+      assert.equal(store.remoteAccessEnabled, null, 'unavailable bootstrap cannot reuse old binding or saved access');
+      assert.equal(store.remoteBrowserUrl, '', 'unconfirmed active access must withhold the QR during restart');
+    }
   });
 
   await test('stability presentation prefers persisted verdicts and safely classifies legacy results', () => {
@@ -1845,9 +1853,40 @@ async function main() {
 
     status.resetTelemetry('aircraftChanged');
     assert.equal(status.flightTimeLabel, '00:00:00', 'telemetry reset should clear flight time');
-    assert.equal(status.aircraftNameLabel, '--', 'telemetry reset should clear aircraft name');
+    assert.equal(status.aircraftNameLabel, 'Waiting for aircraft', 'an aircraft change should clear the old identity');
     assert.equal(status.aircraftProfileNameVisible, false, 'telemetry reset should hide the profile name label');
     assert.equal(status.profileBadgeLabel, '', 'telemetry reset should clear profile badge');
+  });
+
+  await test('status store distinguishes initial generic profiles and retains only display identity across disconnects', () => {
+    resetStoreTestContext();
+    const status = useStatusStore();
+    const startup = { type: 'aircraftProfile', profile: { id: 'generic', name: 'Generic', aircraftTitle: '' } };
+    status.ingestMessage(startup);
+    assert.equal(status.hasIdentifiedAircraft, false);
+    assert.equal(status.aircraftNameLabel, 'Waiting for aircraft');
+    assert.equal(status.aircraftProfileNameVisible, false);
+    status.ingestMessage({ type: 'simState', simconnectConnected: true, inMenu: true });
+    assert.equal(status.hasIdentifiedAircraft, false, 'a simulator connection is not an aircraft identity');
+    status.ingestMessage({ type: 'aircraftProfile', profile: { id: 'generic', name: 'Generic', aircraftTitle: 'Cessna 172 Skyhawk' } });
+    assert.equal(status.hasIdentifiedAircraft, true);
+    assert.equal(status.aircraftNameLabel, 'Cessna 172 Skyhawk');
+    assert.equal(status.aircraftProfileNameLabel, 'Standard controls');
+    for (const reason of ['simconnectDisconnected', 'wsDisconnected']) {
+      status.resetTelemetry(reason);
+      assert.equal(status.aircraftNameLabel, 'Cessna 172 Skyhawk');
+      assert.equal(status.aircraftProfile.profileId, '', 'retained display name must not retain the active profile');
+      assert.equal(status.simConnected, false);
+      status.ingestMessage(startup);
+      assert.equal(status.aircraftNameLabel, 'Cessna 172 Skyhawk', 'an empty startup profile during reconnect must not replace the display identity');
+    }
+    status.resetTelemetry('aircraftChanged');
+    assert.equal(status.hasIdentifiedAircraft, false);
+    status.ingestMessage({ type: 'aircraftProfile', profile: { id: 'pmdg-737', name: 'PMDG 737-800', aircraftTitle: 'PMDG 737-800' } });
+    assert.equal(status.aircraftNameLabel, 'PMDG 737-800');
+    status.resetTelemetry('wsDisconnected');
+    assert.equal(status.aircraftNameLabel, 'PMDG 737-800');
+    assert.equal(status.aircraftProfileNameVisible, false, 'disconnect clears active matching/provenance details');
   });
 
   await test('status store exposes footer connection info', () => {
@@ -2704,6 +2743,33 @@ async function main() {
     assert.equal(voice.pushToTalkRetryVisible, false);
   });
 
+  await test('voice navigation respects guards and abandons an opening after another page wins', async () => {
+    resetStoreTestContext();
+    const tabs = useTabsStore();
+    const voice = useVoiceControlStore();
+    const calls = [];
+    voice.bindRuntime({ begin: () => calls.push('capture'), setRecognitionEnabled: () => calls.push('enable') });
+    tabs.setActiveTab('flight');
+    tabs.toggleMoreSheet();
+    const release = tabs.registerBeforeChangeGuard(() => false);
+    assert.equal(await voice.openPanel(tabs), false);
+    assert.equal(tabs.activeTabId, 'flight');
+    assert.equal(tabs.moreSheetOpen, true);
+    assert.equal(voice.panelOpen, false);
+    release();
+    assert.equal(await voice.openPanel(tabs), true);
+    assert.equal(tabs.activeTabId, 'autopilot');
+    assert.equal(tabs.moreSheetOpen, false);
+    assert.equal(voice.panelOpen, true);
+    voice.panelOpen = false;
+    tabs.setActiveTab('flight');
+    const opening = voice.openPanel(tabs);
+    tabs.requestTabChange('timeline');
+    assert.equal(await opening, false);
+    assert.equal(voice.panelOpen, false, 'retired navigation cannot open a dialog over another page');
+    assert.deepEqual(calls, [], 'navigation never enables recognition or captures audio');
+  });
+
   await test('voice setup reminder follows desktop registration, not simulator or microphone selection', () => {
     resetStoreTestContext();
     const voice = useVoiceControlStore();
@@ -2711,29 +2777,34 @@ async function main() {
     assert.equal(voice.setupTask, null, 'wait for initialization before suggesting setup');
     voice.setState('disabled');
     assert.equal(voice.setupTask.action, 'Set up voice control', 'first-time desktop users can discover voice before opting in');
+    assert.equal(voice.settingsAction, 'Set up voice control');
     voice.panelOpen = true;
     assert.ok(voice.setupTask, 'merely opening settings does not complete setup');
     voice.applyRuntimeInfo({ available: true, enabled: true });
     voice.setState('ready');
     assert.equal(voice.ready, true, 'on-screen PTT remains available without a global binding');
-    assert.equal(voice.setupTask.action, 'Set up voice control');
+    assert.equal(voice.setupTask.action, 'Set up push-to-talk');
+    assert.equal(voice.settingsAction, 'Voice settings', 'on-screen users have already enabled voice');
     assert.equal(voice.setupReminder.optional, true);
     voice.dismissSetup();
     assert.equal(voice.setupReminder, null, 'on-screen-only users can dismiss optional setup without disabling voice');
     assert.equal(voice.ready, true);
     voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { accelerator: 'Control+Shift+Space', registered: false, error: 'Already in use' } });
     assert.equal(voice.setupTask.action, 'Check voice setup', 'a saved but unregistered shortcut is incomplete');
+    assert.equal(voice.settingsAction, 'Check voice setup');
     assert.ok(voice.setupReminder, 'registration failures remain visible after optional setup dismissal');
     voice.dismissSetup();
     assert.ok(voice.setupReminder, 'a broken configured shortcut cannot be dismissed as optional setup');
     voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { accelerator: 'Control+Shift+Space', registered: true } });
     assert.equal(voice.setupTask, null, 'runtime registration clears the reminder');
+    assert.equal(voice.settingsAction, 'Voice settings');
     assert.equal(voice.selectedInputDeviceId, '', 'Windows default microphone needs no explicit device selection');
     voice.setState('blocked', 'Simulator telemetry link unavailable.');
     assert.equal(voice.setupTask, null, 'MSFS disconnection is not a setup failure');
     voice.applyRuntimeInfo({ enabled: false, pushToTalk: { accelerator: 'Control+Shift+Space' } });
     voice.setState('disabled');
     assert.equal(voice.setupTask, null, 'deliberately disabling configured voice does not nag');
+    assert.equal(voice.settingsAction, 'Voice settings', 'turning configured voice off does not imply first-time setup');
     voice.applyRuntimeInfo({ available: false, enabled: true, error: 'Model missing' });
     voice.setState('unavailable');
     assert.equal(voice.setupTask.action, 'Check voice setup', 'local runtime failures remain actionable');

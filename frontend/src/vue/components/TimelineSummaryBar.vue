@@ -6,11 +6,11 @@ const timeline = useTimelineStore();
 
 <template>
   <div
-    v-if="timeline.summaryVisible"
+    v-if="!timeline.timelineLoading && (timeline.summaryVisible || timeline.loadedTimelineFilePath || timeline.loadedTimelineFlightId)"
     class="timeline-summary-container min-w-0 border-b border-surface-200 bg-surface-50"
   >
     <div class="timeline-summary-layout min-w-0">
-      <div class="min-w-0 px-3 py-3 sm:px-4">
+      <div v-if="timeline.summaryVisible" class="min-w-0 px-3 py-3 sm:px-4">
         <dl class="timeline-summary-stats grid min-w-0 gap-2" :class="{ 'has-fuel-burn': timeline.fuelBurnText && timeline.fuelBurnText !== '--' }">
           <div class="min-w-0 rounded-md border border-surface-200/70 bg-surface-100/50 px-2.5 py-2">
             <dt class="text-[11px] uppercase tracking-wider text-gray-500">Events</dt>
@@ -42,27 +42,29 @@ const timeline = useTimelineStore();
         </dl>
       </div>
 
-      <button
+      <details
         v-if="timeline.loadedTimelineFilePath || timeline.loadedTimelineFlightId"
-        id="timeline-open-analysis-rescore-btn"
-        type="button"
-        class="timeline-summary-action flex flex-wrap items-center justify-center gap-2 border-l border-surface-200/70 px-4 py-3 text-xs font-semibold text-gray-300 transition-colors hover:bg-surface-200/40 hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-        aria-haspopup="dialog"
-        :aria-expanded="timeline.analysisRescoreModalOpen ? 'true' : 'false'"
-        @click="timeline.openAnalysisRescoreModal()"
+        :key="timeline.loadedTimelineFilePath || timeline.loadedTimelineFlightId"
+        class="timeline-flight-details"
       >
-        <span>Compare scoring rules…</span>
-        <span
-          v-if="timeline.analysisRescore.applied"
-          id="timeline-analysis-rescore-applied-badge"
-          class="text-[10px] font-normal text-accent"
-          aria-label="Current scoring is saved"
-          title="Current scoring is saved"
-        >Saved</span>
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 5 7 7-7 7" />
-        </svg>
-      </button>
+        <summary>
+          Flight details
+          <span
+            v-if="timeline.analysisRescore.applied"
+            id="timeline-analysis-rescore-applied-badge"
+            class="text-xs font-normal text-accent"
+            aria-label="Current scoring is saved"
+            title="Current scoring is saved"
+          >Scoring saved</span>
+        </summary>
+        <div class="timeline-flight-details-content">
+          <slot name="details" />
+          <button id="timeline-open-analysis-rescore-btn" type="button"
+            class="ff-button-secondary text-xs"
+            aria-haspopup="dialog" :aria-expanded="timeline.analysisRescoreModalOpen ? 'true' : 'false'"
+            @click="timeline.openAnalysisRescoreModal()">Compare scoring rules…</button>
+        </div>
+      </details>
     </div>
   </div>
 </template>
@@ -123,19 +125,22 @@ const timeline = useTimelineStore();
   }
 }
 
-.timeline-summary-action {
-  min-width: 9rem;
-}
+.timeline-flight-details { min-width: 0; font-size: .8125rem; border-left: 1px solid rgb(var(--border) / .6); }
+.timeline-flight-details > summary { min-height: 2.75rem; padding: .8rem 1rem; cursor: pointer; color: rgb(var(--foreground)); }
+.timeline-flight-details > summary:focus-visible { outline: 2px solid rgb(var(--primary)); outline-offset: -3px; }
+.timeline-flight-details > summary span { margin-left: .5rem; white-space: nowrap; }
+.timeline-flight-details[open] { grid-column: 1 / -1; border-left: 0; border-top: 1px solid rgb(var(--border) / .6); }
+.timeline-summary-layout:has(.timeline-flight-details[open]) { grid-template-columns: minmax(0, 1fr); }
+.timeline-flight-details-content { display: grid; justify-items: start; gap: 1rem; max-height: min(35vh, 18rem); overflow-y: auto; overscroll-behavior: contain; padding: .25rem 1rem 1rem; }
 
 @container (max-width: 40rem) {
   .timeline-summary-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .timeline-summary-action {
+  .timeline-flight-details {
     border-top-width: 1px;
     border-left-width: 0;
-    min-height: 2.75rem;
   }
 }
 

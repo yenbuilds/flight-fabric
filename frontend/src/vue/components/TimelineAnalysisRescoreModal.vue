@@ -104,7 +104,6 @@ function previewUnavailableReason(value) {
       <section class="timeline-analysis-modal-shell">
         <header class="timeline-analysis-modal-header">
           <div class="min-w-0">
-            <div class="timeline-analysis-modal-kicker">Timeline analysis</div>
             <div class="flex min-w-0 flex-wrap items-center gap-2">
               <h2 id="timeline-analysis-rescore-title" class="timeline-analysis-modal-title">Compare scoring rules</h2>
               <span

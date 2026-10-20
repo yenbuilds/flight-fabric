@@ -92,11 +92,11 @@ module.exports = async function checkAircraftSections({ win, evaluate, settled, 
     main.style.cssText = 'height:calc(100vh - 32px);overflow:auto;position:relative';
     const app = document.getElementById('app');
     app.before(main); main.append(app);
-    await layoutTest.remount();
+    await layoutTest.remountCockpit();
   `);
   try {
     for (const id of ['pmdg-737', 'pmdg-777', 'fenix-a320', 'fbw-a32nx', 'fbw-a380x']) {
-      await evaluate(`sessionStorage.clear(); await layoutTest.scenario(${JSON.stringify(id)});`);
+      await evaluate(`sessionStorage.clear(); await layoutTest.cockpitScenario(${JSON.stringify(id)});`);
       const expectedTemplate = id === 'fenix-a320' ? 'fenix-a32x' : id;
       const mountedTemplate = await settled(`return document.querySelector('[data-aircraft-template]')?.getAttribute('data-aircraft-template');`,
         value => value === expectedTemplate);
@@ -143,6 +143,7 @@ module.exports = async function checkAircraftSections({ win, evaluate, settled, 
           const expected = state.atEnd ? labels.at(-1) : labels[index];
           assert.equal(state.selected, expected, `${id}/${width}: ${labels[index]} tracks its scroll destination: ${JSON.stringify(state)}`);
           assert.equal(state.overflow, false, `${id}/${width}: section navigation fits`);
+          if (!state.atEnd) assert(state.targetTop >= state.navBottom - 1, `${id}/${width}: ${labels[index]} clears both view and section navigation: ${JSON.stringify(state)}`);
           if (labels[index] === 'Pushback & taxi') {
             fs.writeFileSync(path.join(output, `sections-${id}-${width}.png`), (await win.webContents.capturePage()).toPNG());
           }
@@ -180,7 +181,7 @@ module.exports = async function checkAircraftSections({ win, evaluate, settled, 
     await evaluate(`
       const main = document.getElementById('vue-main-root');
       main.before(document.getElementById('app')); main.remove();
-      sessionStorage.clear(); await layoutTest.scenario('pmdg-737'); await layoutTest.remount();
+      sessionStorage.clear(); await layoutTest.cockpitScenario('pmdg-737'); await layoutTest.remountCockpit();
       window.scrollTo({ top: 0, behavior: 'instant' });
     `);
   }

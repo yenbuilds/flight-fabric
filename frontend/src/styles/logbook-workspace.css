@@ -110,7 +110,9 @@
   border-radius: 0;
   background: transparent;
 }
-.logbook-recorded-context { margin-bottom: 0.2rem; color: rgb(var(--muted-foreground)); font-size: 0.625rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.logbook-flight-identity { display: grid; min-width: 0; gap: .2rem; overflow-wrap: anywhere; }
+.logbook-flight-date { margin-top: .35rem; color: rgb(var(--muted-foreground)); font-size: .8125rem; }
+.logbook-flight-clocks { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; font-size: .75rem; }
 .logbook-page .logbook-back-button { min-height: 2.5rem; padding: 0.45rem 0.65rem; font-size: 0.75rem; white-space: nowrap; }
 .logbook-page .logbook-landing-shortcut { min-height: 2.75rem; gap: 0.5rem; padding: 0.6rem 0.85rem; font-size: 0.8125rem; font-weight: 600; white-space: nowrap; }
 .logbook-landing-shortcut svg { width: 1.25rem; height: 1.25rem; flex-shrink: 0; pointer-events: none; }
@@ -129,9 +131,8 @@
 .logbook-review-views button[aria-pressed='true'] { background: rgb(var(--selection) / 0.13); border-color: rgb(var(--selection) / 0.22); color: rgb(var(--selection)); }
 .logbook-page #vue-timeline-summary-root { flex: 0 0 auto; }
 .logbook-page .timeline-summary-stats > div { border: 0; padding: 0; background: none; }
-.logbook-page .timeline-summary-stats dt { font-size: 0.625rem; }
+.logbook-page .timeline-summary-stats dt { text-transform: none; letter-spacing: normal; font-size: .75rem; }
 .logbook-page .timeline-summary-layout > div { padding: 0.6rem 0.85rem; }
-.logbook-page .timeline-summary-action { min-width: 0; padding: 0.6rem 0.85rem; }
 
 .logbook-review-body { position: relative; display: grid; flex: 1 1 auto; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; }
 .logbook-review-body > #timeline-card,
@@ -204,7 +205,6 @@
   .logbook-page .timeline-mobile-viewer-header { flex-wrap: wrap; min-height: 0; padding: 0.65rem 0.85rem; }
   .logbook-page .timeline-mobile-viewer-header > div:first-child { flex: 1 1 18rem; }
   .logbook-page .timeline-mobile-viewer-header > div:last-child { margin-left: auto; }
-  .logbook-page #timeline-mobile-viewer-flight-times { gap: 0.15rem 0.5rem; }
   /* A bottom sheet: the map (or list) stays visible above it, the sheet
      itself stays opaque so its text remains readable. */
   .logbook-page .timeline-detail-backdrop { position: fixed; place-items: end center; padding: max(0.75rem, env(safe-area-inset-top)) 0 max(0, env(safe-area-inset-bottom)); z-index: 230; background: rgba(0, 0, 0, 0.28); }

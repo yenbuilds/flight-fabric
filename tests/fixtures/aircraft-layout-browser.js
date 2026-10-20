@@ -4,9 +4,11 @@ import '../../shared/app-settings-shared.js';
 import AircraftTabShell from '../../frontend/src/vue/components/AircraftTabShell.vue';
 import { useAircraftControlsStore } from '../../frontend/src/vue/stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../../frontend/src/vue/stores/aircraft-specific.js';
+import { useStatusStore } from '../../frontend/src/vue/stores/status.js';
 import { useTabsStore } from '../../frontend/src/vue/stores/tabs.js';
 import { useSimbriefStore } from '../../frontend/src/vue/stores/simbrief.js';
 import '../../frontend/index.css';
+import '../../frontend/src/styles/app-workbench.css';
 import { setAppService } from '../../frontend/app-shared.js';
 import { emitWsMessage, emitWsClose, emitWsOpen } from '../../frontend/src/app/runtime-signals.js';
 
@@ -208,6 +210,8 @@ window.layoutTest = {
   taxiReconnect: emitWsOpen,
   async remount() {
     mountedApp.unmount();
+    numericPanelMounted = false;
+    publish();
     mountedApp = createApp(AircraftTabShell).use(pinia);
     mountedApp.mount('#app');
     await nextTick();
@@ -220,11 +224,24 @@ window.layoutTest = {
   // A fresh sample, as parsed WebSocket JSON would be; the panel's next status poll carries it.
   moveAircraft(pose) { taxiState = { ...taxiState, aircraft: { ...taxiState.aircraft, ...pose } }; },
   controls, specific, sent,
+  async cockpitScenario(id) {
+    await this.scenario(id);
+    document.querySelector('[data-aircraft-view="controls"]').click();
+    await nextTick();
+  },
+  async remountCockpit() {
+    await this.remount();
+    document.querySelector('[data-aircraft-view="controls"]').click();
+    await nextTick();
+  },
   setAircraftValues(values) { Object.assign(active.values, values); publish(); },
   async scenario(id) {
     cduError = null;
     sourceStatus = 'connected';
     active = fixtures[id];
+    useStatusStore().resetTelemetry('aircraftChanged');
+    useStatusStore().updateAircraftProfile({ profile: active.profile });
+    useStatusStore().ingestMessage({ type: 'simState', simconnectConnected: true, inMenu: false });
     taxiState = { status: 'idle', active: false, canGuide: true, canStart: !fixtures.__autotaxiFixture,
       reason: fixtures.__autotaxiFixture ? 'Live acceptance is pending for this aircraft.' : 'Ready to taxi.' };
     controls.applyControlCapabilities(active.capabilities);

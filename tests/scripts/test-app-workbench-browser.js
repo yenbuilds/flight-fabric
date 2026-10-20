@@ -28,7 +28,10 @@ async function browser() {
     webPreferences: { contextIsolation: true, sandbox: false, nodeIntegration: false, backgroundThrottling: false } });
   const errors = [], checks = [];
   win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message); });
-  const evaluate = body => win.webContents.executeJavaScript(`(async () => { ${body} })()`);
+  const evaluate = async body => {
+    try { return await win.webContents.executeJavaScript(`(async () => { ${body} })()`); }
+    catch (error) { throw new Error(`${error.message}\nBrowser check: ${body}`, { cause: error }); }
+  };
   async function capture(name) {
     await win.webContents.capturePage(); await wait(70);
     fs.writeFileSync(path.join(OUTPUT, `${name}.png`), (await win.webContents.capturePage()).toPNG());
@@ -319,8 +322,8 @@ async function browser() {
       await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false });
     }
   }
-  const checkSettingsNavigation = () => require('./settings-navigation-checks')({ win, evaluate, capture, wait });
   try {
+    const checkSettingsNavigation = () => require('./settings-navigation-checks')({ win, evaluate, capture, wait, pointerActivate });
     await win.loadURL(process.env.FF_WORKBENCH_TEST_URL);
     win.webContents.debugger.attach('1.3');
     for (let n = 0; n < 180; n++) { if (await evaluate('return Boolean(window.workbenchTest);')) break; await wait(50); }
@@ -328,7 +331,11 @@ async function browser() {
     if (process.env.FF_ONBOARDING_ONLY === '1') {
       await require('./onboarding-browser-checks')({ win, evaluate, capture, wait, fixtureUrl: process.env.FF_WORKBENCH_TEST_URL });
       assert.deepEqual(errors, [], 'onboarding has no renderer errors');
-      console.log('Onboarding passed: desktop, phone, narrow phone and short landscape; mandatory step review and keyboard modal, saved/default preferences, failed writes, retries, reconnects, explicit toolbar installation or deferral, completed/unfinished relaunch and remote access boundaries.');
+      console.log(process.env.FF_ONBOARDING_NAVIGATION_ONLY === '1'
+        ? 'Setup navigation passed: permanent expanded/collapsed sidebar and narrow More entries, keyboard/pointer activation, search, saved choices, cancellation, focus return, retained page, draft guards and remote permissions.'
+        : process.env.FF_ONBOARDING_LAYOUT_ONLY === '1'
+        ? 'Onboarding layout passed: all three steps without scrolling at 1440x900, 1180x760, 1180x680, 900x600 and 760x520; expanded toolbar choices, both MSFS installations at laptop sizes, and reachable 390/320px phone layouts.'
+        : 'Onboarding passed: three-step desktop flow without scrolling, phone, narrow phone and short landscape; keyboard modal, saved/default preferences, failed writes, retries, reconnects, explicit toolbar installation or deferral, completed/unfinished relaunch and remote access boundaries.');
       app.exit(0);
       return;
     }
@@ -380,19 +387,26 @@ async function browser() {
     // popover. Native key events catch focus paths synthetic clicks cannot.
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
     const key = async keyCode => {
-      const keys = { Return: ['Enter', 13], Tab: ['Tab', 9], Escape: ['Escape', 27] };
+      const keys = { Return: ['Enter', 13], Tab: ['Tab', 9], Escape: ['Escape', 27], Space: [' ', 32], End: ['End', 35] };
       const [name, windowsVirtualKeyCode] = keys[keyCode];
       for (const type of ['keyDown', 'keyUp']) await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type, key: name, code: name, windowsVirtualKeyCode, ...(type==='keyDown' && name==='Enter' ? {text:'\r',unmodifiedText:'\r'} : {}) });
       await wait(70);
     };
     async function pointerActivate(selector, touch) {
-      const point = await evaluate(`const el=document.querySelector(${JSON.stringify(selector)}), r=el.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2};`);
+      const point = await evaluate(`const el=document.querySelector(${JSON.stringify(selector)}); let r=el.getBoundingClientRect();
+        if(!el.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))) { el.scrollIntoView({block:'center',behavior:'instant'}); r=el.getBoundingClientRect(); }
+        return {x:r.left+r.width/2,y:r.top+r.height/2};`);
       const hit = await evaluate(`const el=document.querySelector(${JSON.stringify(selector)}), target=document.elementFromPoint(${point.x},${point.y}); return {matches:el.contains(target), target:target?.outerHTML.slice(0,300)};`);
       assert(hit.matches, `${selector}: native pointer targets the rendered control at ${JSON.stringify(point)}: ${JSON.stringify(hit)}`);
       if (touch) {
-        for (const type of ['touchStart', 'touchEnd']) await Promise.race([
-          win.webContents.debugger.sendCommand('Input.dispatchTouchEvent', { type, touchPoints:type==='touchStart' ? [point] : [] }),
-          wait(3000).then(() => { throw new Error(`Timed out sending ${type} to ${selector}`); }),
+        // The hidden Electron window needs a compositor frame to acknowledge a
+        // touch that changes the independently scrolling view's contents.
+        for (const type of ['touchStart', 'touchEnd']) await Promise.all([
+          Promise.race([
+            win.webContents.debugger.sendCommand('Input.dispatchTouchEvent', { type, touchPoints:type==='touchStart' ? [point] : [] }),
+            wait(3000).then(() => { throw new Error(`Timed out sending ${type} to ${selector}`); }),
+          ]),
+          win.webContents.capturePage(),
         ]);
       } else {
         const location = { x:Math.round(point.x), y:Math.round(point.y), button:'left', clickCount:1 };
@@ -400,6 +414,377 @@ async function browser() {
         win.webContents.sendInputEvent({ type:'mouseUp', ...location });
       }
       await wait(70);
+    }
+    if (process.env.FF_AIRCRAFT_WORKSPACE_ONLY === '1') {
+      for (const width of [1440,390,320]) {
+        win.setContentSize(width,900);
+        await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled',{enabled:width<760,maxTouchPoints:5});
+        await win.loadURL(process.env.FF_WORKBENCH_TEST_URL);
+        for(let n=0;n<180&&!await evaluate('return !!window.workbenchTest;');n++)await wait(50);
+        await evaluate("workbenchTest.whatsNew.dismiss();await workbenchTest.open('autopilot');");
+        assert(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace==='presets' && !document.getElementById('aircraft-cockpit-view').getClientRects().length && document.getElementById('aircraft-presets-view').getClientRects().length;"),'the app opens Aircraft on presets at '+width);
+        assert(await evaluate("return document.querySelectorAll('[data-aircraft-presets-section]').length===1 && document.documentElement.scrollWidth<=innerWidth;"),'one preset section fits the real shell');
+        await capture(`aircraft-presets-workspace-${width}`);
+        await pointerActivate('[data-aircraft-view="controls"]',width<760);
+        await evaluate("window.cockpitDraft=document.querySelector('input[aria-label=\"Set HEADING\"]');cockpitDraft.value='275';cockpitDraft.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();");
+        await pointerActivate('[data-aircraft-view="presets"]',width<760);
+        await pointerActivate('[data-aircraft-view="controls"]',width<760);
+        assert(await evaluate("return cockpitDraft===document.querySelector('input[aria-label=\"Set HEADING\"]') && cockpitDraft.value==='275';"),'switching views preserves the entered target');
+        await evaluate("await workbenchTest.open('flight');await workbenchTest.open('autopilot');");
+        assert.equal(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace;"),'controls','returning to the page keeps the deliberate view choice');
+        await capture(`aircraft-cockpit-workspace-${width}`);
+        await pointerActivate('[data-aircraft-view="presets"]',width<760);
+        await pointerActivate('[aria-label="Find controls"]',width<760);
+        await evaluate("const input=document.getElementById('aircraft-find-input');input.value='altitude';input.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();");
+        assert(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace==='controls' && document.querySelector('[data-aircraft-find-current]').getClientRects().length;"),'search reveals a usable cockpit result');
+        assert.equal(await evaluate("return workbenchTest.sent.filter(message=>message.type==='aircraftControlCommand').length;"),0,'navigation sends no aircraft commands');
+      }
+      assert.deepEqual(errors,[],'Aircraft workspace has no browser errors');
+      console.log('Aircraft workspace passed: preset-first desktop/390px/320px within the real shell, one preset section, draft retention, page-return memory and cross-view search.');
+      app.exit(0);return;
+    }
+    async function checkPhoneSetup() {
+      for (const width of [1440, 900, 320]) {
+        win.setContentSize(width, 900);
+        await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: width < 760, maxTouchPoints: 5 });
+        const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+        fixtureUrl.search = '?desktop=1&phoneSetup=1';
+        await win.loadURL(fixtureUrl.href);
+        for (let n=0;n<180 && !await evaluate('return !!window.workbenchTest;');n++) await wait(50);
+        await evaluate("await workbenchTest.open('flight');");
+        if (width === 900) await evaluate('workbenchTest.shell.sidebarCollapsed=true;');
+        const entry = width < 760 ? '[data-phone-setup-navigation]' : '[data-phone-setup-sidebar]';
+        const originTab = await evaluate('return workbenchTest.tabs.activeTabId;');
+        if (width < 760) await pointerActivate('#mobile-more-btn', true);
+        if (width === 900) assert(await evaluate("return getComputedStyle(document.querySelector('#header-mobile-access-btn span')).display!=='none';"), 'compact desktop keeps the phone action labelled');
+        if (width >= 760) {
+          assert(await evaluate("return document.querySelector('.sidebar-nav-utilities [data-phone-setup-sidebar]')?.getAttribute('aria-label')==='Connect a phone or tablet';"), 'Manage keeps an accessible phone shortcut in expanded and collapsed navigation');
+          await capture(`phone-linking-sidebar-${width}`);
+        }
+        await evaluate('window.releasePhoneGuard=workbenchTest.tabs.registerBeforeChangeGuard(()=>false);');
+        await pointerActivate(entry, width < 760);
+        assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), originTab, 'phone setup respects navigation guards');
+        await evaluate('releasePhoneGuard();');
+        await pointerActivate(entry, width < 760);
+        assert(await evaluate("return workbenchTest.tabs.activeTabId==='settings' && document.activeElement.id==='settings-phone-tablet-access' && !workbenchTest.tabs.moreSheetOpen;"), 'all entries open and focus one setup section');
+        if (width === 1440) {
+          await evaluate("await workbenchTest.open('flight'); document.querySelector('[data-phone-setup-sidebar]').focus();");
+          await key('Return');
+          assert.equal(await evaluate('return document.activeElement.id;'), 'settings-phone-tablet-access', 'keyboard activation focuses the pairing section');
+          await evaluate("await workbenchTest.open('flight');");
+          await pointerActivate('#header-mobile-access-btn', false);
+          assert.equal(await evaluate('return document.activeElement.id;'), 'settings-phone-tablet-access', 'header retains the same pairing destination');
+        }
+        assert.equal(await evaluate("return !!document.getElementById('phone-setup-qr');"), false, 'access off shows no QR');
+        await capture(`phone-linking-off-${width}`);
+        await pointerActivate('#setting-remote-access', width < 760);
+        await pointerActivate('[data-phone-restart]', width < 760);
+        assert(await evaluate('return workbenchTest.setupFixture.requests.length===1 && workbenchTest.setupFixture.restarts===0;'), 'restart waits for save confirmation');
+        await evaluate('await workbenchTest.completeSetupSave(false);');
+        assert(await evaluate("return document.querySelector('.phone-setup [role=alert]')?.textContent.includes('Disk is full') && workbenchTest.setupFixture.restarts===0;"), 'failed save leaves useful feedback and never restarts');
+        await pointerActivate('[data-phone-restart]', width < 760);
+        await evaluate('await workbenchTest.completeSetupSave(true);');
+        await wait(100);
+        assert.equal(await evaluate('return workbenchTest.setupFixture.restarts;'), 1, 'confirmed save uses the existing restart owner once');
+        assert.equal(await evaluate("return !!document.getElementById('phone-setup-qr');"), false, 'saved access still waits for running service confirmation');
+        await evaluate('workbenchTest.phoneFixture.active=true; await workbenchTest.systemHost.refresh(); await workbenchTest.nextTick();');
+        assert(await evaluate("return !!document.querySelector('#phone-setup-qr svg');"), 'active access reveals a QR in the same place');
+        if (width >= 760) {
+          await evaluate("await workbenchTest.open('flight');");
+          assert(await evaluate("return !!document.querySelector('[data-phone-setup-sidebar]')?.getClientRects().length;"), 'phone shortcut remains available after access is enabled');
+          await pointerActivate(entry, false);
+          assert.equal(await evaluate('return document.activeElement.id;'), 'settings-phone-tablet-access', 'permanent link returns directly to the QR section');
+        }
+        assert(await evaluate("return document.querySelector('#phone-setup-qr').getBoundingClientRect().width>=190;"), 'QR is readable at every tested width');
+        assert.equal(await evaluate('return document.documentElement.scrollWidth>innerWidth;'), false, `${width}px: no horizontal overflow`);
+        assert.equal(await evaluate("return document.querySelector('.phone-setup').innerText.includes('fixture-private-phone-token');"), false, 'QR credential is never printed');
+        await evaluate("document.getElementById('settings-phone-tablet-access').scrollIntoView({block:'start',behavior:'instant'});");
+        await capture(`phone-linking-ready-${width}`);
+        await pointerActivate('[data-phone-address-toggle]', width < 760);
+        assert.equal(await evaluate("return document.getElementById('phone-setup-address').textContent;"), 'http://192.168.1.42:8100/phone');
+        await evaluate("window.phoneCopied=''; Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{phoneCopied=value;}}});");
+        await pointerActivate('[data-phone-copy]', width < 760);
+        assert.equal(await evaluate('return phoneCopied;'), 'http://192.168.1.42:8100/phone', 'copy shares only the token-free address');
+        await evaluate(`workbenchTest.phoneFixture.requests=[{id:'native-phone',confirmationCode:'654321',expiresAt:Date.now()+120000}];
+          workbenchTest.emitWsMessage({type:'devicePairingRequests',enabled:true,requests:workbenchTest.phoneFixture.requests}); await workbenchTest.nextTick();`);
+        await capture(`phone-linking-code-${width}`);
+        await pointerActivate('[data-phone-approve]', width < 760);
+        assert.deepEqual(await evaluate('return workbenchTest.phoneFixture.approvals.map(({requestId,confirmationCode})=>({requestId,confirmationCode}));'),
+          [{requestId:'native-phone',confirmationCode:'654321'}], 'explicit approval sends only the matching request and code');
+        assert(await evaluate("return document.querySelector('#phone-pairing-requests [role=status]').textContent.includes('Controls approved');"), 'approval confirms the next destination');
+        assert.equal(await evaluate('return document.activeElement.id;'), 'settings-phone-tablet-access', 'removed approval button restores focus to setup');
+        if (width === 1440) {
+          await evaluate(`workbenchTest.phoneFixture.requests=[{id:'retired-phone',confirmationCode:'112233',expiresAt:Date.now()+120000}];
+            workbenchTest.phoneFixture.holdApproval=true;
+            workbenchTest.emitWsMessage({type:'devicePairingRequests',enabled:true,requests:workbenchTest.phoneFixture.requests}); await workbenchTest.nextTick();`);
+          await pointerActivate('[data-phone-approve]', false);
+          await evaluate("workbenchTest.emitWsMessage({type:'devicePairingApprovalResult',requestId:'another-phone',ok:true});");
+          assert(await evaluate("return document.querySelector('[data-phone-approve]').disabled;"), 'another request cannot settle this approval');
+          await wait(10100);
+          assert(await evaluate("return !document.querySelector('[data-phone-approve]').disabled && document.querySelector('#phone-pairing-requests [role=status]').textContent.includes('not confirmed');"), 'missing approval reply settles with retry feedback');
+          await pointerActivate('[data-phone-approve]', false);
+          await evaluate("window.retiredApprove=document.querySelector('[data-phone-approve]'); await workbenchTest.authorize('read-only'); retiredApprove.click();");
+          assert.equal(await evaluate('return workbenchTest.phoneFixture.approvals.length;'), 3, 'revocation blocks a retained approval callback');
+          await evaluate("workbenchTest.emitWsMessage({type:'devicePairingApprovalResult',requestId:'retired-phone',ok:true}); workbenchTest.phoneFixture.requests=[]; await workbenchTest.authorize('full-control');");
+          assert.equal(await evaluate("return !!document.getElementById('phone-pairing-requests');"), false, 'late replies cannot restore retired approvals');
+          await evaluate("await workbenchTest.open('flight');");
+          const before = await evaluate("return workbenchTest.sent.filter(message=>message.type==='requestDevicePairingRequests').length;");
+          await wait(2700);
+          assert.equal(await evaluate("return workbenchTest.sent.filter(message=>message.type==='requestDevicePairingRequests').length;"), before, 'leaving Settings releases pairing polling');
+        }
+      }
+      const remoteUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+      remoteUrl.search = '?scope=read-only';
+      await win.loadURL(remoteUrl.href);
+      for (let n=0;n<180 && !await evaluate('return !!window.workbenchTest;');n++) await wait(50);
+      assert.equal(await evaluate("return !!document.querySelector('[data-phone-setup-sidebar]');"), false, 'remote viewers do not offer PC pairing setup');
+      console.log('Phone setup passed: permanent expanded/collapsed sidebar link, guarded pointer/keyboard navigation, desktop/900px/320px layouts, failed-save retry, acknowledged restart, private QR, safe address, code approval, revocation, stale replies and polling cleanup.');
+    }
+    if (process.env.FF_PHONE_SETUP_ONLY === '1') {
+      await checkPhoneSetup();
+      assert.deepEqual(errors, [], 'phone setup has no browser errors');
+      app.exit(0);
+      return;
+    }
+    async function checkAircraftWaiting() {
+      for (const [width, desktop] of [[1440, true], [320, true], [390, false]]) {
+        const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+        fixtureUrl.search = desktop ? '?desktop=1' : '?scope=read-only';
+        if (!desktop) fixtureUrl.pathname='/remote';
+        win.setContentSize(width, 900);
+        await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: width < 760, maxTouchPoints: 5 });
+        await win.loadURL(fixtureUrl.href);
+        for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+        assert(await evaluate('return Boolean(window.workbenchTest);'), 'waiting fixture mounted');
+        await evaluate(`workbenchTest.stopTelemetry();
+          workbenchTest.status.resetTelemetry('aircraftChanged'); workbenchTest.status.simConnected=false;
+          workbenchTest.status.updateAircraftProfile({profile:{id:'generic',name:'Generic',aircraftTitle:''}});
+          workbenchTest.specific.prepareForAircraftChange(); workbenchTest.controls.prepareForAircraftChange();
+          workbenchTest.controls.setAvailability({enabled:false,reason:'Simulator disconnected.'});
+          window.waitingVoiceCalls=[]; workbenchTest.voice.setBridgeAvailable(${desktop});
+          workbenchTest.voice.setState('disabled');
+          workbenchTest.voice.bindRuntime({begin:()=>waitingVoiceCalls.push('capture'),setRecognitionEnabled:()=>waitingVoiceCalls.push('enable')});
+          await workbenchTest.open('autopilot');`);
+        await wait(100);
+        const initial = await evaluate(`return {text:document.getElementById('tab-autopilot').innerText,
+          mode:document.querySelector('[data-aircraft-page-mode]').dataset.aircraftPageMode,
+          name:document.getElementById('aircraft-name').textContent,
+          overflow:document.documentElement.scrollWidth>innerWidth,
+          setup:!!document.querySelector('[data-aircraft-voice-setup]')};`);
+        assert.equal(initial.mode, 'waiting');
+        assert.match(initial.text, /Waiting for your simulator/);
+        assert.doesNotMatch(initial.text, /Generic/);
+        assert.equal(initial.name.trim(), 'Waiting for aircraft');
+        assert.equal(initial.setup, desktop);
+        assert.equal(initial.overflow, false);
+        await capture(`aircraft-waiting-${width}-${desktop ? 'desktop' : 'remote'}`);
+        const sentBefore = await evaluate('return workbenchTest.sent.length;');
+        await evaluate("document.querySelector('.aircraft-welcome-catalogue summary').scrollIntoView({block:'center'});");
+        await pointerActivate('.aircraft-welcome-catalogue summary', width < 760);
+        assert.equal(await evaluate("return document.querySelectorAll('.aircraft-welcome-catalogue select, .aircraft-welcome-catalogue button').length;"), 0, 'browsing has no profile override action');
+        if (desktop) {
+          const names = await evaluate("return document.querySelector('.aircraft-welcome').innerText;");
+          for (const family of ['PMDG', 'Fenix', 'FlyByWire', 'A350']) assert(names.includes(family), `${family}: actual bundled profiles are discoverable`);
+          assert.doesNotMatch(names, /Generic|X-Plane|Aircraft Base|Regional Jet Base|General Aviation Base|Base Profile/);
+          const discovery = await evaluate(`return {
+            expected: workbenchTest.profiles.builtInProfiles.filter(profile => profile.simulator === 'msfs'
+              && !profile.abstract && !['generic','ga-base','regional-jet','turboprop-base','widebody-base'].includes(profile.id)).map(profile => profile.name).sort(),
+            actual: [...document.querySelectorAll('.aircraft-welcome-featured li, .aircraft-welcome-catalogue li')].map(item => item.textContent.trim()).sort(),
+            otherCount: document.querySelectorAll('.aircraft-welcome-catalogue li').length,
+            hasXplaneFixture: workbenchTest.profiles.builtInProfiles.some(profile => profile.simulator === 'xplane')
+          };`);
+          assert(discovery.hasXplaneFixture, 'real bundled catalogue includes X-Plane profiles for exclusion coverage');
+          assert.deepEqual(discovery.actual, discovery.expected, 'only individual MSFS aircraft appear, once each across both lists');
+          assert(discovery.otherCount < discovery.actual.length, 'featured aircraft are not repeated in the secondary list');
+          await evaluate("document.querySelector('.aircraft-welcome-catalogue ul').focus();");
+          await key('End');
+          // Native keyboard scrolling animates; wait for the destination, not a fixed frame.
+          let listScroll;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            listScroll = await evaluate(`const list=document.querySelector('.aircraft-welcome-catalogue ul');
+              return { top:list.scrollTop, height:list.clientHeight, total:list.scrollHeight };`);
+            if (Math.abs(listScroll.total-listScroll.top-listScroll.height) <= 1) break;
+            await wait(50);
+          }
+          assert(listScroll.top > 0 && listScroll.height < listScroll.total
+            && Math.abs(listScroll.total-listScroll.top-listScroll.height) <= 1,
+          `compact aircraft list can be scrolled to its end with the keyboard: ${JSON.stringify(listScroll)}`);
+          await evaluate("document.querySelector('.aircraft-welcome-catalogue ul').scrollTop=0;");
+          await capture(`aircraft-catalogue-${width}`);
+        } else assert.match(await evaluate("return document.querySelector('.aircraft-welcome-catalogue').innerText;"), /on your PC/);
+        assert.deepEqual(await evaluate(`return workbenchTest.sent.slice(${sentBefore}).filter(message=>!message.type.startsWith('request') && message.type!=='listProfiles');`), [], 'browsing sends no commands or settings');
+        if (desktop) {
+          assert.equal(await evaluate("return document.querySelector('[data-aircraft-voice-setup]').textContent.trim();"), 'Set up voice control', 'first-time voice keeps its setup action');
+          for (const [name, info, label] of [
+            ['on-screen', {enabled:true,available:true}, 'Voice settings'],
+            ['configured', {enabled:true,available:true,pushToTalk:{accelerator:'Control+Shift+F8',registered:true}}, 'Voice settings'],
+            ['needs-attention', {enabled:true,available:true,pushToTalk:{accelerator:'Control+Shift+F8',registered:false}}, 'Check voice setup'],
+          ]) {
+            await evaluate(`workbenchTest.voice.applyRuntimeInfo(${JSON.stringify(info)}); workbenchTest.voice.setState('ready'); await workbenchTest.nextTick();`);
+            assert.equal(await evaluate("return document.querySelector('[data-aircraft-voice-setup]').textContent.trim();"), label, 'waiting voice action follows ' + name + ' state');
+            if (name === 'configured') await capture(`aircraft-waiting-voice-configured-${width}`);
+          }
+          await evaluate("document.querySelector('[data-aircraft-voice-setup]').scrollIntoView({block:'center'});");
+          await pointerActivate('[data-aircraft-voice-setup]', width < 760);
+          assert(await evaluate("return workbenchTest.tabs.activeTabId==='settings' && document.activeElement.id==='settings-voice-control';"), 'waiting action focuses voice setup');
+          await evaluate("await workbenchTest.open('autopilot');");
+        }
+        await evaluate("workbenchTest.status.ingestMessage({type:'simState',simconnectConnected:true,inMenu:true}); await workbenchTest.nextTick();");
+        assert.match(await evaluate("return document.querySelector('.aircraft-welcome').innerText;"), /Load an aircraft to get started/);
+        // Detection can remove the focused discovery action. Its replacement must keep keyboard focus usable.
+        await evaluate(`document.querySelector('.aircraft-welcome-catalogue summary').focus();
+          workbenchTest.status.updateAircraftProfile({profile:{id:'generic',name:'Generic',aircraftTitle:'Cessna 172 Skyhawk'}});
+          workbenchTest.status.ingestMessage({type:'simState',simconnectConnected:true,inMenu:false}); await workbenchTest.nextTick();`);
+        assert(await evaluate("return document.querySelector('[data-aircraft-page-mode]').dataset.aircraftPageMode==='generic' && !!document.getElementById('controls-diagnostics');"), 'a loaded fallback aircraft gets standard controls');
+        assert.equal(await evaluate("return document.getElementById('aircraft-profile-name').textContent.trim();"), 'Standard controls');
+        assert(await evaluate("return document.activeElement===document.querySelector('.aircraft-tools-toggle');"), 'detection restores focus when the welcome action disappears');
+        await evaluate("workbenchTest.status.resetTelemetry('simconnectDisconnected'); workbenchTest.specific.clearSnapshot('disconnected'); await workbenchTest.nextTick();");
+        assert(await evaluate("return workbenchTest.status.aircraftNameLabel==='Cessna 172 Skyhawk' && !document.querySelector('.aircraft-welcome') && !workbenchTest.controls.availability.enabled;"), 'disconnect retains display identity and the disabled standard surface');
+        await evaluate(`workbenchTest.status.resetTelemetry('aircraftChanged'); workbenchTest.specific.prepareForAircraftChange(); await workbenchTest.nextTick();`);
+        assert(await evaluate("return !!document.querySelector('.aircraft-welcome');"), 'an actual aircraft change clears the old identity');
+        await evaluate(`workbenchTest.status.updateAircraftProfile({profile:{id:'pmdg-737',name:'PMDG 737-800',aircraftTitle:'PMDG 737-800'}});
+          workbenchTest.status.ingestMessage({type:'simState',simconnectConnected:true,inMenu:false});
+          workbenchTest.specific.applyProfile({_profileKey:'bundled/msfs/pmdg-737',profileRevision:2,aircraftSpecificTemplateId:'pmdg-737'}); await workbenchTest.nextTick();`);
+        await wait(150);
+        assert.match(await evaluate("return document.getElementById('tab-autopilot').innerText;"), /Waiting for aircraft data/);
+        for (const reason of ['simconnectDisconnected', 'wsDisconnected']) {
+          await evaluate(`workbenchTest.status.resetTelemetry('${reason}'); workbenchTest.specific.clearSnapshot('disconnected'); await workbenchTest.nextTick();`);
+          assert(await evaluate("return workbenchTest.status.aircraftNameLabel==='PMDG 737-800' && document.querySelector('[data-aircraft-page-mode]').dataset.aircraftPageMode==='specific' && !workbenchTest.controls.availability.enabled;"), 'recognized aircraft retains its template with controls unavailable');
+          assert.match(await evaluate("return document.getElementById('tab-autopilot').innerText;"), /Simulator disconnected/);
+        }
+        assert.deepEqual(await evaluate('return waitingVoiceCalls;'), [], 'discovery and setup do not start audio');
+      }
+      console.log('Aircraft waiting passed: startup, menus, real bundled catalogue, voice setup, standard fallback, detection focus, aircraft changes, and disconnects on desktop/phone/remote.');
+    }
+    if (process.env.FF_AIRCRAFT_WAITING_ONLY === '1') {
+      await checkAircraftWaiting();
+      assert.deepEqual(errors, [], 'aircraft waiting has no browser errors');
+      app.exit(0);
+      return;
+    }
+    async function checkVoiceNavigation() {
+      for (const [name, width, collapsed, desktopVoice, ready] of [
+        ['desktop', 1440, false, true, false], ['compact', 900, false, true, false],
+        ['collapsed', 900, true, true, true],
+        ['phone', 390, false, true, false], ['remote', 320, false, false, false],
+      ]) {
+        const touch = width <= 760;
+        const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+        if (desktopVoice) fixtureUrl.search = '?desktop=1';
+        else { fixtureUrl.pathname='/remote'; fixtureUrl.search='?scope=aircraft-control&pairing=accepted'; }
+        win.setContentSize(width, 900);
+        await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: touch, maxTouchPoints: touch ? 5 : 1 });
+        await win.loadURL(fixtureUrl.href);
+        for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+        if (name === 'desktop') {
+          await evaluate("localStorage.removeItem('ff_aircraft_orientation_closed_v1');");
+          await win.loadURL(fixtureUrl.href);
+          for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+          await evaluate("await workbenchTest.open('autopilot');");
+          assert(await evaluate("return !document.querySelector('[data-aircraft-orientation]').open;"), 'new visitors see controls before optional help');
+          await pointerActivate('[data-aircraft-orientation] summary', false);
+          assert(await evaluate("return localStorage.getItem('ff_aircraft_orientation_closed_v1')==='';"), 'opening help saves the preference');
+          await win.loadURL(fixtureUrl.href);
+          for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+          await evaluate("await workbenchTest.open('autopilot');");
+          assert(await evaluate("return document.querySelector('[data-aircraft-orientation]').open;"), 'explicitly opened help survives reload');
+          await pointerActivate('[data-aircraft-orientation] summary', false);
+        }
+        await evaluate(`const voice=workbenchTest.voice; window.voiceNavigationCalls=[];
+          voice.setBridgeAvailable(${desktopVoice}); voice.setupDismissed=false;
+          voice.applyRuntimeInfo({enabled:${ready},available:${ready},pushToTalk:{accelerator:${ready ? "'Control+F9'" : "''"},registered:${ready}}});
+          voice.setState('${ready ? 'ready' : 'disabled'}');
+          voice.bindRuntime({begin:()=>voiceNavigationCalls.push('capture'),setRecognitionEnabled:()=>voiceNavigationCalls.push('enable')});
+          workbenchTest.shell.sidebarCollapsed=${collapsed}; await workbenchTest.open('flight');`);
+        assert(await evaluate("return !document.querySelector('[data-voice-control-navigation]');"), 'main navigation does not open a voice dialog');
+        if (touch) await pointerActivate('#mobile-more-btn', true);
+        const reminder = `${touch ? '#mobile-more-sheet' : '.app-sidebar'} [data-voice-setup-trigger]`;
+        assert.equal(await evaluate(`return !!document.querySelector('${reminder}')?.getClientRects().length;`), desktopVoice && !ready, 'setup reminder follows need and local microphone availability');
+        await capture(`voice-navigation-${name}`);
+        if (desktopVoice && !ready) {
+          await evaluate('window.releaseVoiceNavigationGuard=workbenchTest.tabs.registerBeforeChangeGuard(()=>false);');
+          await pointerActivate(reminder, touch);
+          assert(await evaluate("return workbenchTest.tabs.activeTabId==='flight' && !workbenchTest.voice.panelOpen;"), 'setup respects unsaved edits');
+          if (touch) assert(await evaluate('return workbenchTest.tabs.moreSheetOpen;'), 'blocked setup keeps More open');
+          await evaluate('releaseVoiceNavigationGuard();');
+          await pointerActivate(reminder, touch);
+          assert(await evaluate("return workbenchTest.tabs.activeTabId==='settings' && !workbenchTest.voice.panelOpen && !workbenchTest.tabs.moreSheetOpen && document.activeElement.id==='settings-voice-control';"), 'setup opens the existing Settings page directly');
+          await capture(`voice-navigation-${name}-setup`);
+          await evaluate('workbenchTest.voice.dismissSetup(); await workbenchTest.nextTick();');
+          assert(await evaluate("return !document.querySelector('[data-voice-setup-trigger]');"), 'optional reminder can be dismissed');
+        } else if (touch) await key('Escape');
+        await pointerActivate(`${touch ? '.mobile-tab-bar' : '.app-sidebar'} [data-tab="autopilot"]`, touch);
+        assert(await evaluate("return workbenchTest.tabs.activeTabId==='autopilot' && !workbenchTest.voice.panelOpen;"), 'Aircraft navigation opens a page');
+        const command = '[data-aircraft-voice-control-trigger]';
+        assert(await evaluate(`return document.querySelector('${command}').checkVisibility() && !document.querySelector('#aircraft-secondary-tools-panel').contains(document.querySelector('${command}'));`), 'voice commands are directly available with Tools closed');
+        await capture(`voice-navigation-${name}-actions`);
+        if (touch) await pointerActivate(command, true);
+        else { await evaluate(`document.querySelector('${command}').focus();`); await key('Return'); }
+        assert(await evaluate("return workbenchTest.voice.panelOpen && document.getElementById('aircraft-voice-control-modal').contains(document.activeElement);"), 'explicit tool opens and focuses the voice dialog');
+        assert.equal(await evaluate("return !!document.querySelector('[data-voice-settings-link]');"), desktopVoice);
+        assert.equal(await evaluate("return !!document.querySelector('[data-voice-push-to-talk]');"), desktopVoice, 'remote reference has no microphone control');
+        await capture(`voice-navigation-${name}-opened`);
+        await key('Escape');
+        assert(await evaluate("return !workbenchTest.voice.panelOpen && document.activeElement.matches('[data-aircraft-voice-control-trigger]');"), 'dialog closes back to the visible Voice commands button');
+        await evaluate("document.querySelector('[data-aircraft-orientation]').open=true; await workbenchTest.nextTick();");
+        await pointerActivate('.aircraft-orientation-actions button:nth-last-child(2)', touch);
+        assert.equal(await evaluate('return document.activeElement.id;'), 'aircraft-find-input');
+        await key('Escape');
+        if (await evaluate("return !!document.getElementById('aircraft-page-presets');")) {
+          await pointerActivate('.aircraft-orientation-actions button:first-child', touch);
+          assert.equal(await evaluate('return document.activeElement.id;'), 'aircraft-page-presets');
+        }
+        if (desktopVoice) {
+          await pointerActivate('.aircraft-orientation-actions button:last-child', touch);
+          assert(await evaluate("return workbenchTest.tabs.activeTabId==='settings' && !workbenchTest.voice.panelOpen && document.activeElement.id==='settings-voice-control';"), 'orientation also opens setup directly');
+          await pointerActivate('[data-voice-back-to-aircraft]', touch);
+          assert(await evaluate("return document.activeElement.matches('[data-aircraft-voice-control-trigger]');"), 'Back to Aircraft restores the visible Voice commands button');
+        }
+        await evaluate("workbenchTest.voice.setState('sent'); await workbenchTest.nextTick();");
+        assert(await evaluate("return !document.querySelector('[data-aircraft-orientation]').open && localStorage.getItem('ff_aircraft_orientation_closed_v1')==='1';"), 'successful voice use collapses orientation');
+        if (name === 'desktop') {
+          for (const query of ['voice control', 'voice commands']) {
+            await pointerActivate('.sidebar-search', false);
+            await evaluate(`const field=document.getElementById('app-navigator-query');field.value='${query}';field.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();`);
+            await key('Return');
+            if (query === 'voice control') assert(await evaluate("return workbenchTest.tabs.activeTabId==='settings' && !workbenchTest.voice.panelOpen;"), 'voice control search opens Settings');
+            else {
+              assert(await evaluate("return workbenchTest.voice.panelOpen && !workbenchTest.shell.navigatorOpen;"), 'voice commands search opens the named tool');
+              await key('Escape');
+            }
+          }
+        }
+        assert.deepEqual(await evaluate('return voiceNavigationCalls;'), [], 'navigation never enables or captures audio');
+        assert.equal(await evaluate('return document.documentElement.scrollWidth > innerWidth;'), false);
+      }
+      const pairingUrl = new URL('/remote?scope=read-only&tab=flight', process.env.FF_WORKBENCH_TEST_URL);
+      await win.loadURL(pairingUrl.href);
+      for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+      await evaluate(`window.approvePairing=false; const originalFetch=window.fetch;
+        window.fetch=async (url,options)=>{
+          if(String(url)==='/api/device-pairing/request') return new Response(JSON.stringify({requestId:'orientation-fixture',confirmationCode:'123456',expiresAt:Date.now()+120000}),{status:200});
+          if(String(url).startsWith('/api/device-pairing/status?')) return new Response(JSON.stringify({status:approvePairing?'approved':'pending',expiresAt:Date.now()+120000}),{status:200});
+          return originalFetch(url,options);
+        };`);
+      await pointerActivate('#device-pairing-request-btn', true);
+      assert.equal(await evaluate("return document.getElementById('device-pairing-code').textContent;"), '123456', 'viewer receives the PC matching code');
+      await capture('phone-control-approval-code');
+      const reloaded = new Promise(resolve => win.webContents.once('did-finish-load', resolve));
+      await evaluate('window.approvePairing=true;');
+      await Promise.race([reloaded, wait(10000).then(() => { throw new Error('Approved pairing did not navigate'); })]);
+      for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+      assert(await evaluate("return new URLSearchParams(location.search).get('tab')==='autopilot' && workbenchTest.tabs.activeTabId==='autopilot';"), 'approved pairing opens Controls');
+      assert.equal(await evaluate('return workbenchTest.profiles.authorizationScope;'), 'read-only', 'navigation does not grant authorization; the backend reply remains authoritative');
+      await evaluate("await workbenchTest.authorize('aircraft-control');");
+      assert(await evaluate("return document.querySelector('[data-second-screen-open-controls]').getClientRects().length>0;"), 'confirmed access exposes a direct Controls action on a phone');
+      await capture('phone-controls-ready');
+      console.log('Voice navigation passed: direct Settings setup, no modal in main navigation, Aircraft tools, focus, desktop/phone/remote access and matching-code pairing handoff.');
+    }
+    if (process.env.FF_VOICE_NAVIGATION_ONLY === '1') {
+      await checkVoiceNavigation();
+      assert.deepEqual(errors, [], 'voice navigation has no browser errors');
+      app.exit(0);
+      return;
     }
     async function checkReplayLayout(name, width) {
       await evaluate(`document.querySelectorAll('.logbook-review-views button')[1].click();
@@ -569,8 +954,8 @@ async function browser() {
       await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: touch, maxTouchPoints: touch ? 5 : 1 });
       await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
       await wait(150);
-      const nav = await evaluate("return {desktop:[...document.querySelectorAll('.desktop-tab')].map(el=>el.dataset.tab),mobile:[...document.querySelectorAll('.mobile-tab[data-tab]')].map(el=>el.dataset.tab),retired:Boolean(document.querySelector('[data-workspace-option], #workspace-welcome, #workspace-suggestion')),legacy:localStorage.getItem('ff_workspace_v1')};");
-      assert.deepEqual(nav.desktop, ['livemap', 'autopilot', 'dispatch', 'timeline', 'settings', 'system'], name + ': fixed desktop order');
+      const nav = await evaluate("return {desktop:[...document.querySelectorAll('.desktop-tab[data-tab]')].map(el=>el.dataset.tab),mobile:[...document.querySelectorAll('.mobile-tab[data-tab]')].map(el=>el.dataset.tab),retired:Boolean(document.querySelector('[data-workspace-option], #workspace-welcome, #workspace-suggestion')),legacy:localStorage.getItem('ff_workspace_v1')};");
+      assert.deepEqual(nav.desktop, ['autopilot', 'livemap', 'dispatch', 'timeline', 'settings', 'system'], name + ': aircraft controls lead the fixed desktop order');
       assert.deepEqual(nav.mobile, ['livemap', 'autopilot', 'dispatch', 'timeline'], name + ': fixed mobile order');
       assert.equal(nav.retired, false);
       assert.equal(nav.legacy, 'planning', 'old settings remain harmless and untouched');
@@ -987,12 +1372,14 @@ async function browser() {
     await capture('voice-settings-desktop-off');
     await pointerActivate('[data-voice-recognition-toggle]', false);
     assert.equal(await evaluate('return workbenchTest.voice.runtime.enabled;'), true);
+    await pointerActivate('[aria-controls=voice-microphone-options]', false);
     await pointerActivate('[data-voice-detect-microphones]', false);
     await evaluate("const mic=document.getElementById('voice-input-device');mic.value='test-mic';mic.dispatchEvent(new Event('change',{bubbles:true}));await workbenchTest.nextTick();");
     await evaluate("document.querySelector('label:has([data-voice-spoken-feedback])').scrollIntoView({block:'center'});");
     await pointerActivate('label:has([data-voice-spoken-feedback])', false);
     assert.equal(await evaluate('return workbenchTest.voice.selectedInputDeviceId;'), 'test-mic');
     assert.equal(await evaluate('return workbenchTest.voice.spokenReadbacks;'), false);
+    await pointerActivate('[data-voice-input-choice="keyboard"]', false);
     await evaluate("document.getElementById('voice-ptt-shortcut').scrollIntoView({block:'center'});");
     await pointerActivate('#voice-ptt-shortcut', false);
     await evaluate("document.getElementById('voice-ptt-shortcut').dispatchEvent(new KeyboardEvent('keydown',{key:'F8',ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}));await workbenchTest.nextTick();");
@@ -1060,7 +1447,7 @@ async function browser() {
     await pointerActivate('[data-voice-settings-link]', false);
     await pointerActivate('[data-voice-back-to-aircraft]', false);
     assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'autopilot');
-    assert(await evaluate("return document.activeElement.matches('[data-aircraft-voice-control-trigger]');"), 'explicit Back returns usable focus');
+    assert(await evaluate("return document.activeElement.matches('[data-aircraft-voice-control-trigger]');"), 'explicit Back returns usable voice-button focus');
     // Optional setup can be dismissed; configured errors still surface.
     await evaluate("workbenchTest.voice.applyRuntimeInfo({available:true,enabled:true,pushToTalk:{accelerator:'',registered:false}});await workbenchTest.nextTick();");
     await pointerActivate('.app-sidebar [data-voice-setup-dismiss]', false);
@@ -1111,11 +1498,9 @@ async function browser() {
       win.setContentSize(width, width === 1440 ? 900 : 760);
       await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', {enabled:width!==1440,maxTouchPoints:5});
       await evaluate("document.querySelector('[data-voice-ptt-settings]').scrollIntoView({block:'center'});");
-      assert(await evaluate("const group=document.querySelector('[data-voice-ptt-settings]');return group.contains(document.getElementById('voice-ptt-shortcut')) && group.contains(document.querySelector('[data-voice-controller-choose]')) && Boolean(group.compareDocumentPosition(document.querySelector('[data-voice-test]')) & Node.DOCUMENT_POSITION_FOLLOWING);"), 'both push-to-talk choices are together before the voice test');
-      const options = await evaluate("const keyboard=document.querySelector('[aria-labelledby=voice-keyboard-title]').getBoundingClientRect(),controller=document.querySelector('[data-voice-controller-settings]').getBoundingClientRect();return {keyboard:keyboard.toJSON(),controller:controller.toJSON(),overflow:document.documentElement.scrollWidth>innerWidth};");
-      assert.equal(options.overflow, false, 'push-to-talk options fit the viewport');
-      if (width === 1440) assert(Math.abs(options.keyboard.top-options.controller.top)<1 && options.keyboard.right<options.controller.left, 'desktop presents the two input methods side by side');
-      else assert(options.keyboard.bottom<options.controller.top && Math.abs(options.keyboard.left-options.controller.left)<1, 'phones stack both input methods in reading order');
+      assert(await evaluate("const group=document.querySelector('[data-voice-ptt-settings]');return group.contains(document.getElementById('voice-ptt-shortcut')) && group.contains(document.querySelector('[data-voice-controller-choose]')) && Boolean(group.compareDocumentPosition(document.querySelector('[data-voice-test]')) & Node.DOCUMENT_POSITION_PRECEDING);"), 'microphone check comes before the input choices');
+      await pointerActivate('[data-voice-input-choice="controller"]', width!==1440);
+      assert(await evaluate("return !document.querySelector('[aria-labelledby=voice-keyboard-title]').getClientRects().length && document.querySelector('[data-voice-controller-settings]').getClientRects().length>0 && document.documentElement.scrollWidth<=innerWidth;"), 'the selected input method is shown without overflow');
       await capture(`voice-controller-options-${width}`);
       await evaluate("document.querySelector('[data-voice-controller-choose]').scrollIntoView({block:'center'});");
       await pointerActivate('[data-voice-controller-choose]', width!==1440);
@@ -1172,10 +1557,13 @@ async function browser() {
           speakReadback:async text=>{voiceTestIo.speech.push(text);return {started:true};}},
         createCapture:callbacks=>({start:async()=>{voiceTestIo.open=true;window.voiceTestChunk=callbacks.onChunk;return {deviceLabel:'Test microphone'};},stop:async()=>{voiceTestIo.open=false;},cancel:async()=>{voiceTestIo.open=false;}})});
       voice.bindRuntime({startVoiceTest:voiceTestController.start,finishVoiceTest:voiceTestController.finish,
-        cancelVoiceTest:voiceTestController.cancel,testSpokenFeedback:voiceTestController.testSpokenFeedback});`);
+        cancelVoiceTest:voiceTestController.cancel,testSpokenFeedback:voiceTestController.testSpokenFeedback,
+        startButtonTest:voiceTestController.startButtonTest,cancelButtonTest:voiceTestController.cancelButtonTest,
+        practiceButtonEvent:type=>voiceTestController.handleButtonEvent({type,pttAttemptId:'screen-practice'},'screen')});`);
     for (const width of [1440, 320]) {
       win.setContentSize(width, 900);
       await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: width === 320, maxTouchPoints: 5 });
+      assert(await evaluate("return document.querySelector('[data-voice-spoken-feedback]').closest('label').checkVisibility() && document.querySelector('[data-voice-test-feedback]').checkVisibility();"), `spoken feedback controls are visible without expanding another section at ${width}px`);
       await evaluate("document.querySelector('[data-voice-test-start]').scrollIntoView({block:'center'});");
       await pointerActivate('[data-voice-test-start]', width === 320);
       if (width === 1440) assert(await evaluate("return document.activeElement.matches('[data-voice-test-cancel]');"), 'starting a test moves focus from the disabled Start button to Cancel');
@@ -1187,6 +1575,14 @@ async function browser() {
       if (width === 1440) assert(await evaluate("return document.activeElement.matches('[data-voice-test-start]');"), 'finishing a test keeps keyboard focus on Test again');
       assert(await evaluate('return document.documentElement.scrollWidth<=innerWidth;'), 'test fits the viewport');
       await capture(`voice-test-result-${width}`);
+      await pointerActivate('[data-voice-input-choice="screen"]', width===320);
+      await pointerActivate('[data-voice-button-check]', width===320);
+      assert(await evaluate("return workbenchTest.voice.buttonTest.phase==='waiting' && !voiceTestIo.open && document.activeElement.matches('[data-voice-button-practice]');"), 'button practice is silent and focuses its next action');
+      if (width===320) await pointerActivate('[data-voice-button-practice]', true);
+      else await key('Space');
+      assert(await evaluate("return workbenchTest.voice.buttonTest.phase==='complete' && !voiceTestIo.open && document.activeElement.matches('[data-voice-button-check]');"), 'real press/release completes practice without a microphone and restores focus');
+      await capture(`voice-button-checked-${width}`);
+
       await pointerActivate('[data-voice-test-start]', width === 320);
       await evaluate("await workbenchTest.open('flight');await workbenchTest.nextTick();");
       assert(await evaluate("return !voiceTestIo.open && workbenchTest.voice.voiceTest.phase==='idle' && !workbenchTest.voice.voiceTest.playbackAvailable;"), 'leaving Settings stops the microphone and clears test audio');
@@ -1277,6 +1673,11 @@ async function browser() {
     reportPhase('Settings navigation');
     await checkSettingsNavigation();
     assert.deepEqual(errors, [], 'no browser runtime or asset errors');
+    reportPhase('Voice navigation');
+    await checkAircraftWaiting();
+    await checkVoiceNavigation();
+    await checkPhoneSetup();
+    assert.deepEqual(errors, [], 'voice navigation has no browser errors');
     reportPhase('All checks complete');
     fs.writeFileSync(path.join(OUTPUT, 'layout-results.json'), JSON.stringify(checks, null, 2));
     console.log(`App workbench passed: ${checks.length} populated views across ${SIZES.length} desktop, tablet and phone layouts; compact 3D replay, adaptive navigation, map, touch targets, view search, four remote states, muted telemetry and authorization grant/revocation. Screenshots: ${OUTPUT}`);
@@ -1294,6 +1695,7 @@ async function main() {
   const css = fs.readFileSync(path.join(ROOT, 'frontend-dist/tailwind.css'), 'utf8');
   const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
   const profile = require(runtime('aircraft/aircraft-profile-loader.js')).loadProfile('bundled/msfs/pmdg-737');
+  const profiles = require(runtime('aircraft/aircraft-profile-loader.js')).listProfiles();
   const { buildAircraftControlCapabilities } = require(runtime('aircraft/aircraft-control-service.js'));
   const capabilities = buildAircraftControlCapabilities(profile, { profileRevision: 1, capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar'], integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } });
   const integration = require(runtime('aircraft/integration-engine/index.js')).defaultAircraftIntegrationRegistry.getById('pmdg-737');
@@ -1311,7 +1713,7 @@ async function main() {
     optimizeDeps: { entries: ['tests/fixtures/app-workbench-browser.js'] },
     plugins: [vue(), { name: 'workbench-fixture', configureServer(vite) {
       vite.middlewares.use('/workbench-tailwind.css', (_req, res) => { res.setHeader('Content-Type', 'text/css'); res.end(css); });
-      vite.middlewares.use('/workbench-fixture', (_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ capabilities, values })); });
+      vite.middlewares.use('/workbench-fixture', (_req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ capabilities, values, profiles })); });
       vite.middlewares.use('/remote', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end(fs.readFileSync(path.join(ROOT, 'tests/fixtures/app-workbench-browser.html'), 'utf8')); });
       vite.middlewares.use('/assets', (req, res, next) => { const name = decodeURIComponent(req.url.split('?')[0]).replace(/^\//, ''); const asset = path.resolve(ROOT, 'frontend/assets', name); const root = path.resolve(ROOT, 'frontend/assets');
         if (!asset.startsWith(`${root}${path.sep}`) || !fs.existsSync(asset) || !fs.statSync(asset).isFile()) return next();

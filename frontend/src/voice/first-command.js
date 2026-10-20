@@ -1,10 +1,11 @@
 // The "try one voice command" card: rules for when it may show, and the
 // runtime that decides when to evaluate them. The card itself is a prompt
 // card like what's-new and the support ask; the store owns its stages.
-import { watch } from 'vue';
+import { computed, watch } from 'vue';
 import { readStorageJson, writeStorageJson } from '../app/browser-environment.js';
 import { isRemoteViewPath } from '../app/remote-view.js';
 import { firstVoiceCommandExample } from './command-examples.js';
+import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } from './state-queries.js';
 
 export const VOICE_FIRST_COMMAND_STORAGE_KEY = 'ff_voice_first_command_v1';
 // Three sessions of "Not now" is the answer; after that only "Don't show
@@ -42,6 +43,7 @@ export function initVoiceFirstCommandRuntime({
   firstCommandStore = null,
   voiceStore = null,
   aircraftControlsStore = null,
+  aircraftSpecificStore = null,
   statusStore = null,
   promptsStore = null,
   storage = null,
@@ -83,11 +85,17 @@ export function initVoiceFirstCommandRuntime({
     },
   ));
 
+  const firstQuestion = computed(() => {
+    const state = aircraftSpecificStore;
+    if (!canQueryAircraftState(state)) return '';
+    const context = { profileKey: state.activeProfileKey, profileRevision: state.activeProfileRevision };
+    return stateQueryExamples(state).find(phrase => answerAircraftStateQuery(phrase, state, context)?.ok) || '';
+  });
   function context() {
     const commands = Object.values(aircraftControlsStore.aircraftCommandCatalogue?.commands || {});
     const example = firstVoiceCommandExample(commands);
     const aircraftName = String(statusStore?.aircraftProfile?.profileName || '').trim();
-    return { example: example?.phrase || '', aircraftName };
+    return { example: firstQuestion.value || example?.phrase || '', aircraftName, readOnly: Boolean(firstQuestion.value) };
   }
 
   // Every other card (what's new, a support ask) is
@@ -100,17 +108,17 @@ export function initVoiceFirstCommandRuntime({
   function evaluate() {
     if (firstCommandStore.prompt?.stage === 'done') return;
     const ready = voiceStore.bridgeAvailable === true
-      && aircraftControlsStore.availability?.enabled === true;
-    const { example, aircraftName } = context();
+      && (aircraftControlsStore.availability?.enabled === true || Boolean(firstQuestion.value));
+    const { example, aircraftName, readOnly } = context();
     if (!ready || !example || anotherCardWaiting()) {
       firstCommandStore.withdraw();
       return;
     }
     if (firstCommandStore.prompt) {
-      firstCommandStore.updateContext({ example, aircraftName });
+      firstCommandStore.updateContext({ example, aircraftName, readOnly });
       return;
     }
-    firstCommandStore.open({ example, aircraftName });
+    firstCommandStore.open({ example, aircraftName, readOnly });
   }
 
   let settleTimer = null;
@@ -133,6 +141,7 @@ export function initVoiceFirstCommandRuntime({
   cleanupFns.push(watch(
     () => [
       voiceStore.bridgeAvailable,
+      firstQuestion.value,
       aircraftControlsStore.availability?.enabled,
       aircraftControlsStore.aircraftCommandCatalogue,
       statusStore?.aircraftProfile?.profileName,

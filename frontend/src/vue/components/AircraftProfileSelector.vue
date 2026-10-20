@@ -58,14 +58,14 @@ const unmatchedOverrideActive = computed(() => (
 const profileSelectionLabel = computed(() => {
   if (profiles.aircraftProfileOverrideActive) return 'Manual override';
   return String(status.aircraftProfile.profileId || '').toLowerCase() === 'generic'
-    ? 'Generic fallback'
+    ? 'Standard controls'
     : 'Auto match';
 });
 const profileSummaryLabel = computed(() => {
   const profileName = String(status.aircraftProfileNameLabel || '').trim();
   const aircraftName = String(status.aircraftNameLabel || '').trim();
   return [
-    profileName && profileName !== aircraftName ? profileName : '',
+    profileName && profileName !== aircraftName && profileName !== profileSelectionLabel.value ? profileName : '',
     profileSelectionLabel.value,
   ].filter(Boolean).join(' · ');
 });

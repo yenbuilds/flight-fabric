@@ -149,7 +149,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <details ref="panel" class="pmdg-sdk-setup ff-card mb-4" :open="expanded" @toggle="expanded = $event.target.open" data-pmdg-sdk-setup>
+  <details ref="panel" class="pmdg-sdk-setup mb-4" :open="expanded" @toggle="expanded = $event.target.open" data-pmdg-sdk-setup>
     <summary class="pmdg-sdk-summary ff-touch-target" @click="allowAutoExpand = false">
       <strong>PMDG connection</strong><span :class="{ 'text-success': sdkConnected, 'text-warning': state === 'setup', 'text-muted-fg': !sdkConnected && state !== 'setup' }">{{ summary }}</span>
     </summary>
@@ -214,11 +214,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.pmdg-sdk-setup { min-width: 0; font-size: .875rem; }
+.pmdg-sdk-setup { min-width: 0; font-size: .8125rem; border-bottom: 1px solid rgb(var(--border) / .6); }
 .pmdg-sdk-setup .ff-touch-target { min-height: max(44px, var(--ff-touch-target)); }
-.pmdg-sdk-summary { cursor: pointer; padding: .75rem 1rem; }
+.pmdg-sdk-summary { cursor: pointer; padding: .65rem 0; }
+.pmdg-sdk-summary strong { font-weight: 500; }
 .pmdg-sdk-summary span { display: inline-block; margin-left: .75rem; }
-.pmdg-sdk-content { display: grid; gap: .75rem; padding: 0 1rem .75rem; overflow-wrap: anywhere; }
+.pmdg-sdk-content { display: grid; gap: .75rem; padding: .25rem 0 1rem; overflow-wrap: anywhere; }
 .pmdg-sdk-file { display: grid; gap: .375rem; }
 .pmdg-sdk-file-heading, .pmdg-sdk-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
 .pmdg-sdk-file-heading > div { min-width: 0; }

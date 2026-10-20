@@ -88,6 +88,7 @@ function createHarness(options = {}) {
     setSelectedInputDevice(value) { this.selectedInputDeviceId = String(value || ''); },
     setSpokenReadbacks(value) { this.spokenReadbacks = value === true; },
     setVoiceTestState(patch) { this.voiceTest = { ...this.voiceTest, ...patch }; },
+    setButtonTestState(patch) { this.buttonTest = { ...this.buttonTest, ...patch }; },
   });
   let recognitionListener = null;
   let pttListener = null;
@@ -187,6 +188,24 @@ function createHarness(options = {}) {
     readbackCancellations, retirements, sentCommands, spokenReadbacks, toneEvents, voiceStore,
   };
 }
+
+test('native push-to-talk practice intercepts real events without recognition or dispatch, then ordinary PTT recovers', async () => {
+  const h = createHarness();
+  await h.controller.initialize();
+  assert.equal(h.voiceStore.actions.startButtonTest('global'), true);
+  h.emitPtt({ type: 'down', pttAttemptId: GLOBAL_ATTEMPT });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.buttonTest.phase, 'held');
+  assert.equal(h.captures.length, 0);
+  assert.deepEqual(h.sentCommands, []);
+  h.emitPtt({ type: 'up', pttAttemptId: GLOBAL_ATTEMPT });
+  assert.equal(h.voiceStore.buttonTest.phase, 'complete');
+  assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT]);
+  h.emitPtt({ type: 'down', pttAttemptId: NEXT_GLOBAL_ATTEMPT });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.captures.length, 1, 'a later intentional hold follows the ordinary capture path');
+  await h.controller.dispose();
+});
 
 const cloudRuntime = { available: true, enabled: true, mode: 'cloud',
   cloud: { keyConfigured: true, storageAvailable: true, providerId: 'openai', modelId: 'gpt-realtime-2.1-mini', revision: 0 } };

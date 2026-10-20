@@ -7,13 +7,20 @@ import { useShellStore } from '../stores/shell.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
-import { focusVoiceSettings, focusToolbarPanelSettings } from '../settings-navigation.js';
+import { useProfilesStore } from '../stores/profiles.js';
+import { useSystemHostStore } from '../stores/system-host.js';
+import { useSettingsUiStore } from '../stores/settings-ui.js';
+import { focusVoiceSettings, focusToolbarPanelSettings, openPhoneSettings, openSetup } from '../settings-navigation.js';
 import { SUPPORT_URL as supportHref } from '../../support/content.js';
 
 const shell = useShellStore();
 const tabs = useTabsStore();
 const toolbarPanel = useToolbarPanelStore();
 const voice = useVoiceControlStore();
+const profiles = useProfilesStore();
+const systemHost = useSystemHostStore();
+const settingsUi = useSettingsUiStore();
+const canSetUpPhone = computed(() => systemHost.isElectron || profiles.authorizationScope === 'full-control');
 const panel = ref(null);
 const query = ref('');
 const selected = ref(0);
@@ -30,15 +37,22 @@ const descriptions = {
   lvars: 'Aircraft variable inspector',
   'toolbar-panel': 'Install, update or repair the in-sim toolbar',
   'voice-settings': 'Settings for microphone, push-to-talk and spoken feedback',
+  'voice-control': 'Aircraft tool with phrase examples and an on-screen talk button',
+  'phone-setup': 'Connect devices with a QR code or pairing code',
 };
 const searchKeywords = {
-  'voice-settings': ['microphone', 'mic', 'push', 'to', 'talk', 'push-to-talk', 'ptt', 'setup'],
-  system: ['phone', 'tablet', 'pairing', 'setup'],
+  setup: ['setup', 'introduction', 'intro', 'welcome', 'guide', 'getting', 'started'],
+  'voice-control': ['voice', 'commands', 'phrases'],
+  'voice-settings': ['voice', 'control', 'microphone', 'mic', 'push', 'to', 'talk', 'push-to-talk', 'ptt', 'setup'],
+  'phone-setup': ['phone', 'tablet', 'pairing', 'setup'],
 };
 const destinations = computed(() => [
   ...[...tabs.desktopPrimaryTabs, ...tabs.desktopSecondaryTabs].map((tab, index) => ({ ...tab, shortcut: String(index + 1) })),
+  ...(canSetUpPhone.value ? [{ id: 'setup', label: 'Setup', icon: 'setup', description: settingsUi.introBlockedReason || 'Revisit voice control, recording and the MSFS toolbar' }] : []),
   ...(toolbarPanel.available ? [{ id: 'toolbar-panel', tabId: 'settings', label: 'MSFS 2024 toolbar panel', icon: 'settings' }] : []),
-  ...(voice.bridgeAvailable ? [{ id: 'voice-settings', tabId: 'settings', label: 'Voice control', icon: 'settings' }] : []),
+  ...(voice.bridgeAvailable ? [{ id: 'voice-settings', tabId: 'settings', label: voice.setupReminder?.action || 'Voice settings', icon: 'settings' }] : []),
+  { id: 'voice-control', tabId: 'autopilot', label: voice.bridgeAvailable ? 'Voice commands' : 'Voice phrases', icon: 'voice' },
+  { id: 'phone-setup', tabId: canSetUpPhone.value ? 'settings' : 'system', label: canSetUpPhone.value ? 'Connect a phone or tablet' : 'Phone or tablet connection', icon: 'system' },
   { id: 'landing', label: 'Takeoff and landing', icon: 'landing' },
   { id: 'lvars', label: 'LVAR inspector', icon: 'system' },
 ]);
@@ -56,6 +70,16 @@ const results = computed(() => {
 function close() { shell.closeNavigator(); }
 async function navigate(tab) {
   if (!tab || navigating) return;
+  if (tab.id === 'setup') {
+    if (settingsUi.introBlockedReason) return;
+    const originTab = tabs.activeTabId;
+    navigating = true;
+    close();
+    await nextTick();
+    if (!shell.navigatorOpen && tabs.activeTabId === originTab) await openSetup(tabs, settingsUi);
+    navigating = false;
+    return;
+  }
   const targetTab = tab.tabId || tab.id;
   if (!tabs.requestTabChange(targetTab)) {
     panel.value?.querySelector('input')?.focus({ preventScroll: true });
@@ -66,6 +90,8 @@ async function navigate(tab) {
   await nextTick();
   if (!shell.navigatorOpen && tabs.activeTabId === targetTab) {
     if (tab.id === 'toolbar-panel') await focusToolbarPanelSettings(tabs);
+    else if (tab.id === 'voice-control') await voice.openPanel(tabs);
+    else if (tab.id === 'phone-setup' && canSetUpPhone.value) await openPhoneSettings(tabs);
     else if (tab.id === 'voice-settings') {
       voice.settingsReturnToAircraft = false;
       await focusVoiceSettings(tabs);
@@ -158,7 +184,7 @@ useDocumentEvent('keydown', event => {
           </div>
           <div id="app-navigator-results" class="app-navigator-results" role="listbox" aria-label="Views and tools">
             <div v-for="(tab, index) in results" :key="tab.id" class="app-navigator-result" :class="{ selected: index === selected }" role="presentation" @pointermove="$event.pointerType === 'mouse' && (selected = index)">
-              <button :id="'navigator-result-' + tab.id" type="button" role="option" :aria-selected="index === selected" tabindex="-1" @mousedown.prevent @click="navigate(tab)"><TabIcon :kind="tab.icon" /><span><strong>{{ tab.label }}</strong><small>{{ descriptions[tab.id] }}</small></span><kbd v-if="tab.shortcut" aria-hidden="true">{{ tab.shortcut }}</kbd></button>
+              <button :id="'navigator-result-' + tab.id" type="button" role="option" :aria-selected="index === selected" :aria-disabled="tab.id === 'setup' && settingsUi.introBlockedReason ? true : undefined" tabindex="-1" @mousedown.prevent @click="navigate(tab)"><TabIcon :kind="tab.icon" /><span><strong>{{ tab.label }}</strong><small>{{ tab.description || descriptions[tab.id] }}</small></span><kbd v-if="tab.shortcut" aria-hidden="true">{{ tab.shortcut }}</kbd></button>
             </div>
           </div>
           <p v-if="!results.length" class="app-navigator-empty" role="status">No matching views. Try aircraft, briefing, or settings.</p>

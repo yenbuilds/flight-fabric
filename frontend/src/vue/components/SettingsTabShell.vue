@@ -42,7 +42,7 @@ const sections = computed(() => [
   ...(canManageSettings.value ? [{ id: 'settings-general', label: 'General' }] : []),
   ...(voice.bridgeAvailable ? [{ id: 'settings-voice-control', label: 'Voice' }] : []),
   ...(canManageSettings.value ? [
-    { id: 'settings-phone-tablet-access', label: 'Devices & MSFS' },
+    { id: 'settings-phone-tablet-access', label: 'Devices' },
     { id: 'settings-cabin-audio', label: 'Cabin audio' },
     { id: 'settings-advanced', label: 'Advanced' },
     { id: 'vue-settings-about-root', label: 'About' },

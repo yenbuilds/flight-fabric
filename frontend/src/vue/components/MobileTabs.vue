@@ -8,10 +8,17 @@ import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useShellStore } from '../stores/shell.js';
+import { useProfilesStore } from '../stores/profiles.js';
+import { useSystemHostStore } from '../stores/system-host.js';
+import { useSettingsUiStore } from '../stores/settings-ui.js';
+import { openPhoneSettings, openSetup } from '../settings-navigation.js';
 import { containDialogFocus } from '../../ui/dialog-focus.js';
 
 const tabs = useTabsStore();
 const shell = useShellStore();
+const profiles = useProfilesStore();
+const systemHost = useSystemHostStore();
+const settingsUi = useSettingsUiStore();
 const morePanel = ref(null);
 const aircraftSpecific = useAircraftSpecificStore();
 let focusRevision = 0;
@@ -99,8 +106,8 @@ useDocumentEvent('keydown', onKeydown);
       :class="{ active: tabs.activeNavigationTabId === tab.id }"
       :data-tab="tab.id"
       :aria-label="tab.id === 'autopilot' && aircraftSpecific.controlsSetupRequired
-        ? `${tab.label}, setup required`
-        : tab.label"
+        ? `${tab.ariaLabel || tab.label}, setup required`
+        : tab.ariaLabel || tab.label"
       :aria-current="tabs.activeNavigationTabId === tab.id ? 'page' : undefined"
       :aria-controls="tab.id === 'livemap' ? 'tab-livemap tab-flight' : `tab-${tab.id}`"
       type="button"
@@ -155,9 +162,21 @@ useDocumentEvent('keydown', onKeydown);
           </svg>
         </button>
       </div>
-      <SupportLink class="mobile-support-link" />
       <VoiceControlSetupTask class="mobile-toolbar-setup-task" />
       <ToolbarPanelSetupTask class="mobile-toolbar-setup-task" />
+      <template v-if="systemHost.isElectron || profiles.authorizationScope === 'full-control'">
+        <button type="button" class="mobile-more-item w-full flex items-center gap-3 px-4 py-3 text-left text-sm" data-setup-navigation
+          aria-haspopup="dialog" :disabled="Boolean(settingsUi.introBlockedReason)"
+          :aria-describedby="settingsUi.introBlockedReason ? 'mobile-setup-help' : undefined" @click="openSetup(tabs, settingsUi)">
+          <TabIcon kind="setup" class="w-5 h-5 text-muted-fg" />
+          <span>Setup</span>
+        </button>
+        <p v-if="settingsUi.introBlockedReason" id="mobile-setup-help" class="px-4 pb-2 text-xs text-muted-fg">{{ settingsUi.introBlockedReason }}</p>
+      </template>
+      <button v-if="systemHost.isElectron || profiles.authorizationScope === 'full-control'" type="button"
+        class="mobile-more-item w-full px-4 py-3 text-left text-sm" data-phone-setup-navigation
+        @click="openPhoneSettings(tabs)">Connect a phone or tablet</button>
+      <SupportLink class="mobile-support-link" />
       <button
         v-for="tab in tabs.mobileNavigationMoreTabs"
         :key="tab.id"

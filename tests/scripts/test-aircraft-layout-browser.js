@@ -147,6 +147,87 @@ async function browser() {
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await ready('[data-aircraft-template="pmdg-737"]');
+    async function checkPresetFirstViews(allFamilies = true) {
+      async function capture(name) {
+        await win.webContents.capturePage(); await wait(100);
+        fs.writeFileSync(path.join(OUTPUT,name),(await win.webContents.capturePage()).toPNG());
+      }
+      async function click(selector) {
+        const point = await evaluate(`const element=document.querySelector(${JSON.stringify(selector)});element.scrollIntoView({block:'nearest',behavior:'instant'});let r=element.getBoundingClientRect();if(!element.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))){element.scrollIntoView({block:'center',behavior:'instant'});r=element.getBoundingClientRect();}return {x:r.left+r.width/2,y:r.top+r.height/2};`);
+        assert(await evaluate(`return document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x},${point.y}));`), 'native pointer reaches ' + selector);
+        for (const type of ['mousePressed','mouseReleased']) await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type,...point,button:'left',clickCount:1});
+        await wait(80);
+      }
+      const state = () => evaluate(`const controls=document.getElementById('aircraft-cockpit-view'),presets=document.getElementById('aircraft-presets-view');return {
+        view:document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace,
+        cockpitVisible:!!controls.getClientRects().length,presetsVisible:!!presets.getClientRects().length,
+        inertControls:controls.inert,inertPresets:presets.inert,
+        presetSections:document.querySelectorAll('[data-aircraft-presets-section]').length,
+        overflow:document.documentElement.scrollWidth>innerWidth,
+        selected:document.querySelector('[role=tab][aria-selected=true]')?.dataset.aircraftView};`);
+      // Use the same independently scrolling main region as the real app.
+      await evaluate(`const main=document.createElement('main');main.id='vue-main-root';main.style.cssText='height:calc(100vh - 32px);overflow:auto;position:relative';const app=document.getElementById('app');app.parentNode.insertBefore(main,app);main.appendChild(app);await layoutTest.remount();`);
+      for (const id of allFamilies ? ['pmdg-737','pmdg-777','fenix-a320','fbw-a32nx','inibuilds-a350-900'] : ['pmdg-737']) {
+        for (const width of [1440,390,320]) {
+          win.setContentSize(width,900);
+          await evaluate(`await layoutTest.scenario(${JSON.stringify(id)});await layoutTest.remount();document.getElementById('vue-main-root').scrollTop=0;`);
+          await ready(`[data-aircraft-template="${templateFor(id)}"]`);
+          await wait(150);
+          assert.deepEqual(await state(),{view:'presets',cockpitVisible:false,presetsVisible:true,inertControls:true,inertPresets:false,presetSections:1,overflow:false,selected:'presets'}, id+'/'+width+': first arrival is preset-first');
+          const before = await evaluate('return layoutTest.sent.length;');
+          const memory = await evaluate("return JSON.stringify({...sessionStorage});");
+          await evaluate('document.getElementById("vue-main-root").scrollTop=250;'); await wait(100);
+          assert.equal(await evaluate("return JSON.stringify({...sessionStorage});"),memory,'scrolling presets never overwrites cockpit section memory');
+          await evaluate('document.getElementById("vue-main-root").scrollTop=0;');
+          await capture(`preset-first-${id}-${width}.png`);
+          await click('[data-aircraft-view="controls"]');
+          assert.equal((await state()).cockpitVisible,true,'explicit view opens existing cockpit controls');
+          assert.equal((await state()).presetsVisible,false,'presets have one primary location');
+          const overflow = await evaluate(`const main=document.getElementById('vue-main-root');return {width:main.clientWidth,scrollWidth:main.scrollWidth,wide:[...main.querySelectorAll('*')].filter(element=>element.getBoundingClientRect().right>main.getBoundingClientRect().right+1 && getComputedStyle(element).overflowX==='visible').slice(0,8).map(element=>({tag:element.tagName,id:element.id,class:element.className,width:element.getBoundingClientRect().width}))};`);
+          assert(overflow.scrollWidth <= overflow.width + 1,id+'/'+width+': cockpit fits the scrolling main region: '+JSON.stringify(overflow));
+          assert.equal(await evaluate("return [...document.querySelectorAll('.aircraft-desktop-section-choices button')].some(b=>b.textContent.trim()==='Presets');"),false,'cockpit navigation lists its own systems');
+          await capture(`cockpit-view-${id}-${width}.png`);
+          if (id === 'pmdg-737' && width === 1440) {
+            await evaluate(`const input=document.querySelector('input[aria-label="Set HEADING"]');window.savedCockpitInput=input;input.value='275';input.dispatchEvent(new Event('input',{bubbles:true}));await layoutTest.settle();`);
+            await click('[data-aircraft-view="presets"]'); await click('[data-aircraft-view="controls"]');
+            assert(await evaluate("return savedCockpitInput===document.querySelector('input[aria-label=\"Set HEADING\"]') && savedCockpitInput.value==='275';"),'view changes retain cockpit input identity and draft');
+          }
+          await click('[data-aircraft-view="presets"]');
+          await click('[aria-label="Find controls"]');
+          assert.equal((await state()).view,'controls','Find controls reveals the cockpit surface');
+          await evaluate(`const input=document.getElementById('aircraft-find-input');input.value='altitude';input.dispatchEvent(new Event('input',{bubbles:true}));await layoutTest.settle();`);
+          assert(await evaluate("return !!document.querySelector('[data-aircraft-find-current]')?.getClientRects().length;"),'search selects a visible cockpit result');
+          await click('[data-aircraft-view="presets"]');
+          assert(await evaluate("return document.getElementById('aircraft-find-input').value==='' && !document.querySelector('[data-aircraft-find-current]') && document.querySelector('[aria-label=\"Find controls\"]').getAttribute('aria-expanded')==='false';"),'returning to presets closes search and clears its hidden result');
+          await evaluate("document.getElementById('aircraft-presets-tab').focus();");
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});await wait(80);
+          assert.equal((await state()).view,'controls','arrow key selects the next view');
+          assert.equal(await evaluate('return document.activeElement.id;'),'aircraft-cockpit-tab','arrow key keeps focus on the selected tab');
+          assert.equal(await evaluate(`return layoutTest.sent.slice(${before}).filter(message=>!String(message.type).startsWith('request')).length;`),0,'navigation and search send no aircraft commands');
+        }
+      }
+      assert(await evaluate("const panel=document.getElementById('aircraft-cockpit-view');const control=[...panel.querySelectorAll('input:not(:disabled),button:not(:disabled)')].find(element=>element.getClientRects().length);control?.focus();return !!control && document.activeElement===control;"),'the old cockpit owns actual native focus before changing aircraft');
+      await evaluate("await layoutTest.scenario('pmdg-777');await layoutTest.settle();");
+      await ready('[data-aircraft-template="pmdg-777"]');
+      assert.equal((await state()).view,'presets','changing aircraft returns to presets without remounting the page');
+      assert.equal(await evaluate('return document.activeElement.id;'),'aircraft-presets-tab','aircraft changes restore focus when the old cockpit control disappears');
+      // A quick view change can cancel the first section restoration before its
+      // timer fires. Reopening controls must still restore the remembered system.
+      await evaluate(`await layoutTest.scenario('pmdg-737');await layoutTest.remount();
+        const {aircraftSectionStorageKey}=await import('/frontend/src/vue/components/aircraft-specific/aircraft-section-memory.js');
+        sessionStorage.setItem(aircraftSectionStorageKey(layoutTest.specific.activeProfileKey),'radios');
+        document.querySelector('[data-aircraft-view="controls"]').click();await layoutTest.settle();
+        document.querySelector('[data-aircraft-view="presets"]').click();await layoutTest.settle();`);
+      await click('[data-aircraft-view="controls"]');
+      assert.equal(await settled("return document.querySelector('.aircraft-desktop-section-choices [aria-current=\"location\"]')?.textContent.trim();", label => label === 'NAV'),'NAV','cancelled section restoration remains retryable when reopening controls');
+      assert.deepEqual(errors,[],'preset-first views have no browser errors');
+      console.log(`Preset-first Aircraft passed: ${allFamilies ? 'five aircraft families' : 'PMDG 737'} at desktop/390px/320px; view selection, hidden controls, one preset section, untouched section memory, retained drafts, visible search, keyboard navigation, aircraft-change focus and no navigation dispatch.`);
+    }
+    if (process.env.FF_AIRCRAFT_PRESETS_ONLY === '1') {
+      await checkPresetFirstViews();
+      win.destroy();app.exit(0);return;
+    }
+    await evaluate("document.querySelector('[data-aircraft-view=controls]').click();await layoutTest.settle();");
     if (process.env.FF_NUMERIC_DRAFTS_ONLY === '1') {
       await checkMountedNumericDrafts({ evaluate });
       assert.deepEqual(errors, [], 'Mounted numeric drafts have no browser errors');
@@ -159,7 +240,7 @@ async function browser() {
     }
     if (process.env.FF_A32X_LAYOUT_ONLY === '1') {
       for (const id of INCLUDED_A32X) {
-        await evaluate(`await layoutTest.scenario(${JSON.stringify(id)});`);
+        await evaluate(`await layoutTest.cockpitScenario(${JSON.stringify(id)});`);
         await ready('[data-aircraft-template="microsoft-inibuilds-a32x"]');
         for (const width of [1440, 390]) {
           win.setContentSize(width, 1000); await wait(150);
@@ -200,7 +281,7 @@ async function browser() {
       }
     }
     if (!AUTOTAXI_FIXTURE && !process.env.FF_CDU_LAYOUT_ONLY && !process.env.FF_AIRCRAFT_TOOLS_ONLY && !process.env.FF_AUTOTAXI_LAYOUT_ONLY) {
-      await evaluate(`await layoutTest.scenario(${JSON.stringify(A380)});`);
+      await evaluate(`await layoutTest.cockpitScenario(${JSON.stringify(A380)});`);
       await ready('[data-aircraft-template="inibuilds-a380"]');
       for (const width of [1440, 390, 320]) {
         win.setContentSize(width, 1000); await wait(150);
@@ -267,12 +348,12 @@ async function browser() {
       if (process.env.FF_A380_LAYOUT_ONLY === '1') {
         assert.deepEqual(errors, []); console.log('A380 layout and command dispatch passed at 1440, 390 and 320px.'); app.exit(0); return;
       }
-      await evaluate(`await layoutTest.scenario('pmdg-737');`);
+      await evaluate(`await layoutTest.cockpitScenario('pmdg-737');`);
       await ready('[data-aircraft-template="pmdg-737"]');
     }
     if (AUTOTAXI_FIXTURE) {
       assert.equal(LIVE_AUTOTAXI_ENABLED, true, 'the fixture exercises the enabled production setting');
-      await evaluate(`await layoutTest.scenario('generic');
+      await evaluate(`await layoutTest.cockpitScenario('generic');
         const panel = document.querySelector('#aircraft-page-autotaxi'); panel.open = true;
         for (const [placeholder, value] of [['YMML', 'YMML'], ['16', '16']]) {
           const input = panel.querySelector('input[placeholder="' + placeholder + '"]');
@@ -294,11 +375,11 @@ async function browser() {
         layoutTest.taxiReply(window.oldTaxiPreview); await layoutTest.settle();`);
       assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi figure'));`), false, 'reconnect rejects previous connection responses');
       assert.doesNotMatch(await evaluate(`return document.querySelector('#aircraft-page-autotaxi').textContent;`), /Connection lost/, 'fresh status replaces the disconnect notice');
-      await evaluate(`await layoutTest.remount(); layoutTest.taxiReply(window.oldTaxiPreview); await layoutTest.settle();`);
+      await evaluate(`await layoutTest.remountCockpit(); layoutTest.taxiReply(window.oldTaxiPreview); await layoutTest.settle();`);
       assert.equal(await evaluate(`return Boolean(document.querySelector('#aircraft-page-autotaxi figure'));`), false, 'a remounted panel rejects previous mount responses for the same profile');
       assert.equal(await evaluate(`return document.querySelector('[data-taxi-start]').disabled;`), true, 'a previous mount cannot restore readiness');
       for (const id of AUTOTAXI_AIRCRAFT) {
-        await evaluate(`await layoutTest.scenario(${JSON.stringify(id)}); layoutTest.taxiReconnect(); await layoutTest.settle();`);
+        await evaluate(`await layoutTest.cockpitScenario(${JSON.stringify(id)}); layoutTest.taxiReconnect(); await layoutTest.settle();`);
         await ready(id === 'generic' ? '[data-aircraft-page-mode="generic"]' : `[data-aircraft-template="${templateFor(id)}"]`);
         await ready('#aircraft-page-autotaxi');
         await wait(300);
@@ -387,7 +468,7 @@ async function browser() {
     }
     for (const id of (process.env.FF_CDU_LAYOUT_ONLY === '1' || process.env.FF_AIRCRAFT_TOOLS_ONLY === '1' ? [] : process.env.FF_AUTOTAXI_LAYOUT_ONLY === '1' ? ['pmdg-737'] : AIRCRAFT)) {
       const priorTaxiRequests = await evaluate('return layoutTest.taxiSent.length;');
-      await evaluate(`await layoutTest.scenario(${JSON.stringify(id)});`);
+      await evaluate(`await layoutTest.cockpitScenario(${JSON.stringify(id)});`);
       await ready(`[data-aircraft-template="${templateFor(id)}"]`);
       for (const [width, height] of [[1440, 1000], [390, 1000], [320, 1000], [700, 390]]) {
         win.setContentSize(width, height);
@@ -448,8 +529,8 @@ async function browser() {
               library: visible(document.querySelector('[data-aircraft-controls-trigger]')),
               cdu: !document.querySelector('[data-cdu-trigger]') || visible(document.querySelector('[data-cdu-trigger]')),
               healthySummary: visible(document.querySelector('.aircraft-connection-summary--healthy')) };`);
-          assert.ok(toolsLayout.height >= 90 && toolsLayout.height <= 112, `${id}: ${width}px tools keep Voice in a compact second row: ${JSON.stringify(toolsLayout)}`);
-          assert.equal(toolsLayout.find && toolsLayout.voice && toolsLayout.tools && toolsLayout.cdu, true, `${id}: Find, Voice, Tools and supported CDU stay accessible`);
+          assert.ok(toolsLayout.height >= 44 && toolsLayout.height <= 112, `${id}: ${width}px actions fit in at most two compact rows: ${JSON.stringify(toolsLayout)}`);
+          assert.equal(toolsLayout.find && toolsLayout.voice && toolsLayout.tools && toolsLayout.cdu, true, `${id}: Find, Voice commands, Tools and supported CDU stay directly accessible`);
           assert.equal(toolsLayout.library || toolsLayout.healthySummary, false, `${id}: secondary tools and duplicate healthy context do not consume the initial phone view`);
           // Reduced motion must not introduce a flex transition from zero width.
           // Measure in the same turn as expansion, before a paint can hide it.
@@ -479,6 +560,7 @@ async function browser() {
         }
         if (id === 'inibuilds-a350-900') {
           assert.equal(await evaluate(`return document.querySelectorAll('[data-aircraft-control-group="flightGuidance.lsCaptain"], [data-aircraft-control-group="flightGuidance.lsFirstOfficer"]').length;`), 0, 'A350 LS controls appear only in shared EFIS');
+          await evaluate("document.querySelector('[data-aircraft-view=presets]').click();await layoutTest.settle();");
           for (const [target, value] of [['cockpit', 50], ['displays', 75]]) {
             await evaluate(`const form = document.querySelector('[data-lighting-preset="${target}"]');
               form.scrollIntoView({ behavior: 'instant', block: 'center' });
@@ -495,6 +577,7 @@ async function browser() {
           assert.ok(brightnessPosition.top >= -1 && brightnessPosition.top < height, `A350 ${width}px: brightness controls are reachable`);
           fs.writeFileSync(path.join(OUTPUT, `${id}-brightness-${width}.png`), (await win.webContents.capturePage()).toPNG());
           await evaluate("window.scrollTo({ top: 0, behavior: 'instant' });");
+          await evaluate("document.querySelector('[data-aircraft-view=controls]').click();await layoutTest.settle();");
         }
         if (width !== 320) {
           fs.writeFileSync(path.join(OUTPUT, `${id}-${width}.png`), (await win.webContents.capturePage()).toPNG());
@@ -664,18 +747,24 @@ async function browser() {
         }
         await win.webContents.capturePage(); await wait(100);
       };
-      await evaluate(`await layoutTest.scenario('pmdg-777');`);
+      await evaluate(`await layoutTest.cockpitScenario('pmdg-777');`);
       const toolActivations = [];
-      for (const [width, touch] of [[900, false], [390, true], [320, true]]) {
+      for (const [width, touch] of [[1440, false], [900, false], [390, true], [320, true]]) {
         await resizeTools(width, 844);
         await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled:touch, maxTouchPoints:touch ? 5 : 1 });
         await evaluate(`window.scrollTo({ top:0, behavior:'instant' });`);
         for (const [trigger, modal] of [
+          ['data-aircraft-voice-control-trigger', 'aircraft-voice-control-modal'],
           ['data-aircraft-integration-guide-trigger', 'aircraft-integration-cheatsheet-modal'],
           ['data-aircraft-controls-trigger', 'aircraft-controls-modal'],
         ]) {
-          await activateTool('.aircraft-tools-toggle', touch);
-          assert.equal(await evaluate(`return document.querySelector('.aircraft-tools-toggle').getAttribute('aria-expanded');`), 'true', `${width}px: native pointer opens Tools`);
+          const directVoice = trigger === 'data-aircraft-voice-control-trigger';
+          if (directVoice) {
+            assert(await evaluate(`return document.querySelector('[${trigger}]').checkVisibility() && document.querySelector('.aircraft-tools-toggle').getAttribute('aria-expanded') === 'false';`), `${width}px: Voice commands is available with Tools closed`);
+          } else {
+            await activateTool('.aircraft-tools-toggle', touch);
+            assert.equal(await evaluate(`return document.querySelector('.aircraft-tools-toggle').getAttribute('aria-expanded');`), 'true', `${width}px: native pointer opens Tools`);
+          }
           await activateTool(`[${trigger}]`, touch);
           const opened = await evaluate(`return Boolean(document.getElementById('${modal}'));`);
           toolActivations.push({ width, input:touch ? 'touch' : 'mouse', trigger, opened });
@@ -683,20 +772,10 @@ async function browser() {
           win.webContents.sendInputEvent({ type:'keyDown', keyCode:'Escape' });
           win.webContents.sendInputEvent({ type:'keyUp', keyCode:'Escape' });
           await wait(100);
-          if (opened) assert.equal(await evaluate(`return !document.getElementById('${modal}') && document.activeElement.classList.contains('aircraft-tools-toggle');`), true, `${width}px: closing ${modal} restores the Tools launcher`);
+          const returnSelector = directVoice ? `[${trigger}]` : '.aircraft-tools-toggle';
+          if (opened) assert.equal(await evaluate(`return !document.getElementById('${modal}') && document.activeElement.matches('${returnSelector}');`), true, `${width}px: closing ${modal} restores its visible launcher`);
         }
-        const voicePosition = await evaluate(`const button = document.querySelector('[data-aircraft-voice-control-trigger]'), rect = button.getBoundingClientRect();
-          return { outsideTools: !button.closest('#aircraft-secondary-tools-panel'), left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: innerWidth, overflow: document.documentElement.scrollWidth > innerWidth };`);
-        assert(voicePosition.outsideTools && voicePosition.left >= 0 && voicePosition.right <= voicePosition.width && voicePosition.bottom < 200 && !voicePosition.overflow,
-          `${width}px: Voice control stays visible at the top of Aircraft: ${JSON.stringify(voicePosition)}`);
-        await activateTool('[data-aircraft-voice-control-trigger]', touch);
-        const voiceOpened = await evaluate(`return Boolean(document.getElementById('aircraft-voice-control-modal'));`);
-        toolActivations.push({ width, input:touch ? 'touch' : 'mouse', trigger:'data-aircraft-voice-control-trigger', opened:voiceOpened });
-        win.webContents.sendInputEvent({ type:'keyDown', keyCode:'Escape' });
-        win.webContents.sendInputEvent({ type:'keyUp', keyCode:'Escape' });
-        await wait(100);
-        assert.equal(await evaluate(`return !document.getElementById('aircraft-voice-control-modal') && document.activeElement.hasAttribute('data-aircraft-voice-control-trigger');`), true,
-          `${width}px: closing Voice control restores its visible launcher`);
+
       }
       assert.deepEqual(toolActivations.filter(result => !result.opened), [], 'every Aircraft action opens its dialog with native mouse/touch input');
       await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled:false, maxTouchPoints:1 });
@@ -720,22 +799,12 @@ async function browser() {
         await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await layoutTest.settle();`);
         assert.equal(await evaluate(`return !document.getElementById('${modal}') && document.activeElement.classList.contains('aircraft-tools-toggle');`), true, `${modal}: close restores the visible Tools launcher`);
       }
-      await evaluate(`document.querySelector('.aircraft-tools-toggle').focus(); layoutTest.holdMediaChanges();`);
-      await resizeTools(1440, 1000);
-      assert.ok(await evaluate(`await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); return layoutTest.releaseMediaChanges();`), 'desktop resize exercised deferred media listeners');
-      const desktopFocus = await settled(`return { width: innerWidth,
-        guide: document.activeElement.hasAttribute('data-aircraft-integration-guide-trigger'),
-        height: document.activeElement.getBoundingClientRect().height };`,
-      state => state.width === 1440 && state.guide && state.height > 0);
-      assert.equal(desktopFocus.width === 1440 && desktopFocus.guide && desktopFocus.height > 0, true,
-        `a disappearing Tools launcher transfers focus to its visible desktop tool: ${JSON.stringify(desktopFocus)}`);
-      await evaluate(`layoutTest.holdMediaChanges();`);
-      await resizeTools(390, 844);
-      assert.ok(await evaluate(`await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); return layoutTest.releaseMediaChanges();`), 'phone resize exercised deferred media listeners');
-      const compactFocus = await settled(`return { class: document.activeElement.className, width: innerWidth, tools: document.querySelector('.aircraft-tools-toggle').getBoundingClientRect().height, guide: document.querySelector('[data-aircraft-integration-guide-trigger]').getBoundingClientRect().height };`,
-      state => state.width === 390 && state.class.includes('aircraft-tools-toggle') && state.tools > 0);
-      assert.equal(compactFocus.width === 390 && compactFocus.class.includes('aircraft-tools-toggle') && compactFocus.tools > 0, true,
-        `a disappearing desktop tool transfers focus to the phone disclosure: ${JSON.stringify(compactFocus)}`);
+      await evaluate(`document.querySelector('.aircraft-tools-toggle').focus();`);
+      for (const width of [1440, 390]) {
+        await resizeTools(width, 844);
+        assert(await evaluate(`return document.activeElement.classList.contains('aircraft-tools-toggle')
+          && document.activeElement.getBoundingClientRect().height > 0;`), 'Tools keeps focus across desktop and phone sizes');
+      }
       await evaluate(`document.querySelector('.aircraft-find__launcher').click(); await layoutTest.settle(); const input = document.getElementById('aircraft-find-input'); input.value = 'heading'; input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();`);
       for (const [width, height] of [[1440, 1000], [700, 390], [320, 700]]) {
         await resizeTools(width, height);
@@ -753,7 +822,7 @@ async function browser() {
       await win.webContents.debugger.sendCommand('Emulation.clearDeviceMetricsOverride');
     }
     for (const id of (process.env.FF_AUTOTAXI_LAYOUT_ONLY === '1' || process.env.FF_AIRCRAFT_TOOLS_ONLY === '1' ? [] : ['fenix-a320', 'fbw-a32nx', 'pmdg-737', 'pmdg-777'])) {
-      await evaluate(`await layoutTest.scenario(${JSON.stringify(id)}); document.querySelector('[data-cdu-trigger]').click(); await layoutTest.settle();`);
+      await evaluate(`await layoutTest.cockpitScenario(${JSON.stringify(id)}); document.querySelector('[data-cdu-trigger]').click(); await layoutTest.settle();`);
       await ready('[data-cdu-modal]');
       if (id === 'fenix-a320') {
         await ready('[data-cdu-modal] a');
@@ -945,6 +1014,7 @@ async function browser() {
     }
     if (!process.env.FF_CDU_LAYOUT_ONLY && !process.env.FF_AIRCRAFT_TOOLS_ONLY && !process.env.FF_AUTOTAXI_LAYOUT_ONLY) {
       await checkMountedNumericDrafts({ evaluate });
+      await checkPresetFirstViews(false);
     }
     assert.deepEqual(errors, [], 'no runtime errors');
     console.log(process.env.FF_CDU_LAYOUT_ONLY === '1'
@@ -1035,7 +1105,7 @@ async function main() {
     });
     const taxiSupport = { family: templateId, aircraftLabel: id === 'generic' ? 'Generic aircraft' : id.startsWith('fenix-') ? `Fenix ${id.slice(6).toUpperCase()}` : id.replace('pmdg-', 'PMDG '), qualificationStatus: 'candidate', reason: null,
       setupInstructions: id.startsWith('pmdg-') ? ['In PMDG setup, select Tiller + Rudder steering hardware.'] : id.startsWith('fenix-') ? ['Prepare the aircraft with automatic thrust control off.'] : ['Use standard simulator throttle, brake and steering controls.'] };
-    return [id, { templateId, capabilities, values, cdu: cduFixture(id), taxiSupport }];
+    return [id, { profile: { id, name: profile.name, aircraftTitle: id === 'generic' ? 'Cessna 172 Skyhawk' : profile.name }, templateId, capabilities, values, cdu: cduFixture(id), taxiSupport }];
   }));
   fixtures.__autotaxiFixture = AUTOTAXI_FIXTURE;
   fixtures.__pushbackE2E = process.env.FF_PUSHBACK_E2E === '1';

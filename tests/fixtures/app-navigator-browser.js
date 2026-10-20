@@ -5,18 +5,23 @@ import { useShellStore } from '../../frontend/src/vue/stores/shell.js';
 import { useTabsStore } from '../../frontend/src/vue/stores/tabs.js';
 import { useVoiceControlStore } from '../../frontend/src/vue/stores/voice-control.js';
 
+import { useProfilesStore } from '../../frontend/src/vue/stores/profiles.js';
+
 const pinia = createPinia();
 setActivePinia(pinia);
 const shell = useShellStore();
 const tabs = useTabsStore();
 const voice = useVoiceControlStore();
 voice.setBridgeAvailable(true);
+useProfilesStore().setAuthorizationScope('full-control');
 // The focused navigator fixture models the Settings section as a focus target.
 const voiceSection = document.createElement('section');
 voiceSection.id = 'settings-voice-control';
 voiceSection.tabIndex = -1;
 voiceSection.textContent = 'Voice control';
 document.getElementById('vue-main-root').appendChild(voiceSection);
+const phoneSection = voiceSection.cloneNode(); phoneSection.id = 'settings-phone-tablet-access';
+document.getElementById('vue-main-root').appendChild(phoneSection);
 createApp({ render: () => h(AppNavigator) }).use(pinia).mount('#navigator-app');
 document.getElementById('open-search').onclick = () => shell.openNavigator();
 document.getElementById('open-help').onclick = () => shell.openNavigator('help');

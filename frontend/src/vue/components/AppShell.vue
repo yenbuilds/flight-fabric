@@ -21,6 +21,7 @@ import WhatsNewCard from './WhatsNewCard.vue';
 import { useBodyClass } from '../composables/useBodyClass.js';
 import { useVisualViewportCssVars } from '../composables/useVisualViewportCssVars.js';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
+import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useLogbookStore } from '../stores/logbook.js';
 import { usePromptsStore } from '../stores/prompts.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
@@ -54,6 +55,7 @@ const whatsNew = useWhatsNewStore();
 const voice = useVoiceControlStore();
 const voiceFirstCommand = useVoiceFirstCommandStore();
 const aircraftControls = useAircraftControlsStore();
+const aircraftSpecific = useAircraftSpecificStore();
 let cleanupWelcomeGate = null;
 let welcomeStarted = false;
 let cleanupTabsRuntime = null;
@@ -114,6 +116,7 @@ onMounted(() => {
       firstCommandStore: voiceFirstCommand,
       voiceStore: voice,
       aircraftControlsStore: aircraftControls,
+      aircraftSpecificStore: aircraftSpecific,
       statusStore: status,
       promptsStore: prompts,
       windowRef: window,

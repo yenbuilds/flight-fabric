@@ -192,11 +192,12 @@ function createMountedTestRenderer(createRenderer) {
   };
   const renderer = createRenderer({
     createElement: makeNode, createText: text => makeNode('text', text), createComment: text => makeNode('comment', text),
+    insertStaticContent: (text, parent) => { const node = makeNode('static', text); node.parent = parent; parent.children.push(node); return [node, node]; },
     setText: (node, text) => { node.text = text; }, setElementText: (node, text) => { node.text = text; },
     patchProp: (node, key, _previous, value) => { node.props[key] = value; },
     insert: (node, parent) => { node.parent = parent; parent.children.push(node); },
     remove: node => { node.parent.children = node.parent.children.filter(child => child !== node); },
-    parentNode: node => node.parent, nextSibling: () => null,
+    parentNode: node => node?.parent || null, nextSibling: node => node?.parent?.children[node.parent.children.indexOf(node) + 1] || null,
   });
   return { nodes, makeNode, renderer };
 }
@@ -1567,7 +1568,6 @@ async function main() {
       assert.match(html, new RegExp(`id="${id}"`), `${id} should render for settings runtime`);
     }
 
-    assert.match(html, /App preferences/, 'settings form title should distinguish PC preferences from device workspace choices');
     assert.match(html, /settings file/, 'settings explanatory copy should render');
     assert.doesNotMatch(html, /id="setting-aircraft-profile"/, 'settings should not duplicate the compact profile correction selector');
     assert.doesNotMatch(html, /id="settings-aircraft-profile-tools"/, 'settings should not expose profile file mutation tools');
@@ -1583,7 +1583,7 @@ async function main() {
     assert.match(html, /id="settings-phone-tablet-access"/, 'settings should give phone and tablet access a prominent dedicated section');
     assert.match(html, /Use FlightFabric on phones and tablets/, 'settings should frame remote access around the second-screen use case');
     assert.match(html, /Advanced network ports/, 'advanced settings should retain only the uncommon port controls');
-    assert.doesNotMatch(html, /id="setting-remote-aircraft-control"/, 'aircraft-control opt-in should stay hidden until trusted LAN access is enabled');
+    assert.match(html, /style="display:none;"[^>]*>[\s\S]*id="setting-remote-aircraft-control"/, 'aircraft-control input stays mounted but hidden until access is enabled');
     assert.match(html, /Check for app updates/, 'settings panel should expose update checks');
     assert.match(html, /Use online map tiles/, 'settings panel should expose online map tile control');
     assert.match(html, /Automatically start recording flights/, 'settings panel should expose automatic recording control');
@@ -1594,7 +1594,7 @@ async function main() {
     );
     assert.match(html, /id="setting-cabin-announcements-warning"[\s\S]*Experimental[\s\S]*timing can vary/, 'cabin audio panel should describe the phase-triggered PA audio timing limitation professionally');
     assert.doesNotMatch(html, /settings-debug-panel|setting-debug-mode|Backend Debug Logging/, 'settings should not expose backend debug logging');
-    assert.match(html, /Keep this off on public or shared networks\./, 'remote access help should warn against public or shared networks');
+    assert.match(html, /Use only on a private network you trust\./, 'remote access help should warn against public or shared networks');
     assert.match(html, /after startup and then daily/, 'update checks help should describe low-cadence checks');
     assert.match(html, /Turn this off for a fully quiet app\./, 'update checks help should describe quiet-app behavior');
     assert.match(html, /OpenStreetMap/, 'online map help should identify the basemap provider');
@@ -1653,8 +1653,7 @@ async function main() {
 
     assert.match(html, /id="setting-remote-aircraft-control"/, 'trusted LAN settings should expose aircraft control separately');
     assert.match(html, /Allow aircraft controls on paired devices/);
-    assert.match(html, /does not grant settings, recordings, history, file deletion, or profile management/);
-    assert.match(html, /id="setting-remote-aircraft-control-warning"/);
+    assert.match(html, /Pairing grants aircraft controls, not access to your settings or recordings/);
   });
 
   await test('SettingsActionBar renders store-backed action labels, restart state, and save flash state', async () => {
@@ -1706,7 +1705,7 @@ async function main() {
     assert.match(html, /data-tab="livemap"[^>]*aria-current="page"/, 'active desktop nav item should expose aria-current');
     assert.match(html, /data-tab="livemap"[^>]*aria-controls="tab-livemap tab-flight"/, 'Flight navigation owns both views');
     assert.match(html, /data-tab="livemap"[\s\S]*?>Flight</, 'Flight has a consistent navigation label');
-    assert.match(html, /data-tab="autopilot"[\s\S]*?>Aircraft</, 'controls tab should render the Aircraft label');
+    assert.match(html, /data-tab="autopilot"[\s\S]*?>Aircraft controls</, 'controls destination should explain what users can do');
     assert.doesNotMatch(html, /Command Deck|Telemetry, control, and debrief/, 'desktop tabs should not render decorative copy');
   });
 
@@ -1727,7 +1726,7 @@ async function main() {
 
     assert.match(
       html,
-      /data-tab="autopilot"[^>]*aria-label="Aircraft, setup required"/,
+      /data-tab="autopilot"[^>]*aria-label="Aircraft controls, setup required"/,
       'the Aircraft nav item should announce its setup state',
     );
     assert.match(html, /data-aircraft-setup-indicator/, 'the Aircraft nav item should show a compact amber indicator');
@@ -1747,7 +1746,7 @@ async function main() {
     const overviewIndex = html.indexOf('data-tab="flight"');
     assert.ok(aircraftIndex >= 0 && aircraftIndex < moreButtonIndex, 'Aircraft should remain in the primary mobile navigation');
     assert.equal(overviewIndex, -1, 'Overview should not duplicate Flight in More');
-    assert.match(html, /data-tab="autopilot"[\s\S]*?>Aircraft</, 'primary mobile navigation should label the control surface Aircraft');
+    assert.match(html, /data-tab="autopilot"[\s\S]*?>Controls</, 'mobile navigation keeps an explicit, compact control label');
     assert.match(html, /data-tab="livemap"[\s\S]*?>Flight</, 'the mobile entry owns both monitoring views');
   });
 
@@ -1768,7 +1767,7 @@ async function main() {
 
     assert.match(
       html,
-      /data-tab="autopilot"[^>]*aria-label="Aircraft, setup required"/,
+      /data-tab="autopilot"[^>]*aria-label="Aircraft controls, setup required"/,
       'the primary mobile Aircraft item should announce its setup state',
     );
     assert.match(html, /data-aircraft-setup-indicator/, 'the primary mobile Aircraft item should show the amber dot');
@@ -1814,7 +1813,7 @@ async function main() {
   await test('DesktopTabs keeps four task destinations and a fixed Manage group', async () => {
     const { html } = await renderComponent(path.join('src', 'vue', 'components', 'DesktopTabs.vue'),
       ({ useTabsStore }) => useTabsStore().setActiveTab('settings'));
-    const order = ['livemap', 'autopilot', 'dispatch', 'timeline', 'settings', 'system'].map(id => html.indexOf(`data-tab="${id}"`));
+    const order = ['autopilot', 'livemap', 'dispatch', 'timeline', 'settings', 'system'].map(id => html.indexOf(`data-tab="${id}"`));
     assert.ok(order.every(index => index >= 0));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
     const utilities = html.indexOf('sidebar-nav-utilities');
@@ -1823,7 +1822,7 @@ async function main() {
     assert.match(html, /data-tab="settings"[^>]*aria-current="page"/);
     assert.match(html, /data-tab="settings"[^>]*aria-controls="tab-settings"/);
     const keycaps = [...html.matchAll(/data-tab="([a-z]+)"[^>]*aria-keyshortcuts="([1-9 ]+)"/g)].map(match => [match[1], match[2]]);
-    assert.deepEqual(keycaps, [['livemap', '1 2'], ['autopilot', '3'], ['dispatch', '4'], ['timeline', '5'], ['settings', '6'], ['system', '7']]);
+    assert.deepEqual(keycaps, [['autopilot', '3'], ['livemap', '1 2'], ['dispatch', '4'], ['timeline', '5'], ['settings', '6'], ['system', '7']]);
   });
 
   await test('MobileTabs keeps Flight, Aircraft, SimBrief and Logbook ahead of More', async () => {
@@ -1938,10 +1937,9 @@ async function main() {
     assert.match(off.html, /id="voice-first-command-card"[^>]*role="status"/, 'the card is a polite status region');
     assert.doesNotMatch(off.html, /aria-modal|role="dialog"/, 'the card must never be modal');
     assert.match(off.html, /data-voice-first-command-stage="try"/);
-    assert.match(off.html, /app-prompt-reason">Voice control · PMDG 737-800</, 'the eyebrow names the aircraft');
     assert.match(off.html, /app-prompt-title">Try one voice command</);
     assert.match(off.html, /id="voice-first-command-example"[^>]*>“Set heading 270”</, 'the phrase to say is quoted verbatim');
-    assert.match(off.html, /audio never leaves it/, 'the privacy promise travels with the first ask');
+    assert.match(off.html, /This sends a command to your aircraft/, 'the first ask explains its effect');
     assert.match(off.html, /id="voice-first-command-enable"[^>]*>\s*Turn on voice\s*</, 'voice off means one button to turn it on');
     assert.doesNotMatch(off.html, /id="voice-first-command-talk"/, 'no hold-to-talk button while voice is off');
     assert.match(off.html, /id="voice-first-command-dismiss"[^>]*>\s*Not now\s*</);
@@ -1972,7 +1970,6 @@ async function main() {
       },
     );
     assert.match(blocked.html, /id="voice-first-command-note"[^>]*>Heard: “set the thing” · No command matched\. Try the full phrase\.</, 'what was heard and why it missed are shown together so it can be corrected');
-    assert.match(blocked.html, /app-prompt-reason">Voice control</, 'no aircraft name, no dangling separator');
 
     const done = await renderComponent(
       path.join('src', 'vue', 'components', 'VoiceFirstCommandCard.vue'),
@@ -2131,10 +2128,10 @@ async function main() {
 
       assert.match(html, /id="second-screen-guide"/, 'remote browser should render the first-run second-screen guide');
       assert.match(html, /id="second-screen-guide"[^>]*class="[^"]*\bhidden\b[^"]*min-\[641px\]:block/, 'the complete guide container should stay hidden through the mobile breakpoint');
-      assert.match(html, /Keep this second screen for every flight/, 'guide should make repeat-flight behavior explicit');
+      assert.match(html, /Your aircraft, at your fingertips/, 'guide should make repeat-flight behavior explicit');
       assert.match(html, /New flights appear automatically/, 'guide should tell users a new flight needs no scan');
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Viewer mode\s*</, 'guide should expose the current read-only state');
-      assert.match(html, /request approval below and match its code on the FlightFabric PC/, 'read-only guidance should explain the camera-less approval path');
+      assert.match(html, /Approve the matching code in Settings → Devices on your PC/, 'read-only guidance should explain the camera-less approval path');
     } finally {
       delete globalThis.location;
     }
@@ -2154,10 +2151,10 @@ async function main() {
         },
       );
 
-      assert.match(html, /id="second-screen-control-status"[^>]*>\s*Controls paired\s*</, 'paired phone should expose its acknowledged control state');
-      assert.match(html, /stay paired for this backend session/, 'paired guidance should retain the backend-session security lifetime');
-      assert.match(html, /Pair again only after the FlightFabric backend restarts/, 'paired guidance should say when another approval is required');
-      assert.match(html, /matching-code approval or the current Phone QR/, 'paired guidance should retain both secure recovery paths');
+      assert.match(html, /id="second-screen-control-status"[^>]*>\s*Controls ready\s*</, 'paired phone should expose its acknowledged control state');
+      assert.match(html, /Access lasts until the FlightFabric service restarts/, 'paired guidance should retain the backend-session security lifetime');
+      assert.match(html, /Voice uses the microphone on your PC/, 'paired guidance should say when another approval is required');
+      assert.match(html, /request a new code here or scan the current QR in Settings \u2192 Devices/, 'paired guidance should retain both secure recovery paths');
     } finally {
       delete globalThis.location;
     }
@@ -2178,8 +2175,8 @@ async function main() {
       );
 
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Pairing expired\s*</, 'stale paired URL should not be described as generic viewer mode');
-      assert.match(html, /id="second-screen-pairing-expired"[^>]*>[\s\S]*Request approval again below/, 'stale pairing guidance should offer the camera-less recovery path');
-      assert.match(html, /Pairing changes whenever the backend restarts/, 'stale pairing guidance should explain why the saved token expired');
+      assert.match(html, /id="second-screen-pairing-expired"[^>]*>[\s\S]*Request a new code below/, 'stale pairing guidance should offer the camera-less recovery path');
+      assert.match(html, /approve it on your PC/, 'stale pairing guidance should explain why the saved token expired');
     } finally {
       delete globalThis.location;
     }
@@ -2216,8 +2213,8 @@ async function main() {
       );
 
       assert.match(html, /id="device-pairing-request"/, 'remote viewer should render the pairing action');
-      assert.match(html, /This device is connected in viewer mode/, 'pairing action should explain the safe initial state');
-      assert.match(html, /approve the matching code/, 'pairing action should explain the PC verification step');
+      assert.match(html, /Enable controls on this device/, 'pairing action should explain the safe initial state');
+      assert.match(html, /approve it in/, 'pairing action should explain the PC verification step');
       assert.match(html, /id="device-pairing-request-btn"/, 'pairing action should expose one clear request button');
       assert.doesNotMatch(html, /aircraftControlToken=/, 'camera-free pairing UI must not render a bearer token');
     } finally {
@@ -2248,50 +2245,59 @@ async function main() {
 
     assert.doesNotMatch(html, /id="system-host-mode"/, 'system tab should not repeat the Electron host mode beside Refresh');
     assert.match(html, /Service controls are available in the FlightFabric desktop app on your simulator PC/, 'browser fallback copy should render outside Electron');
-    assert.match(html, /LAN address unavailable/, 'system tab should not render localhost as a phone URL before a LAN IP is known');
+    assert.match(html, /Connect a phone or tablet/, 'System links to the single setup destination');
     assert.doesNotMatch(html, /id="system-mobile-qr"/, 'system tab should not render a stale phone QR before a LAN URL is known');
-    assert.match(html, /Scan the QR or type the address/, 'system tab should present both phone setup paths clearly');
     assert.doesNotMatch(html, /Settings And Recovery/, 'settings and recovery controls should not be duplicated in the system tab');
     assert.doesNotMatch(html, /Recovery Launcher/, 'recovery launcher should remain outside the dashboard in the tray menu');
     assert.match(html, /Your recordings and saved flight summaries stay unchanged/, 'history rebuild safety boundary should be explicit');
   });
 
-  await test('SystemTabShell renders a QR code for the mobile browser URL', async () => {
-    const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'SystemTabShell.vue'),
-      async ({ useSystemHostStore, useProfilesStore }) => {
+  await test('System history distinguishes unknown, work in progress, retries, errors and confirmed success', async () => {
+    for (const [index, actionError, tone, message] of [
+      [{}, '', 'gray-500', /Waiting for flight-history status/],
+      [{ phase: 'checking', busy: true }, '', 'warning', /Checking saved flight files/],
+      [{ phase: 'indexing', busy: true, completedFiles: 2, totalFiles: 4, percent: 50 }, '', 'warning', /2 of 4 flights/],
+      [{ phase: 'complete', counts: { flights: 4, landings: 3 } }, '', 'success', /Up to date: 4 flights/],
+      [{ phase: 'complete', failures: 1 }, '', 'warning', /1 file will be retried/],
+      [{ phase: 'error', error: 'Unable to read the flight list' }, '', 'danger', /Unable to read the flight list/],
+      [{ phase: 'complete' }, 'Connection lost. Try again.', 'danger', /Connection lost/],
+    ]) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'SystemTabShell.vue'), ({ useProfilesStore, useLogbookStore }) => {
         useProfilesStore().setAuthorizationScope('full-control');
-        globalThis.electronAPI = {
-          getBackendStatus: async () => ({ status: 'running' }),
-          getHttpStatus: async () => ({ status: 'running', port: 8123 }),
-          getBackendWsPort: async () => 9199,
-          getBackendHttpPort: async () => 8100,
-          getStartupHealth: async () => ({ ok: true }),
-          getNetworkInfo: async () => ({ ips: ['10.0.0.5', '192.168.1.42'], httpPort: 8100, wsPort: 9199 }),
-          getSettings: async () => ({ success: true, settings: { remoteAccess: true }, settingsFile: 'C:\\Users\\Pilot\\settings.json' }),
-          getBackendBootstrap: async () => ({
-            ok: true,
-            body: { aircraftControlToken: 'fixture-aircraft-token', remoteAccessEnabled: true },
-          }),
-        };
+        useLogbookStore().historyIndexStatus = index;
+        useLogbookStore().historyIndexActionError = actionError;
+      });
+      assert.match(html, new RegExp(`id="system-history-index-indicator"[^>]*bg-${tone}`));
+      assert.match(html, message);
+    }
+  });
 
-        const store = useSystemHostStore();
-        await store.refresh();
-      },
-    );
-
-    assert.match(html, /id="system-remote-url"[^>]*>[\s\S]*http:\/\/192\.168\.1\.42:8100\/phone/, 'system tab should make the short camera-free address the readable phone URL');
-    assert.match(html, /id="system-camera-free-setup"/, 'system tab should offer a camera-free setup path');
-    assert.match(html, /id="system-phone-entry-url"[^>]*>\s*http:\/\/192\.168\.1\.42:8100\/phone\s*</, 'camera-free setup should show the short server-routed phone address');
-    assert.match(html, /id="system-mobile-pairing-note"[^>]*>[\s\S]*QR privately pairs aircraft controls for this backend session/, 'system tab should label the private QR accurately');
-    assert.match(html, /Starting a new flight does not require pairing again/, 'system tab should distinguish a new flight from a backend restart');
-    assert.match(html, /Other network addresses[\s\S]*id="system-alt-ips"[^>]*>\s*10\.0\.0\.5\s*</, 'system tab should keep alternate IP fallback copy behind progressive disclosure');
-    assert.match(html, /id="system-mobile-qr"/, 'system tab should render one phone QR');
-    assert.doesNotMatch(html, /id="system-viewer-qr"|id="system-control-pairing-qr"/, 'system tab should not split phone setup into viewer and control choices');
-    assert.match(html, /role="img"[^>]*aria-label="Private QR code for FlightFabric phone setup"/, 'QR should have a useful label without reading its private credential aloud');
-    assert.doesNotMatch(html, /fixture-aircraft-token/, 'the private QR credential should not be printed or exposed in accessible text');
-    assert.equal((html.match(/role="img"/g) || []).length, 1, 'system tab should render exactly one phone QR');
-    assert.match(html, /<path[^>]+d="M/, 'QR should render dark modules as an SVG path');
+  await test('PhoneTabletSetup offers one private QR and a token-free typed address only after access is active', async () => {
+    for (const active of [false, true]) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'PhoneTabletSetup.vue'),
+        ({ useProfilesStore, useStatusStore, useSettingsEditorStore, useAppSettingsStore, useSystemHostStore }) => {
+          useProfilesStore().setAuthorizationScope('full-control');
+          useStatusStore().setWebsocket('ready');
+          const saved = { network: { remoteAccess: true, remoteAircraftControl: true } };
+          useAppSettingsStore().apply({ settings: saved });
+          useSettingsEditorStore().applySettings(saved);
+          const host = useSystemHostStore();
+          host.remoteAccessEnabled = active;
+          host.networkInfo = { ips: ['192.168.1.42', '10.0.0.5'], httpPort: 8100, wsPort: 9199 };
+          host.aircraftControlToken = 'fixture-aircraft-token';
+        });
+      assert.equal(html.includes('id="phone-setup-qr"'), active, 'saved access alone never exposes a QR before restart');
+      assert.doesNotMatch(html, /fixture-aircraft-token/, 'private token is not printed or exposed to assistive technology');
+      if (active) {
+        assert.match(html, /http:\/\/192\.168\.1\.42:8100\/phone/);
+        assert.match(html, /Enter an address instead/);
+        assert.match(html, /Scan to connect this device with aircraft controls/);
+        assert.equal((html.match(/role="img"/g) || []).length, 1);
+      } else {
+        assert.match(html, /Your choices are saved. Restart FlightFabric/);
+        assert.doesNotMatch(html, /data-phone-copy/);
+      }
+    }
   });
 
   await test('SystemTabShell labels the current phone as paired while keeping its share link read-only', async () => {
@@ -2326,46 +2332,15 @@ async function main() {
         },
       );
 
-      assert.match(html, /id="system-remote-url"[^>]*>[\s\S]*http:\/\/192\.168\.1\.42:8100\/phone/, 'paired phone should display the short token-free setup address');
+      assert.match(html, /id="system-phone-entry-url"[^>]*>[\s\S]*http:\/\/192\.168\.1\.42:8100\/phone/, 'paired phone should display the short token-free setup address');
       assert.doesNotMatch(html, /received-phone-token/, 'paired phone should not render its received token into copy or QR markup');
-      assert.match(html, /This browser is already paired for aircraft controls/, 'paired phone should describe its actual current control state');
+      assert.match(html, /This device is paired for aircraft controls/, 'paired phone should describe its actual current control state');
       assert.match(html, /id="system-mobile-qr"/, 'paired phone may show its safe token-free viewer URL as the single phone link');
       assert.doesNotMatch(html, /id="system-control-pairing-qr"/, 'paired phone should never receive a redistributable pairing QR');
     } finally {
       delete globalThis.location;
       globalThis.fetch = originalFetch;
     }
-  });
-
-  await test('SystemTabShell hides phone pairing while trusted-LAN access is inactive', async () => {
-    const { html } = await renderComponent(
-      path.join('src', 'vue', 'components', 'SystemTabShell.vue'),
-      async ({ useSystemHostStore, useProfilesStore }) => {
-        useProfilesStore().setAuthorizationScope('full-control');
-        globalThis.electronAPI = {
-          getBackendStatus: async () => ({ status: 'running' }),
-          getHttpStatus: async () => ({ status: 'running', port: 8123 }),
-          getBackendWsPort: async () => 9199,
-          getBackendHttpPort: async () => 8100,
-          getStartupHealth: async () => ({ ok: true }),
-          getNetworkInfo: async () => ({ ips: ['192.168.1.42'], httpPort: 8100, wsPort: 9199 }),
-          getSettings: async () => ({ success: true, settings: { remoteAccess: true } }),
-          getBackendBootstrap: async () => ({
-            ok: true,
-            body: { aircraftControlToken: 'fixture-aircraft-token', remoteAccessEnabled: false },
-          }),
-        };
-
-        await useSystemHostStore().refresh();
-      },
-    );
-
-    assert.match(html, /Phone &amp; tablet access is off/, 'phone card should explain why pairing is unavailable');
-    assert.match(html, /id="system-mobile-disabled-note"[^>]*>[\s\S]*restart the backend before pairing/, 'phone card should explain how to activate LAN access');
-    assert.match(html, /id="system-mobile-settings-btn"[\s\S]*Enable phone &amp; tablet access/, 'phone card should link directly to the access setting when pairing is unavailable');
-    assert.doesNotMatch(html, /id="system-mobile-qr"/, 'inactive LAN access must not render a QR code');
-    assert.doesNotMatch(html, /id="system-mobile-copy-btn"/, 'inactive LAN access must not expose a copy action');
-    assert.doesNotMatch(html, /fixture-aircraft-token/, 'inactive LAN access must not render the pairing token');
   });
 
   await test('SystemTabShell gives remote devices connection information without PC maintenance actions', async () => {
@@ -2381,7 +2356,7 @@ async function main() {
       assert.match(html, /Services, recordings, and flight-history maintenance are managed in FlightFabric on your simulator PC/);
       assert.doesNotMatch(html, /id="system-(?:history-index|backend-service|frontend-service|start-all-btn|mobile-settings-btn|device-pairing-requests)"/, `${scope} must not expose PC administration`);
       assert.doesNotMatch(html, /private-history-error|127\.0\.0\.1/, 'cached history and PC localhost links must not appear remotely');
-      assert.match(html, /Enable phone &amp; tablet access in Settings on your simulator PC/, 'disabled LAN access must direct the user to the actual manager');
+      assert.match(html, /Open Settings → Devices in FlightFabric on your PC/, 'disabled LAN access must direct the user to the actual manager');
     }
   });
 
@@ -2399,7 +2374,7 @@ async function main() {
       setText: (node, text) => { node.text = text; }, setElementText: (node, text) => { node.text = text; },
       patchProp: (node, key, _previous, value) => { node.props[key] = value; }, insert,
       remove: node => { node.parent.children = node.parent.children.filter(child => child !== node); },
-      parentNode: node => node.parent, nextSibling: () => null,
+      parentNode: node => node?.parent || null, nextSibling: node => node?.parent?.children[node.parent.children.indexOf(node) + 1] || null,
       insertStaticContent: (text, parent) => { const node = makeNode('static', text); insert(node, parent); return [node, node]; },
     });
     const pinia = createPinia(); setActivePinia(pinia);
@@ -2420,19 +2395,16 @@ async function main() {
       assert.equal(refreshes, 1, 'remote mount should refresh safe connection information');
       assert.deepEqual(sent, [], 'remote mount must not request history or other devices');
       profiles.setAuthorizationScope('full-control'); await nextTick();
-      assert.deepEqual(sent.map(message => message.type), ['requestHistoryIndexStatus', 'requestDevicePairingRequests']);
+      assert.deepEqual(sent.map(message => message.type), ['requestHistoryIndexStatus']);
       const check = node('system-history-index-check-btn').props.onClick;
       const rebuild = node('system-history-index-rebuild-btn').props.onClick;
       check();
       assert.equal(sent.at(-1).type, 'checkHistoryIndex');
-      emitWsMessage({ type: 'devicePairingRequests', enabled: true, requests: [{ id: 'device-1', confirmationCode: '654321', expiresAt: Date.now() + 60000, remoteAddress: '192.168.1.24' }] });
-      await nextTick();
-      const approve = descendants(node('system-device-pairing-requests')).find(entry => entry.kind === 'button').props.onClick;
       profiles.setAuthorizationScope('aircraft-control'); await nextTick();
       const count = sent.length;
       let confirmations = 0;
       globalThis.confirm = () => { confirmations += 1; return true; };
-      check(); rebuild(); approve(); node('system-refresh-btn').props.onClick();
+      check(); rebuild(); node('system-refresh-btn').props.onClick();
       assert.equal(sent.length, count, 'revocation must block stale action callbacks and privileged refresh');
       assert.equal(confirmations, 0, 'remote devices must not be asked to confirm unavailable maintenance');
       assert.equal(node('system-history-index'), undefined);
@@ -3592,7 +3564,43 @@ async function main() {
     assert.doesNotMatch(html, /id="aircraft-specific-section"/, 'Overview should no longer render aircraft-specific controls');
   });
 
-  await test('AircraftTabShell renders generic controls when no trusted template is active', async () => {
+  await test('Aircraft page waits for detection and offers read-only aircraft discovery', async () => {
+    for (const connected of [false, true]) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'), ({ useStatusStore, useProfilesStore, useVoiceControlStore }) => {
+        const status = useStatusStore();
+        status.updateAircraftProfile({ profile: { id: 'generic', name: 'Generic', aircraftTitle: '' } });
+        status.ingestMessage({ type: 'simState', simconnectConnected: connected, inMenu: connected });
+        const voice = useVoiceControlStore();
+        voice.setBridgeAvailable(true);
+        voice.setState('disabled');
+        const profiles = useProfilesStore();
+        profiles.setAuthorizationScope('full-control');
+        profiles.handleMessage({ type: 'profileList', profiles: [
+          { namespace: 'bundled', simulator: 'msfs', id: 'generic', name: 'Generic' },
+          { namespace: 'bundled', simulator: 'msfs', id: 'base', name: 'Abstract base', abstract: true },
+          { namespace: 'bundled', simulator: 'msfs', id: 'regional-jet', name: 'Regional Jet Base' },
+          { namespace: 'bundled', simulator: 'msfs', id: 'pmdg-737', name: 'PMDG 737-800' },
+          { namespace: 'bundled', simulator: 'msfs', id: 'tfdi-md-11', name: 'TFDi Design MD-11' },
+          { namespace: 'bundled', simulator: 'xplane', id: 'zibo-737-800', name: 'Zibo 737-800' },
+        ] });
+      });
+      assert.match(html, /data-aircraft-page-mode="waiting"/);
+      assert.match(html, new RegExp(connected ? 'Load an aircraft to get started' : 'Waiting for your simulator'));
+      assert.match(html, /Your aircraft controls will appear here/);
+      assert.match(html, /Set up voice control/);
+      assert.match(html, /PMDG 737-800/);
+      assert.equal(html.match(/PMDG 737-800/g).length, 1, 'featured aircraft is not repeated in the other list');
+      assert.match(html, /TFDi Design MD-11/);
+      assert.doesNotMatch(html, /Generic|Abstract base|Regional Jet Base|Zibo|<select|controls-diagnostics|data-aircraft-controls-trigger|data-aircraft-autotaxi-section/);
+    }
+    const fallback = await renderComponent(path.join('src', 'vue', 'components', 'AircraftProfileSelector.vue'), ({ useStatusStore }) => {
+      useStatusStore().updateAircraftProfile({ profile: { id: 'generic', name: 'Generic', aircraftTitle: 'Cessna 172 Skyhawk' } });
+    });
+    assert.match(fallback.html, /Standard controls/);
+    assert.doesNotMatch(fallback.html, /Generic/);
+  });
+
+  await test('AircraftTabShell renders standard controls for a loaded aircraft without a trusted template', async () => {
     const shellSource = fs.readFileSync(path.join(
       frontendRoot,
       'src',
@@ -3609,6 +3617,7 @@ async function main() {
     ), 'utf8');
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
+      ({ useStatusStore }) => useStatusStore().updateAircraftProfile({ profile: { id: 'generic', name: 'Generic', aircraftTitle: 'Cessna 172 Skyhawk' } }),
     );
 
     assert.match(html, /data-aircraft-page-mode="generic"/, 'an unmatched aircraft should select the generic control surface');
@@ -3634,11 +3643,6 @@ async function main() {
       fs.readFileSync(path.join(frontendRoot, 'src/vue/components/AircraftPresets.vue'), 'utf8'),
       /\.aircraft-presets\s*\{[\s\S]*?width:\s*100%;/,
       'Aircraft presets should own the full content row at every viewport width',
-    );
-    assert.match(
-      shellSource,
-      /aircraft-page-tool-actions--search-expanded > \.aircraft-find\s*\{[\s\S]*?flex:\s*1;/,
-      'expanded Aircraft search should own the available phone toolbar row',
     );
     assert.match(
       shellSource,
@@ -3720,66 +3724,17 @@ async function main() {
     }
   });
 
-  await test('AircraftTabShell reports compact voice states without presenting failures as ready', async () => {
-    const renderVoiceState = async (status) => renderComponent(
-      path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
-      ({ useVoiceControlStore }) => useVoiceControlStore().setState(status, `Test ${status}.`),
-    );
-    const cases = [
-      ['disabled', 'off', 'Off'],
-      ['initializing', 'busy', 'Starting'],
-      ['starting', 'busy', 'Starting'],
-      ['listening', 'listening', 'Listening'],
-      ['finishing', 'busy', 'Processing'],
-      ['sending', 'busy', 'Sending'],
-      ['ready', 'ready', 'Ready'],
-      ['sent', 'ready', 'Command sent'],
-      ['failed', 'attention', 'Command failed'],
-      ['error', 'attention', 'Needs attention'],
-      ['unmatched', 'attention', 'Try again'],
-      ['transcribed', 'ready', 'Transcribed'],
-      ['blocked', 'attention', 'Unavailable'],
-      ['unavailable', 'attention', 'Unavailable'],
-    ];
-    const mappedStatuses = new Set(cases.map(([status]) => status));
-    const voiceControllerSource = fs.readFileSync(path.join(
-      frontendRoot,
-      'src',
-      'voice',
-      'voice-controller.js',
-    ), 'utf8');
-    const emittedStatuses = new Set(
-      [...voiceControllerSource.matchAll(/voiceStore\.setState\(\s*['"]([^'"]+)['"]/g)]
-        .map((match) => match[1]),
-    );
-
-    for (const status of emittedStatuses) {
-      assert.equal(mappedStatuses.has(status), true, `voice status ${status} should have an intentional launcher mapping`);
-    }
-
-    for (const [status, state, label] of cases) {
-      const rendered = await renderVoiceState(status);
-      assert.match(
-        rendered.html,
-        new RegExp(`data-voice-state="${state}"`),
-        `${status} should use the ${state} launcher treatment`,
-      );
-      assert.match(rendered.html, new RegExp(label), `${status} should render the ${label} launcher label`);
-    }
-  });
-
-  await test('voice launcher and sidebar distinguish incomplete setup from a disconnected simulator', async () => {
-    for (const [registered, status, label] of [[false, 'ready', 'Check setup'], [true, 'ready', 'Ready'], [true, 'blocked', 'Unavailable']]) {
+  await test('voice setup reminders distinguish incomplete setup from a disconnected simulator', async () => {
+    for (const [registered, status] of [[false, 'ready'], [true, 'ready'], [true, 'blocked']]) {
       const configure = ({ useVoiceControlStore }) => {
         const voice = useVoiceControlStore();
         voice.setBridgeAvailable(true);
         voice.applyRuntimeInfo({ available: true, enabled: true, pushToTalk: { accelerator: 'Control+Shift+Space', registered } });
         voice.setState(status);
       };
-      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'), configure);
-      assert.match(html, new RegExp(`aria-label="Open voice control, ${label}"`));
       for (const component of ['DesktopTabs.vue', 'MobileTabs.vue']) {
         const navigation = await renderComponent(path.join('src', 'vue', 'components', component), configure);
+        assert.doesNotMatch(navigation.html, /data-voice-control-navigation/, 'main navigation does not launch the voice dialog');
         assert.equal(navigation.html.includes('data-voice-setup-trigger'), !registered, `${component}: reminder follows registration, not MSFS connectivity`);
       }
     }
@@ -3806,7 +3761,7 @@ async function main() {
     const renderPanelState = async (status) => renderComponent(
       path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
       ({ useVoiceControlStore }) => {
-        const voice = useVoiceControlStore();
+        const voice = useVoiceControlStore(); voice.setBridgeAvailable(true);
         voice.applyRuntimeInfo({
           available: true,
           enabled: true,
@@ -3926,7 +3881,7 @@ async function main() {
   await test('VoiceControlPanel discloses the release tail without overstating microphone-close timing', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
-      () => {},
+      ({ useVoiceControlStore }) => useVoiceControlStore().setBridgeAvailable(true),
       { props: { presentation: 'modal' } },
     );
     assert.match(html, /microphone remains active briefly/i);
@@ -3982,7 +3937,7 @@ async function main() {
       const pushToTalk = { controllerEnabled: true, accelerator: '', registered: Boolean(controller), controller };
       const { html } = await renderComponent(path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
         ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({ available: true, enabled: true, pushToTalk }));
-      assert.match(html, /Save shortcut or Save button/);
+      assert.match(html, /Choose how to talk/);
       assert.match(html, /data-voice-controller-choose/);
       if (controller) {
         assert.match(html, /keyboard shortcut is optional/);
@@ -4343,7 +4298,7 @@ async function main() {
           enabled: false,
           reason: 'Simulator is in a menu or loading state.',
         });
-        useVoiceControlStore().setState('failed', 'Verify aircraft state.');
+        useVoiceControlStore().setBridgeAvailable(true); useVoiceControlStore().setState('failed', 'Verify aircraft state.');
       },
       { props: { presentation: 'modal' } },
     );
@@ -4360,7 +4315,7 @@ async function main() {
       path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
       ({ useAircraftControlsStore, useVoiceControlStore }) => {
         useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
-        useVoiceControlStore().setState('failed', 'Verify aircraft state.');
+        useVoiceControlStore().setBridgeAvailable(true); useVoiceControlStore().setState('failed', 'Verify aircraft state.');
       },
       { props: { presentation: 'modal' } },
     );
@@ -4383,7 +4338,8 @@ async function main() {
     ), 'utf8');
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
-      ({ useAircraftControlsStore }) => {
+      ({ useAircraftControlsStore, useStatusStore }) => {
+        useStatusStore().updateAircraftProfile({ profile: { id: 'pmdg-737', name: 'PMDG 737-800' } });
         const aircraftControls = useAircraftControlsStore();
         aircraftControls.setAvailability({ enabled: true, reason: 'Ready.' });
         aircraftControls.applyControlCapabilities({
@@ -4684,7 +4640,7 @@ async function main() {
     for (const interruption of ['keyup', 'pointerup', 'blur', 'pointercancel', 'unmount', 'global']) {
       const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
       const pinia = createPinia(); setActivePinia(pinia);
-      const voice = useVoiceControlStore(), controls = useAircraftControlsStore();
+      const voice = useVoiceControlStore(); voice.setBridgeAvailable(true); const controls = useAircraftControlsStore();
       controls.setAvailability({ enabled: true });
       controls.applyControlCapabilities({ aircraftCommands: { profileKey: 'bundled/msfs/generic', profileRevision: 1,
         commands: [{ id: 'surfaces.gear.set', input: { kind: 'enum', values: ['up', 'down'] }, speech: { patterns: ['gear {value}'] } }],
@@ -4764,7 +4720,7 @@ async function main() {
 
     assert.match(html, /id="aircraft-voice-control-modal"/, 'voice controls should render in a dedicated modal');
     assert.match(html, /role="dialog"[\s\S]*aria-modal="true"/, 'the voice surface should expose modal semantics');
-    assert.match(html, /Keep FlightFabric in the background/, 'the modal should explain the simulator-first workflow');
+    assert.match(html, /Hold your push-to-talk button/, 'the modal should explain the simulator-first workflow');
     assert.match(html, /Browse 1 voice command/, 'the modal should route command discovery into the shared integration guide');
     assert.match(html, /aria-haspopup="dialog"/, 'the command browser should announce that it opens a dialog');
     assert.match(html, /aria-controls="aircraft-integration-cheatsheet-modal"/, 'the command browser should identify the integration guide it opens');
@@ -4789,7 +4745,7 @@ async function main() {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
       ({ useVoiceControlStore }) => {
-        const voice = useVoiceControlStore();
+        const voice = useVoiceControlStore(); voice.setBridgeAvailable(true);
         voice.applyRuntimeInfo({
           available: false,
           enabled: false,
@@ -4802,9 +4758,9 @@ async function main() {
 
     assert.match(html, /data-voice-recognition-toggle[\s\S]*role="switch"/, 'the off state should retain its explicit opt-in control');
     const operational = await renderComponent(path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'));
-    assert.match(operational.html, /data-voice-push-to-talk[^>]*disabled/, 'operational PTT stays off until explicit opt-in');
+    assert.doesNotMatch(operational.html, /data-voice-push-to-talk/, 'operational PTT stays off until explicit opt-in');
     assert.doesNotMatch(operational.html, /data-voice-settings-link/, 'remote browsers must not offer a link to unavailable local settings');
-    assert.match(operational.html, /Configure voice control in FlightFabric on the simulator PC/);
+    assert.match(operational.html, /Speak into the microphone connected to your simulator PC/);
     assert.match(html, /id="voice-input-device"[^>]*disabled/, 'microphone selection should be disabled while recognition is off');
     assert.match(html, /data-voice-shortcut-recorder[^>]*disabled/, 'shortcut capture should be disabled while recognition is off');
     assert.match(
@@ -4971,7 +4927,8 @@ async function main() {
   await test('AircraftTabShell exposes one Experimental Autotaxi panel across Generic, PMDG and Fenix aircraft', async () => {
     assert.equal(sharedSettings.LIVE_AUTOTAXI_ENABLED, true);
     for (const [profile, template] of [['generic', 'generic'], ['pmdg-737', 'pmdg-737'], ['pmdg-777', 'pmdg-777'], ['fenix-a320', 'fenix-a32x']]) {
-      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'), ({ useAircraftSpecificStore }) => {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'), ({ useAircraftSpecificStore, useStatusStore }) => {
+        useStatusStore().updateAircraftProfile({ profile: { id: profile, name: profile, aircraftTitle: profile === 'generic' ? 'Cessna 172 Skyhawk' : profile } });
         useAircraftSpecificStore().applyProfile({ _profileKey: `bundled/msfs/${profile}`, profileRevision: 1, aircraftSpecificTemplateId: template });
       });
       assert.equal((html.match(/data-aircraft-autotaxi-section/g) || []).length, 1, `${profile}: one shared Autotaxi panel`);
@@ -5671,7 +5628,8 @@ async function main() {
   await test('AircraftTabShell falls back safely when a profile names an unregistered template', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'AircraftTabShell.vue'),
-      ({ useAircraftSpecificStore }) => {
+      ({ useAircraftSpecificStore, useStatusStore }) => {
+        useStatusStore().updateAircraftProfile({ profile: { id: 'future-aircraft', name: 'Future aircraft' } });
         useAircraftSpecificStore().applyProfile({
           _profileKey: 'bundled/msfs/future-aircraft',
           profileRevision: 3,
@@ -5807,6 +5765,16 @@ async function main() {
     assert.match(html, /id="light-nav"[^>]*light-indicator on/, 'nav light should render on');
     assert.match(html, /id="light-bcn"[^>]*light-indicator on/, 'beacon light should render on');
     assert.match(html, /id="lights-na"[^>]*hidden/, 'lights unavailable copy should stay hidden when data is available');
+  });
+
+  await test('Flight light readouts distinguish on, off and unavailable individual values in text', async () => {
+    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'FlightTelemetryPanel.vue'), ({ useFlightStore }) => {
+      useFlightStore().updateLights({ nav: true, beacon: false, strobe: null });
+    });
+    assert.match(html, /id="light-nav"[^>]*>[\s\S]*?<strong[^>]*>On<\/strong>/);
+    assert.match(html, /id="light-bcn"[^>]*>[\s\S]*?<strong[^>]*>Off<\/strong>/);
+    assert.match(html, /id="light-strb"[^>]*>[\s\S]*?<strong[^>]*>Unknown<\/strong>/);
+    assert.doesNotMatch(html, /<button[^>]*data-light=/, 'telemetry does not offer a light control');
   });
 
   await test('QuickGlanceBar renders approach values and gear dots from the flight store', async () => {
@@ -10573,7 +10541,7 @@ async function main() {
     assert.match(html, /data-row-key="gear-down"[^>]*aria-expanded="true"[^>]*aria-controls="timeline-detail"/, 'the selected row controls its inline detail');
     assert.equal((html.match(/id="timeline-detail-close"/g) || []).length, 1, 'one inline collapse action is available');
     assert.doesNotMatch(html, /aria-modal="true"|id="timeline-mobile-viewer-close"/, 'desktop review stays open without modal close controls');
-    assert.match(html, /Recorded flight[\s\S]*YSSY-YMML/, 'selected-flight context survives event inspection');
+    assert.match(html, /YSSY-YMML[\s\S]*Recorded flight/, 'selected-flight context survives event inspection');
   });
 
   await test('TimelineTabShell still shows recording time when an older flight has no simulator clock', async () => {
@@ -11002,10 +10970,10 @@ async function main() {
     assert.match(launcher, /<svg[^>]*aria-hidden="true"[\s\S]*<\/svg>\s*<span[^>]*>MCDU \/ CDU<\/span>/, 'the CDU launcher should carry a decorative CDU icon before its label');
     assert.match(launcher, /aria-label="Open MCDU \/ CDU"/, 'the abbreviated phone launcher should retain the complete accessible label');
     assert.match(launcher, /aria-haspopup="dialog"/, 'the CDU launcher should announce its dialog');
-    const order = ['aria-label="Find on Aircraft page"', 'data-cdu-trigger', 'data-aircraft-voice-control-trigger', 'aria-controls="aircraft-secondary-tools-panel"', 'data-aircraft-integration-guide-trigger', 'data-aircraft-controls-trigger']
+    const order = ['aria-label="Find on Aircraft page"', 'data-aircraft-voice-control-trigger', 'data-cdu-trigger', 'aria-controls="aircraft-secondary-tools-panel"', 'data-aircraft-integration-guide-trigger', 'data-aircraft-controls-trigger']
       .map((marker) => withCdu.html.indexOf(marker));
     assert.ok(order.every((index) => index >= 0), 'every page tool should render for the PMDG 737');
-    assert.deepEqual([...order].sort((a, b) => a - b), order, 'Find, CDU and Voice should remain visible before the secondary Tools disclosure');
+    assert.deepEqual([...order].sort((a, b) => a - b), order, 'Find, Voice commands and CDU precede Tools, which contains the guide and library');
     assert.equal((withCdu.html.match(/data-aircraft-controls-trigger/g) || []).length, 1, 'Control library should have one primary home');
 
     const generic = await renderComponent(path.join('src', 'vue', 'components', 'AircraftTabShell.vue'));

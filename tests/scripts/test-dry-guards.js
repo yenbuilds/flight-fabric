@@ -747,7 +747,7 @@ test('support asks use one untagged destination, one rule module and one prompt 
   const firstCommandRuntimeSource = readRepoFile('frontend/src/voice/first-command.js');
   assert(firstCommandRuntimeSource.includes('isRemoteViewPath(') && firstCommandRuntimeSource.includes("status === 'sent'") && !firstCommandRuntimeSource.includes('setInterval'), 'the first-command runtime never asks on the phone, retires on a sent command, and never polls');
   assert(voiceFirstCommandSource.includes("useVoicePushToTalk(voice)") && readRepoFile('frontend/src/vue/components/VoiceControlPanel.vue').includes("useVoicePushToTalk(voice)"), 'the card and the voice panel share one hold-to-talk composable');
-  assert(voiceFirstCommandSource.includes('audio never leaves it'), 'the first ask carries the privacy promise');
+  assert(!voiceFirstCommandSource.includes('audio never leaves it'), 'the shared first-command card must not promise local-only audio for cloud configurations');
   assert(aboutSource.includes('<SupportSection />'), 'About mounts the shared Support section');
   assert(buildSource.includes("require(path.join(ROOT, 'scripts', 'whats-new-highlights.js'))") && buildSource.includes("'whats-new.json'"), 'the build derives the what\'s-new asset from the release notes parser');
   assert(readRepoFile('scripts/validate-release-versions.js').includes("require('./whats-new-highlights.js')"), 'the release validator reuses the same parser');
@@ -1749,6 +1749,7 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   const launcherSource = readRepoFile('electron/launcher/index.html');
   const systemHostSource = readRepoFile('frontend/src/vue/stores/system-host.js');
   const systemTabSource = readRepoFile('frontend/src/vue/components/SystemTabShell.vue');
+  const phoneSetupSource = readRepoFile('frontend/src/vue/components/PhoneTabletSetup.vue');
   const secondScreenGuideSource = readRepoFile('frontend/src/vue/components/SecondScreenGuide.vue');
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const aircraftControlSource = readRepoFile('frontend/src/aircraft/control-controller.js');
@@ -1793,27 +1794,26 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   assert(systemHostSource.includes('const remoteControlPairingUrl = computed'), 'phone URL construction should retain the current session token URL');
   assert(systemHostSource.includes('remoteControlPairingUrl.value || remoteViewerUrl.value'), 'phone setup should choose one best URL without redistributing received tokens');
   assert(systemHostSource.includes("if (remoteAccessEnabled.value !== true) return ''"), 'phone URLs should fail closed unless the active backend confirms trusted-LAN access');
-  assert(systemTabSource.includes(':value="phoneSetupUrl"')
-    && systemTabSource.includes("profiles.authorizationScope === 'full-control'")
-    && systemTabSource.includes('computed(() => canManageHost.value ? systemHost.remoteBrowserUrl : systemHost.remoteViewerUrl)'), 'the single phone QR must use the best authorized URL and fall back to viewer access for remote devices');
-  assert.equal((systemTabSource.match(/<RemoteBrowserQr/g) || []).length, 1, 'PC setup should render only one phone QR choice');
-  assert(!systemTabSource.includes(':value="systemHost.remoteViewerUrl"') && !systemTabSource.includes(':value="systemHost.remoteControlPairingUrl"'), 'PC setup should not expose separate viewer and control choices');
-  assert(systemTabSource.includes('Starting a new flight does not require pairing again'), 'PC setup should explain that new flights do not rotate the backend token');
+  assert(phoneSetupSource.includes(':value="host.remoteBrowserUrl"')
+    && phoneSetupSource.includes("profiles.authorizationScope === 'full-control'")
+    && systemTabSource.includes('computed(() => systemHost.remoteViewerUrl)'), 'local setup uses the authorized URL while remote System shares viewer access only');
+  assert.equal((phoneSetupSource.match(/<RemoteBrowserQr/g) || []).length, 1, 'PC setup should render only one phone QR choice');
+  assert(phoneSetupSource.includes('New flights appear automatically')
+    && phoneSetupSource.includes('After restarting FlightFabric'), 'PC setup should distinguish new flights from service restarts');
   assert(secondScreenGuideSource.includes('New flights appear automatically'), 'phone onboarding should explain repeat-flight behavior');
-  assert(secondScreenGuideSource.includes('Pair again only after the FlightFabric backend restarts'), 'phone onboarding should explain when control re-pairing is required');
+  assert(secondScreenGuideSource.includes('Access lasts until the FlightFabric service restarts'), 'phone onboarding should explain when control re-pairing is required');
   assert(appHeaderSource.includes('id="header-mobile-access-btn"'), 'desktop header should expose an obvious Phone setup action');
-  assert(aircraftControlSource.includes('open Phone setup. Scan the QR, or request controls here and approve the matching code'), 'read-only control attempts should explain both secure phone pairing paths');
+  assert(aircraftControlSource.includes('open Settings → Devices. Scan the QR, or request controls here and approve the matching code'), 'read-only control attempts should explain both secure phone pairing paths');
 });
 
 test('remote access UI warns users to stay on trusted private networks', () => {
-  const settingsPanelsSource = readRepoFile('frontend/src/vue/components/SettingsFormPanels.vue');
+  const phoneSetupSource = readRepoFile('frontend/src/vue/components/PhoneTabletSetup.vue');
   const httpServerSource = readRepoFile('backend/core/http-server.js');
 
-  assert(settingsPanelsSource.includes('Use FlightFabric on phones and tablets'), 'settings should make the phone and tablet access path explicit');
-  assert(settingsPanelsSource.includes('id="setting-remote-access-warning"'), 'settings panel should render a trusted-LAN warning when enabled');
-  assert(settingsPanelsSource.includes('public/shared networks'), 'settings panel should warn against public/shared networks');
-  assert(settingsPanelsSource.includes('Open <span class="font-medium text-fg">Phone setup</span> on this PC')
-    && settingsPanelsSource.includes('save and restart first'), 'settings should point directly to Phone setup and explain the required restart');
+  assert(phoneSetupSource.includes('Use FlightFabric on phones and tablets'), 'settings should make the phone and tablet access path explicit');
+  assert(phoneSetupSource.includes('Use only on a private network you trust'), 'setup should clearly restrict use to a trusted private network');
+  assert(phoneSetupSource.includes('Pairing grants aircraft controls, not access to your settings or recordings'), 'setup should explain the limited permission');
+  assert(phoneSetupSource.includes('Save and restart to apply your choices'), 'setup should explain the required restart');
   assert(httpServerSource.includes('Trusted LAN only.'), 'mobile setup page should warn that LAN access is trusted-network only');
   assert(httpServerSource.includes('public/shared networks'), 'mobile setup page should warn against public/shared networks');
 });

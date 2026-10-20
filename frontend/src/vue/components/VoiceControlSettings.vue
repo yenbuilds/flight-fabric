@@ -5,6 +5,8 @@ import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useTabsStore } from '../stores/tabs.js';
 import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
 import SettingsSectionWatermark from './SettingsSectionWatermark.vue';
+import SetupIllustration from './SetupIllustration.vue';
+import VoiceButtonTest from './VoiceButtonTest.vue';
 import VoiceSetupTest from './VoiceSetupTest.vue';
 import ControllerButtonSettings from './ControllerButtonSettings.vue';
 import CloudVoiceSettings from './CloudVoiceSettings.vue';
@@ -24,6 +26,19 @@ const shortcutError = ref('');
 const recognitionSaving = computed(() => voice.recognitionChanging);
 const recognitionError = ref('');
 const configurationOpen = ref(false);
+const microphoneOpen = ref(false);
+const inputChoice = ref(voice.runtime.controllerEnabled && voice.runtime.controller?.binding ? 'controller' : voice.runtime.shortcut ? 'keyboard' : 'screen');
+const inputChoices = computed(() => [
+  { id: 'screen', kind: 'touch', label: 'On screen' },
+  { id: 'keyboard', kind: 'keyboard', label: 'Keyboard' },
+  ...(voice.runtime.controllerEnabled ? [{ id: 'controller', kind: 'controller', label: 'Yoke or joystick' }] : []),
+]);
+let inputChoiceTouched = false;
+function chooseInput(value) { inputChoiceTouched = true; inputChoice.value = value; }
+watch(() => [voice.runtime.shortcut, voice.runtime.controller?.binding, voice.runtime.controllerEnabled], () => {
+  if (!inputChoiceTouched) inputChoice.value = voice.runtime.controllerEnabled && voice.runtime.controller?.binding ? 'controller' : voice.runtime.shortcut ? 'keyboard' : 'screen';
+  if (!voice.runtime.controllerEnabled && inputChoice.value === 'controller') inputChoice.value = 'screen';
+});
 const microphonesBusy = ref(false);
 const modeSummary = computed(() => voice.runtime.mode === 'cloud'
   ? `Cloud · ${voice.runtime.cloud.providerLabel} · ${voice.runtime.cloud.keyConfigured ? 'Key saved' : 'Key needed'}`
@@ -38,11 +53,15 @@ async function detectMicrophones() {
 }
 
 async function openTest() {
+  const origin = document.activeElement;
   configurationOpen.value = true;
   await nextTick();
   const target = document.querySelector('#settings-voice-control [data-voice-test]');
   if (tabs.activeTabId === 'settings' && target?.getClientRects().length) {
     target.scrollIntoView({ block: 'center', behavior: 'instant' });
+    if (document.activeElement === origin || document.activeElement === document.body) {
+      (target.querySelector('[data-voice-test-start]:not(:disabled)') || target.querySelector('h4'))?.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -186,7 +205,9 @@ async function backToAircraft() {
   if (!tabs.requestTabChange('autopilot')) return;
   voice.settingsReturnToAircraft = false;
   await nextTick();
-  document.querySelector('[data-aircraft-voice-control-trigger]')?.focus({ preventScroll: true });
+  [document.querySelector('[data-aircraft-voice-setup]'), document.querySelector('[data-aircraft-voice-control-trigger]'), document.querySelector('.aircraft-tools-toggle'),
+    document.getElementById('vue-main-root')]
+    .find(element => element?.getClientRects().length && !element.closest('[inert]'))?.focus({ preventScroll: true });
 }
 async function toggleRecognition(event) {
   const target = event.currentTarget;
@@ -212,9 +233,8 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
     <SettingsSectionWatermark kind="audio" />
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="settings-panel-header">
-        <div class="settings-panel-kicker">On this PC</div>
         <h3 id="settings-voice-title" class="settings-panel-title">Voice control</h3>
-        <p class="settings-section-description">Choose your microphone, how to talk and spoken feedback. Voice preferences apply immediately on this PC.</p>
+        <p class="settings-section-description">A quick microphone check, then choose how you want to talk.</p>
       </div>
       <button v-if="voice.settingsReturnToAircraft" type="button" class="ff-button-secondary text-xs" data-voice-back-to-aircraft @click="backToAircraft">Back to Aircraft</button>
     </div>
@@ -255,7 +275,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
             :aria-expanded="configurationOpen" aria-controls="voice-settings-configuration"
             :disabled="captureLocked || shortcutSetupBusy || shortcutDirty || shortcutSaving || recognitionSaving || microphonesBusy"
             @click="configurationOpen = !configurationOpen">{{ configurationOpen ? 'Hide setup' : voice.runtime.enabled ? 'Change settings' : 'Set up voice' }}</button>
-          <button type="button" class="ff-button-secondary text-sm" data-voice-open-test @click="openTest">Test voice</button>
+          <button v-if="!configurationOpen && voice.runtime.enabled" type="button" class="ff-button-secondary text-sm" data-voice-open-test @click="openTest">Test microphone</button>
         </div>
       </div>
       <p v-if="recognitionError" class="mt-3 text-sm text-warning" data-voice-recognition-error role="alert">{{ recognitionError }}</p>
@@ -263,46 +283,55 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
       <p v-else-if="voice.runtime.enabled && !voice.runtime.available" class="mt-3 text-sm text-warning" role="status">{{ voice.runtime.error || 'Voice could not start. Try turning voice off and on again.' }}</p>
       <VoiceRestartHint />
       <div id="voice-settings-configuration" v-show="configurationOpen">
-        <p class="mt-3 text-xs text-muted-fg">{{ voice.runtime.controllerEnabled
-          ? 'Voice preferences apply immediately on this PC. Use Save shortcut or Save button to confirm a new way to talk.'
-          : 'Voice changes apply immediately on this PC. Use Save shortcut to activate a new key or combination.' }}</p>
-        <CloudVoiceSettings :disabled="captureLocked || shortcutSetupBusy || recognitionSaving || voice.status === 'sending'" />
-        <div class="mt-5 grid gap-5">
-          <div class="min-w-0">
-            <label for="voice-input-device" class="mb-1.5 block text-muted-fg">Microphone</label>
-            <div class="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-              <select
-                id="voice-input-device"
-                class="min-h-10 min-w-0 flex-1 rounded-lg border border-border bg-panel-subtle px-3 py-2 text-fg disabled:opacity-50"
-                :value="voice.selectedInputDeviceId"
-                :aria-describedby="voice.inputDevicesError ? 'voice-microphone-error' : undefined"
-                :disabled="recognitionOff || captureLocked || shortcutSetupBusy"
-                @change="selectMicrophone"
-              >
-                <option value="">Windows default input</option>
-                <option v-if="selectedInputMissing" :value="voice.selectedInputDeviceId">Previously selected microphone (unavailable)</option>
-                <option v-for="device in voice.inputDevices" :key="device.deviceId" :value="device.deviceId">
-                  {{ device.label }}
-                </option>
-              </select>
-              <button
-                type="button"
-                data-voice-detect-microphones
-                class="min-h-10 rounded-lg border border-border px-3 py-2 text-fg transition-colors hover:bg-muted disabled:opacity-50"
-                :disabled="recognitionOff || captureLocked || shortcutSetupBusy || microphonesBusy"
-                @click="detectMicrophones"
-              >
-                Detect microphones
+        <div class="voice-setup-grid mt-5">
+            <VoiceSetupTest :disabled="recognitionSaving || shortcutSetupBusy || shortcutSaving || voice.controllerSetup.active">
+            <div class="voice-microphone-selection min-w-0">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <p class="text-xs text-muted-fg">Microphone · {{ microphoneSummary }}</p>
+                <button type="button" class="ff-button-secondary text-xs" :aria-expanded="microphoneOpen" aria-controls="voice-microphone-options" :disabled="captureLocked || microphonesBusy" @click="microphoneOpen = !microphoneOpen">Change microphone</button>
+              </div>
+              <div id="voice-microphone-options" v-show="microphoneOpen || voice.inputDevicesError" class="mt-3">
+              <label for="voice-input-device" class="mb-1.5 block text-muted-fg">Microphone</label>
+              <div class="flex min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                <select
+                  id="voice-input-device"
+                  class="min-h-10 min-w-0 flex-1 rounded-lg border border-border bg-panel-subtle px-3 py-2 text-fg disabled:opacity-50"
+                  :value="voice.selectedInputDeviceId"
+                  :aria-describedby="voice.inputDevicesError ? 'voice-microphone-error' : undefined"
+                  :disabled="recognitionOff || captureLocked || shortcutSetupBusy"
+                  @change="selectMicrophone"
+                >
+                  <option value="">Windows default input</option>
+                  <option v-if="selectedInputMissing" :value="voice.selectedInputDeviceId">Previously selected microphone (unavailable)</option>
+                  <option v-for="device in voice.inputDevices" :key="device.deviceId" :value="device.deviceId">
+                    {{ device.label }}
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  data-voice-detect-microphones
+                  class="min-h-10 rounded-lg border border-border px-3 py-2 text-fg transition-colors hover:bg-muted disabled:opacity-50"
+                  :disabled="recognitionOff || captureLocked || shortcutSetupBusy || microphonesBusy"
+                  @click="detectMicrophones"
+                >
+                  Detect microphones
+                </button>
+              </div>
+              <p v-if="voice.inputDevicesError" id="voice-microphone-error" class="mt-2 text-xs text-warning" data-voice-microphone-error role="alert">{{ voice.inputDevicesError }}</p>
+              </div>
+            </div>
+            </VoiceSetupTest>
+          <section aria-labelledby="voice-ptt-title" data-voice-ptt-settings>
+            <h4 id="voice-ptt-title" class="mb-3 text-base font-semibold text-fg">2. Choose how to talk</h4>
+            <p class="mb-3 text-xs text-muted-fg">Hold to speak. Release for a response.</p>
+            <div class="setup-input-choices" :class="{ 'setup-input-choices--two': inputChoices.length === 2 }" role="group" aria-label="How to talk">
+              <button v-for="choice in inputChoices" :key="choice.id" type="button" :data-voice-input-choice="choice.id" :aria-pressed="inputChoice === choice.id" :disabled="captureLocked || shortcutSetupBusy || shortcutDirty || shortcutSaving" @click="chooseInput(choice.id)">
+                <SetupIllustration :kind="choice.kind" /><span>{{ choice.label }}</span>
               </button>
             </div>
-            <p v-if="voice.inputDevicesError" id="voice-microphone-error" class="mt-2 text-xs text-warning" data-voice-microphone-error role="alert">{{ voice.inputDevicesError }}</p>
-          </div>
-
-          <section aria-labelledby="voice-ptt-title" data-voice-ptt-settings>
-            <h4 id="voice-ptt-title" class="mb-3 text-base font-semibold text-fg">Push-to-talk</h4>
-            <div class="grid min-w-0 gap-3" :class="voice.runtime.controllerEnabled ? 'lg:grid-cols-2' : ''">
-              <form class="settings-panel--illustrated flex min-w-0 flex-col gap-3 rounded-xl border border-border bg-panel-subtle p-4" aria-labelledby="voice-keyboard-title" @submit.prevent="saveShortcut" @focusout="shortcutFocusOut">
-                <SettingsSectionWatermark kind="keyboard" />
+            <p v-if="inputChoice === 'screen'" class="mt-3 text-sm text-muted-fg" data-voice-screen-choice>Use Hold to talk in Aircraft → Voice commands. No shortcut needed.</p>
+            <div class="mt-3 grid min-w-0 gap-3">
+              <form v-show="inputChoice === 'keyboard'" class="flex min-w-0 flex-col gap-3" aria-labelledby="voice-keyboard-title" @submit.prevent="saveShortcut" @focusout="shortcutFocusOut">
                 <h5 id="voice-keyboard-title" class="text-sm font-semibold text-fg"><label for="voice-ptt-shortcut">Keyboard shortcut</label></h5>
                 <div class="flex flex-wrap items-center gap-2">
                   <button
@@ -396,16 +425,15 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                 </p>
               </form>
 
-              <ControllerButtonSettings v-if="voice.runtime.controllerEnabled" :disabled="recognitionSaving || shortcutSetupBusy || shortcutSaving || voice.listening || voice.finishing || voice.voiceTestBusy" />
+              <ControllerButtonSettings v-if="voice.runtime.controllerEnabled" v-show="inputChoice === 'controller'" :disabled="recognitionSaving || shortcutSetupBusy || shortcutSaving || voice.listening || voice.finishing || voice.voiceTestBusy" />
             </div>
 
-            <p class="mt-3 text-[11px] text-muted-fg">
-              After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. {{ voice.runtime.mode === 'cloud' ? `Cloud preview sends the audio and supported aircraft controls to ${voice.runtime.cloud.providerLabel} using your API key.` : 'Audio remains local and is not saved.' }}
-            </p>
+            <VoiceButtonTest :disabled="recognitionSaving || shortcutSetupBusy || shortcutDirty || shortcutSaving || voice.controllerSetup.active" :on-screen="inputChoice === 'screen'" />
           </section>
 
-          <VoiceSetupTest :disabled="recognitionSaving || shortcutSetupBusy || shortcutSaving || voice.controllerSetup.active" />
-
+          <section class="voice-feedback-settings" aria-labelledby="voice-feedback-title">
+            <h4 id="voice-feedback-title" class="mb-3 text-sm font-semibold text-fg">Recognition &amp; spoken feedback</h4>
+            <CloudVoiceSettings :disabled="captureLocked || shortcutSetupBusy || recognitionSaving || voice.status === 'sending'" />
           <div>
             <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
             <label class="flex min-h-10 shrink-0 cursor-pointer items-center gap-2 text-fg" title="Speaks command results using an installed local voice. Online voices are never selected.">
@@ -438,6 +466,8 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
               Last spoken readback failed: {{ voice.runtime.readbackError }} Windows speech uses the default output device.
             </p>
           </div>
+          </section>
+          <button type="button" class="justify-self-start" :class="voice.voiceTest.recognized ? 'ff-button-primary' : 'ff-button-secondary'" data-voice-setup-done :disabled="captureLocked || shortcutSetupBusy || shortcutDirty || shortcutSaving" @click="backToAircraft">Open Aircraft controls</button>
         </div>
 
       </div>

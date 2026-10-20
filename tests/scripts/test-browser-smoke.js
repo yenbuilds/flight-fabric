@@ -195,6 +195,8 @@ function buildFixtureSettings() {
     aircraft: { profile: 'auto' },
     // This smoke covers normal app workflows after the separately tested setup.
     onboarding: { completed: true },
+    // Match the running fixture's confirmed LAN binding.
+    network: { remoteAccess: true, remoteAircraftControl: true },
     cabinAnnouncements: {
       enabled: true,
       style: 'standard',
@@ -522,6 +524,7 @@ function createFixtureBackend() {
       profile: {
         id: selectedAircraft.id,
         name: selectedAircraft.name,
+        aircraftTitle: selectedAircraft.id === 'generic' ? 'Cessna Skyhawk G1000 Asobo' : selectedAircraft.name,
         namespace: 'bundled',
         simulator: 'msfs',
         _profileKey: selectedAircraft.profileKey,
@@ -574,6 +577,10 @@ function createFixtureBackend() {
 
       case 'requestAppSettings':
         sendAppSettings(ws);
+        break;
+
+      case 'requestDevicePairingRequests':
+        sendJson(ws, { type: 'devicePairingRequests', enabled: true, requests: [] });
         break;
 
       case 'saveAppSettings':
@@ -888,6 +895,11 @@ async function main() {
       onDisconnectRequested: () => fixtureBackend.disconnectAllClients(),
     });
     if (headerOnly) {
+      return;
+    }
+    if (process.env.FF_BROWSER_SMOKE_PHONE_ONLY === '1') {
+      assert.ok(fixtureBackend.state.messages.some(message => message.type === 'requestDevicePairingRequests'), 'Settings should request the pairing queue');
+      log('production phone setup and remote guidance smoke passed');
       return;
     }
     if (process.env.FF_BROWSER_SMOKE_SUPPORT_ONLY === '1') {

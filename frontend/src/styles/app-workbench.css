@@ -37,10 +37,10 @@
 .sidebar-search kbd { font-size: .6rem; margin-left: auto; color: rgb(var(--muted-foreground)); }
 .desktop-tab-bar.sidebar-navigation { display: flex; flex-direction: column; flex: 1; gap: 1rem; min-height: 0; overflow-y: auto; overflow-x: hidden; border: 0; background: transparent; padding: 0; box-shadow: none; scrollbar-width: thin; }
 .sidebar-nav-group { display: flex; flex-direction: column; gap: .2rem; }
+.sidebar-nav-aircraft { padding-bottom: .75rem; border-bottom: 1px solid rgb(var(--border) / .65); }
 .sidebar-group-label { margin: 0; padding: .4rem .65rem; color: rgb(var(--muted-foreground)); font-size: .66rem; font-weight: 600; }
 .sidebar-nav-utilities { margin-top: auto; padding-top: .5rem; }
 .toolbar-setup-task { flex: none; min-width: 0; padding: .65rem; border: 1px solid rgb(var(--primary) / .3); border-radius: .5rem; background: rgb(var(--primary) / .04); }
-.toolbar-setup-kicker { margin: 0 0 .5rem; font-size: .66rem; font-weight: 600; color: rgb(var(--muted-foreground)); }
 .toolbar-setup-open { display: flex; gap: .5rem; width: 100%; min-height: 2.75rem; text-align: left; border-radius: .3rem; }
 .toolbar-setup-open > svg { flex: none; width: 1.15rem; height: 1.15rem; margin-top: .1rem; color: rgb(var(--primary)); }
 .toolbar-setup-open strong { display: block; font-size: .78rem; font-weight: 600; color: rgb(var(--foreground)); }
@@ -61,6 +61,8 @@
 .desktop-tab { position: relative; display: flex; align-items: center; flex: none; gap: .65rem; min-width: 0; width: 100%; min-height: 2.5rem; padding: .5rem .65rem; border: 1px solid transparent; border-radius: .4rem; background: transparent; color: rgb(var(--muted-foreground)); font-family: var(--ff-font-ui); font-size: .8125rem; font-weight: 500; text-transform: none; letter-spacing: 0; text-align: left; box-shadow: none; }
 .desktop-tab svg { width: 1.1rem; height: 1.1rem; flex: none; }
 .desktop-tab:hover { color: rgb(var(--foreground)); background: rgb(var(--muted) / .55); }
+.desktop-tab:disabled { opacity: .55; cursor: not-allowed; }
+.sidebar-nav-aircraft > button { color: rgb(var(--foreground)); }
 .desktop-tab.active { color: rgb(var(--foreground)); background: rgb(var(--selection) / .13); border-color: rgb(var(--selection) / .18); box-shadow: none; }
 .desktop-tab.active::before { content: ''; position: absolute; top: .65rem; bottom: .65rem; left: -.1rem; width: 2px; border-radius: 2px; background: rgb(var(--selection)); }
 .desktop-tab.active svg { color: rgb(var(--selection)); }
@@ -131,10 +133,13 @@
 .workspace-heading { display: flex; align-items: baseline; gap: .65rem; min-width: 0; }
 .workspace-heading h1 { font-size: 1.2rem; line-height: 1.35; font-weight: 650; margin: 0; letter-spacing: -.02em; }
 .workspace-heading > span { font-size: .75rem; color: rgb(var(--muted-foreground)); }
-.workspace-view-switch { display: flex; gap: .2rem; background: rgb(var(--panel)); border: 1px solid rgb(var(--border) / .75); border-radius: .4rem; padding: .2rem; }
-.workspace-view-switch button { min-height: 1.9rem; padding: .35rem .8rem; border-radius: .25rem; font-size: .75rem; color: rgb(var(--muted-foreground)); }
-.workspace-view-switch button.active { background: rgb(var(--panel-elevated)); color: rgb(var(--foreground)); box-shadow: 0 1px 2px rgb(0 0 0 / .15); }
-.workspace-view-switch button:hover { color: rgb(var(--foreground)); }
+.workspace-view-switch { display: flex; gap: .25rem; background: rgb(var(--panel)); border: 1px solid rgb(var(--border-strong) / .7); border-radius: .5rem; padding: .25rem; }
+.workspace-view-switch button { display: inline-flex; align-items: center; gap: .45rem; min-height: 2.25rem; padding: .4rem .95rem; border: 1px solid transparent; border-radius: .35rem; font-size: .8125rem; font-weight: 600; color: rgb(var(--foreground) / .78); transition: background-color .15s, color .15s, border-color .15s; }
+.workspace-view-switch button svg { width: 1rem; height: 1rem; flex: none; color: rgb(var(--muted-foreground)); }
+.workspace-view-switch button.active { background: rgb(var(--selection) / .16); border-color: rgb(var(--selection) / .45); color: rgb(var(--foreground)); }
+.workspace-view-switch button.active svg { color: rgb(var(--selection)); }
+.workspace-view-switch button:not(.active):hover { background: rgb(var(--panel-elevated) / .7); color: rgb(var(--foreground)); }
+.workspace-view-switch button:focus-visible { outline: 2px solid rgb(var(--primary)); outline-offset: 2px; }
 .live-map-workspace, .live-map-card-shell { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .live-map-card-shell { border: 1px solid rgb(var(--border) / .7); border-radius: .5rem; background: rgb(var(--panel)); }
 .live-map-panel-head { flex: none; padding: .7rem 1rem; }
@@ -179,7 +184,7 @@
 @media (min-width: 761px) and (max-width: 1200px) {
   .app-workbench { --sidebar-width: 11rem; }
   .app-shell-container { padding-inline: 1rem; }
-  .header-mobile-access span, .header-flight-time { display: none; }
+  .header-flight-time { display: none; }
   .header-controls { gap: .5rem; }
   .header-desktop-status { gap: .35rem; }
   .app-header #menu-state-top { display: none; }
@@ -253,3 +258,29 @@
   .desktop-tab.active, .workspace-view-switch button.active, .app-navigator-result.selected { outline: 1px solid Highlight; }
   .desktop-tab.active::before { background: Highlight; }
 }
+/* Small task illustrations share the product palette; all actions keep labels. */
+.setup-illustration { display: block; width: 6rem; height: 4.4rem; flex: none; color: rgb(var(--foreground) / .8); pointer-events: none; }
+.setup-illustration-accent { color: rgb(var(--primary)); fill: rgb(var(--primary) / .12); }
+.setup-test-heading { display: flex; align-items: center; gap: 1rem; }
+.voice-setup-grid { display: grid; gap: 2rem; align-items: start; padding-top: 1.25rem; border-top: 1px solid rgb(var(--border) / .6); }
+.voice-microphone-selection { margin-top: 1rem; padding-bottom: .75rem; border-bottom: 1px solid rgb(var(--border) / .5); }
+@media (min-width: 1200px) { .voice-setup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .voice-setup-grid > .voice-feedback-settings, .voice-setup-grid > button { grid-column: 1 / -1; } }
+.setup-input-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
+.setup-input-choices--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.setup-input-choices > button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .35rem; min-height: 7rem; padding: .65rem .4rem; border: 1px solid rgb(var(--border)); border-radius: .65rem; color: rgb(var(--foreground)); font-size: .8125rem; text-align: center; }
+.setup-input-choices > button[aria-pressed="true"] { border-color: rgb(var(--primary)); background: rgb(var(--primary) / .07); }
+.setup-input-choices > button:disabled { opacity: .55; }
+.setup-input-choices > button:focus-visible, .setup-details > summary:focus-visible { outline: 2px solid rgb(var(--primary)); outline-offset: 3px; }
+.setup-input-choices .setup-illustration { width: min(100%, 5rem); height: 3.5rem; }
+.setup-details > summary { display: list-item; min-height: 2.75rem; padding: .7rem 0; cursor: pointer; font-size: .8125rem; color: rgb(var(--foreground)); }
+.setup-details > summary::marker { color: rgb(var(--muted-foreground)); }
+.setup-details[open] > summary { margin-bottom: .5rem; }
+.aircraft-orientation { margin: 0 0 1rem; border-bottom: 1px solid rgb(var(--border) / .6); }
+.aircraft-orientation-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0 0 1rem; }
+.aircraft-orientation-actions button { display: flex; flex: 1 1 12rem; align-items: center; gap: .6rem; padding: .5rem; text-align: left; border-radius: .5rem; }
+.aircraft-orientation-actions button:hover { background: rgb(var(--muted)); }
+.aircraft-orientation-actions .setup-illustration { width: 3.75rem; height: 3rem; }
+.aircraft-orientation-actions strong, .aircraft-orientation-actions small { display: block; }
+.aircraft-orientation-actions strong { font-size: .8125rem; font-weight: 600; }
+.aircraft-orientation-actions small { margin-top: .2rem; font-size: .75rem; color: rgb(var(--muted-foreground)); }
+@media (max-width: 380px) { .setup-test-heading { gap: .5rem; } .setup-test-heading .setup-illustration { width: 4rem; height: 3.5rem; } .setup-input-choices { gap: .35rem; } }

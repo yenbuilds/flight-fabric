@@ -1705,7 +1705,7 @@ async function main() {
     assert.equal(statusStore.aircraftNameLabel, 'Old Aircraft');
 
     handler({ type: 'aircraftChanged', previousTitle: 'Old Aircraft', newTitle: 'iniBuilds L-1011 TriStar' });
-    assert.equal(statusStore.aircraftNameLabel, '--', 'aircraft changes should clear the stale previous title');
+    assert.equal(statusStore.aircraftNameLabel, 'Waiting for aircraft', 'aircraft changes should clear the stale previous title');
     assert.equal(aircraftControlsStore.feedback.profileText, 'Detecting active profile...', 'aircraft changes should clear stale controls profile feedback');
     assert.equal(aircraftControlsStore.isCommandSupported({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' }), false, 'aircraft changes should gate old profile selector writes until capabilities refresh');
     assert.equal(aircraftControlsStore.isCommandPending({ type: 'selector-adjust', mode: 'hdg', action: 'inc10' }), false, 'aircraft changes should clear stale pending commands');
@@ -2420,7 +2420,7 @@ async function main() {
     );
     assert.equal(sent.length, sentBeforePairing, 'read-only control attempts should not reach the websocket bridge');
     assert.equal(toasts.at(-1)?.kind, 'error', 'read-only control attempts should explain the unavailable capability');
-    assert.match(toasts.at(-1)?.message || '', /open Phone setup[\s\S]*Scan the QR[\s\S]*approve the matching code/, 'read-only control attempts should explain both secure PC pairing paths');
+    assert.match(toasts.at(-1)?.message || '', /open Settings → Devices[\s\S]*Scan the QR[\s\S]*approve the matching code/, 'read-only control attempts should explain both secure PC pairing paths');
 
     authorizationScope = 'aircraft-control';
     controller.updateAvailability();
@@ -7993,6 +7993,21 @@ async function main() {
   });
 
   console.log('\n--- tabs runtime ---\n');
+  await test('control pairing links land on Aircraft while explicit routes and viewer memory remain intact', async () => {
+    for (const [search, expected] of [['?aircraftControlToken=fixture', 'autopilot'],
+      ['?aircraftControlToken=fixture&tab=dispatch', 'dispatch'], ['?wsPort=8099', 'timeline']]) {
+      const storage = createStorage();
+      storage.setItem(LAST_ACTIVE_TAB_STORAGE_KEY, 'timeline');
+      const doc = new FakeDocument(), win = new FakeWindow(doc);
+      resetGlobals(win, doc, storage);
+      win.location.search = search;
+      setActivePinia(createPinia());
+      const tabs = useTabsStore();
+      const cleanup = initTabsRuntime({ tabsStore: tabs, windowRef: win, documentRef: doc, storage });
+      assert.equal(tabs.activeTabId, expected, search);
+      cleanup();
+    }
+  });
   await test('tabs runtime restores a contextual tab after a full page refresh', async () => {
     const storage = createStorage();
     const initialDocumentRef = new FakeDocument();

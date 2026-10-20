@@ -45,7 +45,6 @@ async function remove(row) {
   <section id="settings-toolbar-panel" class="settings-panel settings-panel--wide settings-panel--illustrated scroll-mt-4" aria-labelledby="settings-toolbar-panel-title" tabindex="-1">
     <SettingsSectionWatermark kind="toolbar" />
     <div class="settings-panel-header">
-      <div class="settings-panel-kicker">In the simulator</div>
       <div class="settings-panel-title-row">
         <div id="settings-toolbar-panel-title" class="settings-panel-title">MSFS 2024 toolbar panel</div>
         <HelpTooltip label="MSFS toolbar panel help">Adds a FlightFabric button to the MSFS 2024 in-flight toolbar. The panel shows your SimBrief plan, aircraft presets, voice command reference, last landing and push-to-talk status. You can apply supported presets and use taxi guidance and experimental pushback. It connects to FlightFabric on this PC only and cannot change app settings or access your recordings or logbook.</HelpTooltip>

@@ -1,5 +1,15 @@
 import { defineAsyncComponent } from 'vue';
 
+// Presentation priorities only. Labels and availability come from the bundled profile list.
+export const FEATURED_AIRCRAFT_PROFILE_IDS = Object.freeze([
+  'pmdg-737', 'pmdg-777', 'fenix-a320', 'fbw-a32nx', 'inibuilds-a350-900',
+]);
+
+// These selectable fallback profiles describe categories, not individual aircraft.
+export const AIRCRAFT_CATEGORY_PROFILE_IDS = Object.freeze([
+  'generic', 'ga-base', 'regional-jet', 'turboprop-base', 'widebody-base',
+]);
+
 const trustedAircraftSpecificTemplates = Object.freeze({
   'asobo-787': defineAsyncComponent(() => import('../components/aircraft-specific/templates/MicrosoftBoeing787_10AircraftPanel.vue')),
   'fenix-a32x': defineAsyncComponent(() => import('../components/aircraft-specific/templates/FenixA32xAircraftPanel.vue')),

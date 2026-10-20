@@ -311,7 +311,7 @@ export function initTabsRuntime({
   // Retired ff_workspace_v1 / ff_workspace_suggestions_v1 values are ignored.
   // Leave them untouched for older builds; only normal route memory is used.
   const initialTabId = resolveInitialTabId({
-    requestedTabId: params.get('tab') || '',
+    requestedTabId: params.get('tab') || (params.get('aircraftControlToken') ? 'autopilot' : ''),
     persistedTabId: readStorageValue(LAST_ACTIVE_TAB_STORAGE_KEY, { storage, fallback: '' }),
   });
 

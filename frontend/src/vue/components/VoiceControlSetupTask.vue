@@ -31,7 +31,7 @@ async function dismiss(event) {
         <rect x="9" y="2.5" width="6" height="12" rx="3" />
         <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
       </svg>
-      <span class="toolbar-setup-copy"><strong>Voice control</strong><span v-if="!voice.restartHintVisible">{{ voice.setupReminder.detail }}</span><b>{{ voice.setupReminder.action }} <span aria-hidden="true">→</span></b></span>
+      <span class="toolbar-setup-copy"><strong>{{ voice.setupReminder.action }}</strong><span v-if="!voice.restartHintVisible">{{ voice.setupReminder.detail }}</span></span>
     </button>
     <VoiceRestartHint class="toolbar-setup-copy" />
     <div v-if="voice.setupReminder.optional" class="toolbar-setup-copy toolbar-setup-meta">

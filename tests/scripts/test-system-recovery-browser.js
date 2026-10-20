@@ -34,7 +34,7 @@ async function browser() {
     await wait(80);
     assert.equal(await evaluate('return recoveryTest.host.backendStatus;'), 'running');
     assert.deepEqual(await evaluate('return recoveryTest.calls;'), ['stop', 'restart', 'start']);
-    assert.deepEqual(await evaluate('return recoveryTest.sent.map(message=>message.type);'), ['requestHistoryIndexStatus', 'requestDevicePairingRequests'], 'native recovery does not send privileged websocket requests while disconnected');
+    assert.deepEqual(await evaluate('return recoveryTest.sent.map(message=>message.type);'), ['requestHistoryIndexStatus'], 'System no longer polls pairing, and native recovery does not send privileged websocket requests while disconnected');
     await evaluate("recoveryTest.profiles.setAuthorizationScope('full-control'); recoveryTest.status.setWebsocket('ready'); await recoveryTest.nextTick();");
     assert(await evaluate("return !!document.getElementById('system-history-index') && !document.getElementById('system-desktop-recovery-note');"), 'acknowledged reconnect restores connected administration');
     assert.deepEqual(errors, [], 'source component should render every recovery transition without errors');

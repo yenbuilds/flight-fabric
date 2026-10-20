@@ -63,7 +63,6 @@ const title = computed(() => {
     </template>
     <template v-else>
       <div class="min-w-0">
-        <div class="app-prompt-reason">Thank you</div>
         <div class="app-prompt-title">The support page opened in your browser.</div>
         <div class="app-prompt-intent">If you bought a coffee, tap below and I won't ask again. If not, no problem at all.</div>
       </div>

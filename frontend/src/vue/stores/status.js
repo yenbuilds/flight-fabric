@@ -181,7 +181,7 @@ function resolveAircraftName(profile) {
   if (aircraftTitle && !isPathLikeAircraftTitle(aircraftTitle)) {
     return aircraftTitle;
   }
-  return profile.name || '--';
+  return profile.id === 'generic' ? (aircraftTitle ? 'Aircraft detected' : '--') : (profile.name || '--');
 }
 
 function getDefaultCabinAnnouncements() {
@@ -245,6 +245,8 @@ export const useStatusStore = defineStore('status', {
     connectionInfo: 'ws://localhost:8099',
     flightTime: '00:00:00',
     aircraftProfile: getDefaultAircraftProfile(),
+    // Display identity survives a lost connection; telemetry and command tokens do not.
+    lastAircraftName: '',
     cabinAnnouncements: getDefaultCabinAnnouncements(),
     systemBanners: getDefaultSystemBanners(),
     primarySource: null,
@@ -293,11 +295,13 @@ export const useStatusStore = defineStore('status', {
     },
     flightTimeLabel: (state) => state.flightTime || '00:00:00',
     connectionInfoLabel: (state) => state.connectionInfo || 'ws://localhost:8099',
-    aircraftNameLabel: (state) => state.aircraftProfile.aircraftName || '--',
-    aircraftProfileNameLabel: (state) => state.aircraftProfile.profileName || '',
+    hasIdentifiedAircraft: (state) => Boolean(state.lastAircraftName),
+    aircraftNameLabel: (state) => state.lastAircraftName || 'Waiting for aircraft',
+    aircraftProfileNameLabel: (state) => state.aircraftProfile.profileId === 'generic'
+      ? 'Standard controls' : (state.aircraftProfile.profileName || ''),
     aircraftProfileNameVisible: (state) => {
       const profileName = String(state.aircraftProfile.profileName || '').trim();
-      return Boolean(profileName && profileName !== '--');
+      return Boolean(state.aircraftProfile.aircraftName !== '--' && profileName && profileName !== '--');
     },
     profileBadgeLabel: (state) => state.aircraftProfile.badgeLabel || '',
     profileBadgeTitle: (state) => state.aircraftProfile.badgeTitle || '',
@@ -552,6 +556,7 @@ export const useStatusStore = defineStore('status', {
       this.inFlightContext = false;
       this.flightTime = '00:00:00';
       this.aircraftProfile = getDefaultAircraftProfile();
+      if (reason !== 'simconnectDisconnected' && reason !== 'wsDisconnected') this.lastAircraftName = '';
       this.assists = {};
       this.recording = getDefaultRecording();
       this.surface = getDefaultSurface();
@@ -695,6 +700,9 @@ export const useStatusStore = defineStore('status', {
           ? `Profile: ${verificationStatus || 'unverified'}\nSources: ${provenance.sourceCount ?? 0}\nLast verified: ${provenance.lastVerified || 'never'}`
           : '',
       };
+      if (this.aircraftProfile.aircraftName !== '--') {
+        this.lastAircraftName = this.aircraftProfile.aircraftName;
+      }
     },
     updateRunwayContext(message) {
       const icao = typeof message?.icao === 'string' ? message.icao.trim() : '';

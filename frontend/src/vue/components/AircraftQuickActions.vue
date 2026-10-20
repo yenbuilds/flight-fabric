@@ -161,7 +161,7 @@ function inputPlaceholder(command) {
       >
         <component
           :is="takesNumber(command) ? 'form' : 'article'"
-          class="aircraft-preset-card flex flex-col gap-3 rounded-xl border border-surface-200 bg-surface-50 p-3"
+          class="aircraft-preset-card flex flex-col gap-3 rounded border border-surface-200 bg-surface-50 p-3"
           :data-aircraft-preset="command.id"
           @submit.prevent="takesNumber(command) && applyPreset(command)"
         >
@@ -220,7 +220,7 @@ function inputPlaceholder(command) {
       </div>
       <div v-if="lightPresets.length" class="aircraft-preset-container aircraft-preset-container--lights min-w-0">
         <article
-          class="aircraft-preset-group flex flex-col gap-2 rounded-xl border border-surface-200 bg-surface-50 p-3"
+          class="aircraft-preset-group flex flex-col gap-2 rounded border border-surface-200 bg-surface-50 p-3"
           aria-labelledby="aircraft-preset-group-lights-title"
           data-aircraft-preset-group="lights"
         >
@@ -279,6 +279,7 @@ function inputPlaceholder(command) {
 
 .aircraft-preset-container {
   container-type: inline-size;
+  align-self: start;
 }
 
 @container (min-width: 30rem) {

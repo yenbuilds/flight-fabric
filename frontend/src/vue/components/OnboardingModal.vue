@@ -8,6 +8,8 @@ import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
 import { useSystemHostStore } from '../stores/system-host.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
+import { useTabsStore } from '../stores/tabs.js';
+import { openVoiceSettings } from '../settings-navigation.js';
 import OnboardingToolbarStep from './OnboardingToolbarStep.vue';
 
 const emit = defineEmits(['ready']);
@@ -18,6 +20,7 @@ const toolbar = useToolbarPanelStore();
 const systemHost = useSystemHostStore();
 const settingsUi = useSettingsUiStore();
 const dialog = ref(null);
+const tabs = useTabsStore();
 const main = ref(null);
 const heading = ref(null);
 const errorMessage = ref(null);
@@ -127,21 +130,21 @@ async function startService() {
 const steps = [
   {
     label: 'Voice', title: 'Fly with your voice',
-    intro: 'Use spoken commands to control supported aircraft. Choose a microphone and push-to-talk button in Settings afterwards.',
-    caption: 'A more natural way to fly.',
+    intro: 'Use spoken commands with supported aircraft. Choose your microphone and push-to-talk button in Settings next.',
+    caption: 'Your cockpit, within reach.',
     artwork: new URL('../../../assets/onboarding/voice.svg', import.meta.url).href,
     next: 'Next: flight recording',
   },
   {
     label: 'Recording', title: 'Choose how flights are recorded',
-    intro: 'Save flight data locally on this PC for your Logbook and debrief. Voice works with either choice.',
+    intro: 'Save flight data on this PC for your Logbook and debrief. Voice works with either choice.',
     caption: 'Your flights, worth keeping.',
     artwork: new URL('../../../assets/onboarding/recording.svg', import.meta.url).href,
     next: 'Next: MSFS toolbar',
   },
   {
-    label: 'Toolbar', title: 'Bring FlightFabric into MSFS',
-    intro: 'Add a FlightFabric button to the MSFS 2024 in-flight toolbar. See your SimBrief plan, voice command reference and last landing, and apply aircraft presets without leaving the simulator.',
+    label: 'Toolbar', title: 'Add FlightFabric to MSFS',
+    intro: 'View your plan, voice phrases and landing report, and use aircraft presets inside MSFS 2024.',
     caption: 'Stay in the cockpit.',
     artwork: new URL('../../../assets/onboarding/toolbar.svg', import.meta.url).href,
     next: 'Save and finish',
@@ -178,8 +181,8 @@ watch(() => settingsUi.introOpen, (requested) => {
     settingsUi.introOpen = false;
     return;
   }
-  step.value = 1;
   error.value = '';
+  step.value = 1;
   attempted = false;
   automaticRecording.value = settings.settings.recording?.autoStart !== false;
   toolbarChoice.value = 'later';
@@ -209,15 +212,6 @@ watch([open, required, dialog], async ([visible, , element]) => {
   }
 }, { flush: 'post' });
 
-async function changeStep(value) {
-  if (busy.value || (value > step.value && !stepComplete.value)) return;
-  if (step.value === 1 && value > 1) voiceInitialized = true;
-  step.value = value;
-  await nextTick();
-  if (main.value) main.value.scrollTop = 0;
-  heading.value?.focus({ preventScroll: true });
-}
-
 // Loading without actions keeps focus on the heading. This also covers the
 // second press of a double click after Reconnect disappears under the pointer.
 function retainLoadingFocus(event) {
@@ -240,8 +234,18 @@ function closeIntro() {
   if (!busy.value) settingsUi.introOpen = false;
 }
 
+async function changeStep(value) {
+  if (busy.value || value < 1 || value > steps.length || (value > step.value && !stepComplete.value)) return;
+  if (step.value === 1 && value > 1) voiceInitialized = true;
+  step.value = value;
+  await nextTick();
+  if (main.value) main.value.scrollTop = 0;
+  heading.value?.focus({ preventScroll: true });
+}
+
 async function finish() {
   if (busy.value || !canSave.value || step.value !== steps.length || !choicesComplete.value) return;
+  const firstVisit = required.value;
   saving.value = true;
   attempted = true;
   error.value = '';
@@ -250,7 +254,7 @@ async function finish() {
     // microphone or require working recognition hardware to finish.
     if (canChooseVoice.value && (voice.recognitionSaveFailed || voice.runtime.needsInitialPreference || voiceEnabled.value !== voice.runtime.enabled)) {
       const saved = await voice.setRecognitionEnabled(voiceEnabled.value, { requestMicrophoneAccess: false });
-      if (!saved) throw new Error('Your voice preference could not be saved. Try again, or go back to keep your current choice.');
+      if (!saved) throw new Error('Your voice preference could not be saved. Try again, or go back to review your choice.');
     }
     if (disposed) return;
     if (!canSave.value) throw new Error('Reconnect to FlightFabric and try saving again.');
@@ -266,7 +270,13 @@ async function finish() {
     required.value = false;
     settingsUi.introOpen = false;
     await nextTick();
-    if (!disposed) emit('ready');
+    if (!disposed) {
+      emit('ready');
+      if (firstVisit) {
+        if (canChooseVoice.value && voiceEnabled.value) await openVoiceSettings(tabs, voice, { fromAircraft: true });
+        else tabs.requestTabChange('autopilot');
+      }
+    }
   } catch (failure) {
     if (!disposed) {
       error.value = failure?.message || 'Setup could not be saved. Try again.';
@@ -304,7 +314,7 @@ onBeforeUnmount(() => {
         <button v-if="showReconnect" type="button" class="ff-button-secondary" data-reconnect :disabled="systemHost.isBusy" @click="reconnect">Reconnect</button>
       </div>
     </section>
-    <form v-else-if="required || settingsUi.introOpen" class="onboarding-form" :aria-busy="busy" @submit.prevent="step < steps.length ? changeStep(step + 1) : finish()">
+    <form v-else-if="required || settingsUi.introOpen" class="onboarding-form" :data-onboarding-step="step" :aria-busy="busy" @submit.prevent="step < steps.length ? changeStep(step + 1) : finish()">
       <div class="onboarding-artwork" aria-hidden="true">
         <div class="onboarding-brand"><img src="/assets/app-mark.svg" alt="" width="28" height="28">FlightFabric</div>
         <picture :key="step" class="onboarding-illustration">
@@ -317,27 +327,26 @@ onBeforeUnmount(() => {
       </div>
       <div ref="main" class="onboarding-main">
         <header class="onboarding-header">
-          <div class="onboarding-kicker"><span>Welcome to FlightFabric</span><span>{{ step }} of {{ steps.length }}</span></div>
           <ol class="onboarding-progress" aria-label="Setup progress">
-            <li v-for="(item, index) in steps" :key="item.label" :class="{ complete: index < step }" :aria-current="index === step - 1 ? 'step' : undefined">{{ item.label }}</li>
+            <li v-for="(item, index) in steps" :key="item.label" :class="{ complete: index < step }" :aria-current="index === step - 1 ? 'step' : undefined">{{ index + 1 }}. {{ item.label }}</li>
           </ol>
           <h2 id="onboarding-title" ref="heading" tabindex="-1">{{ currentStep.title }}</h2>
           <p id="onboarding-intro">{{ currentStep.intro }}</p>
         </header>
 
         <div class="onboarding-content">
-          <fieldset v-if="step === 1 && canChooseVoice" :disabled="saving">
+          <fieldset v-if="step === 1 && canChooseVoice" :disabled="busy">
             <legend>Would you like to use voice control?</legend>
             <label class="onboarding-choice">
               <input v-model="voiceEnabled" type="radio" name="onboarding-voice" :value="true">
-              <span><strong>Enable voice control (recommended)</strong><small>Use push-to-talk. Setup does not access your microphone.</small></span>
+              <span><strong>Use voice control</strong><small>Try your microphone next. Saving these choices won’t open it.</small></span>
             </label>
             <label class="onboarding-choice">
               <input v-model="voiceEnabled" type="radio" name="onboarding-voice" :value="false">
               <span><strong>Leave voice control off</strong><small>You can enable it in Settings whenever you’re ready.</small></span>
             </label>
           </fieldset>
-          <fieldset v-else-if="step === 1" :disabled="saving">
+          <fieldset v-else-if="step === 1" :disabled="busy">
             <legend>Voice control</legend>
             <p class="onboarding-note" role="status">{{ voice.bridgeAvailable ? 'Voice preferences are unavailable. You can check them in Settings afterwards.' : 'Voice control is available in the desktop app.' }}</p>
             <label class="onboarding-choice">
@@ -345,7 +354,7 @@ onBeforeUnmount(() => {
               <span><strong>Keep my current voice preference</strong><small>Continue setup without changing voice control.</small></span>
             </label>
           </fieldset>
-          <fieldset v-else-if="step === 2" :disabled="saving">
+          <fieldset v-else-if="step === 2" :disabled="busy">
             <legend>When should recording start?</legend>
             <label class="onboarding-choice">
               <input v-model="automaticRecording" type="radio" name="onboarding-recording" :value="true">
@@ -357,20 +366,19 @@ onBeforeUnmount(() => {
             </label>
           </fieldset>
           <template v-if="step === 3">
-            <fieldset :disabled="busy">
+            <fieldset :disabled="busy" class="onboarding-toolbar-choices">
               <legend>Would you like to use the MSFS toolbar?</legend>
               <label class="onboarding-choice">
                 <input v-model="toolbarChoice" type="radio" name="onboarding-toolbar" value="install">
-                <span><strong>Use the MSFS toolbar</strong><small>Install it below, or use an existing installation.</small></span>
+                <span><strong>Use the MSFS toolbar</strong><small>Use an installed copy, or install below to continue.</small></span>
               </label>
               <label class="onboarding-choice">
                 <input v-model="toolbarChoice" type="radio" name="onboarding-toolbar" value="later">
-                <span><strong>Set up later</strong><small>You can install or manage it in Settings.</small></span>
+                <span><strong>Set up later</strong><small>Install whenever you’re ready in Settings.</small></span>
               </label>
             </fieldset>
             <OnboardingToolbarStep :disabled="saving || !canSave || toolbarChoice !== 'install'" />
-            <p v-if="toolbarChoice === 'install' && !toolbarComplete" class="onboarding-note">Install the toolbar to finish, or choose Set up later.</p>
-            <p v-if="!voiceComplete" class="onboarding-note" role="status">Voice preferences changed while setup was open. Go back to the Voice step to confirm your choice.</p>
+            <p v-if="!voiceComplete" class="onboarding-note" role="status">Voice preferences changed. Go back to Voice to confirm your choice.</p>
           </template>
           <p v-if="step === 2 && recordingChanged" class="onboarding-note">Restart FlightFabric after setup to apply this recording change. Any active recording will continue until you end the flight.</p>
           <p v-if="error" ref="errorMessage" class="onboarding-error" role="alert" tabindex="-1">{{ error }}</p>
@@ -379,10 +387,10 @@ onBeforeUnmount(() => {
       </div>
 
       <footer class="onboarding-footer">
-        <p>{{ required ? 'Review each step, then save to finish. You can change these choices in Settings.' : 'You can change these choices in Settings.' }}</p>
+        <p>You can change these choices in Settings.</p>
         <div class="onboarding-actions">
           <button v-if="settingsUi.introOpen" type="button" class="ff-button-secondary" data-close-intro :disabled="busy" @click="closeIntro">Close</button>
-          <button v-if="step > 1" type="button" class="ff-button-secondary" :disabled="busy" @click="changeStep(step - 1)">Back</button>
+          <button v-if="step > 1" type="button" class="ff-button-secondary" data-onboarding-back :disabled="busy" @click="changeStep(step - 1)">Back</button>
           <button type="submit" class="ff-button-primary" :disabled="busy || !stepComplete || (step === steps.length && (!canSave || !choicesComplete))">{{ saving ? 'Saving…' : currentStep.next }}</button>
         </div>
       </footer>

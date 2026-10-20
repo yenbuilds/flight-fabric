@@ -381,6 +381,9 @@ async function main() {
     '/toolbar/taxi.js': ['toolbar/taxi.js', 'text/javascript'],
     '/toolbar/presets.js': ['toolbar/presets.js', 'text/javascript'], '/toolbar/toolbar.css': ['toolbar/toolbar.css', 'text/css'],
     '/toolbar/voice-reference.json': ['toolbar/voice-reference.json', 'application/json'], '/assets/aircraft-presets.svg': ['assets/aircraft-presets.svg', 'image/svg+xml'] };
+  // Keep one built UI for the journey, including reconnect/reload. Another
+  // desktop build can replace frontend-dist while this fixture is running.
+  const assetBytes = new Map(Object.entries(assets).map(([url, asset]) => [url, fs.readFileSync(path.join(ROOT, 'frontend-dist', asset[0]))]));
   const http = require('node:http').createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const json = data => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)); };
@@ -427,7 +430,7 @@ async function main() {
     if (url.pathname === '/shared/app-settings-shared.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end(fs.readFileSync(path.join(ROOT, 'shared/app-settings-shared.js'))); }
     const asset = assets[url.pathname];
     if (!asset) { res.statusCode = 404; return res.end(); }
-    res.setHeader('Content-Type', asset[1]); res.end(fs.readFileSync(path.join(ROOT, 'frontend-dist', asset[0])));
+    res.setHeader('Content-Type', asset[1]); res.end(assetBytes.get(url.pathname));
   });
   http.listen(0, '127.0.0.1'); await once(http, 'listening');
   try {

@@ -220,56 +220,23 @@ onUnmounted(() => {
             :aircraft-name="timelineViewerAircraft"
           />
           <div class="min-w-0">
-            <div class="logbook-recorded-context">{{ hasReview ? 'Recorded flight' : 'Flight review' }}</div>
-            <div class="flex min-w-0 items-baseline gap-2">
-              <div id="timeline-mobile-viewer-title" class="min-w-0 truncate text-sm font-semibold text-gray-200">{{ hasReview ? timelineViewerTitle : 'Select a flight' }}</div>
-              <span
-                v-if="timelineViewerAircraft"
-                aria-hidden="true"
-                class="shrink-0 text-xs text-gray-600"
-              >•</span>
+            <div class="logbook-flight-identity">
+              <div id="timeline-mobile-viewer-title" class="min-w-0 text-base font-semibold text-fg">{{ hasReview ? timelineViewerTitle : 'Select a flight' }}</div>
               <div
                 v-if="timelineViewerAircraft"
                 id="timeline-mobile-viewer-aircraft"
-                class="min-w-0 truncate text-xs text-gray-400"
+                class="min-w-0 text-sm text-muted-fg"
                 :title="timelineViewerAircraft"
               >
                 {{ timelineViewerAircraft }}
               </div>
             </div>
-            <div
-              v-if="timelineViewerLocalDateTime || timelineViewerUtcDateTime || timelineViewerRecordingStartTime"
-              id="timeline-mobile-viewer-flight-times"
-              class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-400"
-            >
-              <span v-if="timelineViewerLocalDateTime">
-                <span class="uppercase tracking-wide text-gray-500">Sim start local</span>
-                <time
-                  id="timeline-mobile-viewer-local-time"
-                  class="ml-1 font-mono text-gray-300"
-                  :datetime="timeline.loadedTimelineSimDateTimeLocal"
-                >{{ timelineViewerLocalDateTime }}</time>
-              </span>
-              <span v-if="timelineViewerUtcDateTime">
-                <span class="uppercase tracking-wide text-gray-500">Sim start UTC</span>
-                <time
-                  id="timeline-mobile-viewer-utc-time"
-                  class="ml-1 font-mono text-gray-300"
-                  :datetime="timeline.loadedTimelineSimDateTimeUtc"
-                >{{ timelineViewerUtcDateTime }}</time>
-              </span>
-              <span
-                v-if="timelineViewerRecordingStartTime"
-                title="Real-world recording start in this device's local timezone"
-              >
-                <span class="uppercase tracking-wide text-gray-500">Recording start (real-world local)</span>
-                <time
-                  id="timeline-mobile-viewer-recording-time"
-                  class="ml-1 font-mono text-gray-300"
-                  :datetime="timeline.loadedTimelineRecordingStartTime"
-                >{{ timelineViewerRecordingStartTime }}</time>
-              </span>
-            </div>
+            <p v-if="hasReview" class="logbook-flight-date">
+              Recorded flight<template v-if="timelineViewerLocalDateTime || timelineViewerUtcDateTime || timelineViewerRecordingStartTime"> ·
+                {{ (timelineViewerLocalDateTime || timelineViewerUtcDateTime || timelineViewerRecordingStartTime).slice(0, 10) }}
+                ({{ timelineViewerLocalDateTime ? 'sim local' : timelineViewerUtcDateTime ? 'sim UTC' : 'recorded local' }})
+              </template>
+            </p>
           </div>
         </div>
         <div class="flex max-w-full shrink-0 flex-wrap items-center gap-2">
@@ -320,7 +287,43 @@ onUnmounted(() => {
       </div>
 
       <div v-show="hasReview && !timeline.timelineLoadError" id="vue-timeline-summary-root">
-        <TimelineSummaryBar />
+        <TimelineSummaryBar>
+          <template #details>
+            <div
+              v-if="timelineViewerLocalDateTime || timelineViewerUtcDateTime || timelineViewerRecordingStartTime"
+              id="timeline-mobile-viewer-flight-times"
+              class="logbook-flight-clocks"
+            >
+              <span v-if="timelineViewerLocalDateTime">
+                <span class="text-muted-fg">Sim start local</span>
+                <time
+                  id="timeline-mobile-viewer-local-time"
+                  class="block mt-1 text-fg"
+                  :datetime="timeline.loadedTimelineSimDateTimeLocal"
+                >{{ timelineViewerLocalDateTime }}</time>
+              </span>
+              <span v-if="timelineViewerUtcDateTime">
+                <span class="text-muted-fg">Sim start UTC</span>
+                <time
+                  id="timeline-mobile-viewer-utc-time"
+                  class="block mt-1 text-fg"
+                  :datetime="timeline.loadedTimelineSimDateTimeUtc"
+                >{{ timelineViewerUtcDateTime }}</time>
+              </span>
+              <span
+                v-if="timelineViewerRecordingStartTime"
+                title="Real-world recording start in this device's local timezone"
+              >
+                <span class="text-muted-fg">Recording start (real-world local)</span>
+                <time
+                  id="timeline-mobile-viewer-recording-time"
+                  class="block mt-1 text-fg"
+                  :datetime="timeline.loadedTimelineRecordingStartTime"
+                >{{ timelineViewerRecordingStartTime }}</time>
+              </span>
+            </div>
+          </template>
+        </TimelineSummaryBar>
       </div>
 
       <div v-show="hasReview && !timeline.timelineLoadError" class="logbook-review-body">

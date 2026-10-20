@@ -7,12 +7,14 @@ function harness(options = {}) {
   const state = { runtime: { enabled: true, available: true }, selectedInputDeviceId: 'selected-mic',
     spokenReadbacks: false, voiceTest: initialVoiceTestState(),
     setVoiceTestState(patch) { this.voiceTest = { ...this.voiceTest, ...patch }; },
+    setButtonTestState(patch) { this.buttonTest = { ...this.buttonTest, ...patch }; },
     setInputDevicesError(value) { this.inputDevicesError = value; },
   };
   const calls = [], captures = [], contexts = [], scheduled = new Map();
   let id = 0;
   const timers = { setTimeout(fn, ms) { const key = ++id; scheduled.set(key, { fn, ms }); return key; }, clearTimeout(key) { scheduled.delete(key); } };
   const api = { startRecognition: options.start || (async () => ({ sessionId: 'test-session' })),
+    retirePushToTalkAttempt: async id => { calls.push(['retire', id]); },
     sendAudio(payload) { calls.push(['audio', payload]); },
     async finishRecognition(sessionId) { calls.push(['finish', sessionId]); return { finishing: true }; },
     async cancelRecognition(sessionId) { calls.push(['cancel', sessionId]); },
@@ -52,6 +54,57 @@ function harness(options = {}) {
   const final = text => controller.handleRecognitionEvent({ type: 'final', sessionId: 'test-session', text });
   return { state, calls, captures, contexts, controller, scheduled, audio, final, api };
 }
+
+test('button practice owns matching press/release without microphone, and rejects retired releases', async () => {
+  const h = harness({ start: () => { throw new Error('Button checks must never start recognition'); } });
+  assert.equal(h.controller.startButtonTest(), true);
+  assert.equal(h.controller.busy, true);
+  assert.equal(await h.controller.start(), false, 'audio cannot overlap a button check');
+  h.controller.handleButtonEvent({ type: 'down', pttAttemptId: 'old' });
+  assert.equal(h.state.buttonTest.phase, 'held');
+  h.controller.cancelButtonTest();
+  assert.deepEqual(h.calls, [['retire', 'old']]);
+  assert.equal(h.controller.startButtonTest(), true);
+  h.controller.handleButtonEvent({ type: 'up', pttAttemptId: 'old' });
+  assert.equal(h.state.buttonTest.phase, 'waiting');
+  h.controller.handleButtonEvent({ type: 'down', pttAttemptId: 'new' });
+  h.controller.handleButtonEvent({ type: 'up', pttAttemptId: 'other' });
+  assert.equal(h.state.buttonTest.phase, 'held');
+  h.controller.handleButtonEvent({ type: 'up', pttAttemptId: 'new' });
+  assert.equal(h.state.buttonTest.phase, 'complete');
+  assert.equal(h.controller.busy, false);
+  assert.equal(h.captures.length, 0);
+  assert.equal(h.scheduled.size, 0);
+  await h.controller.dispose();
+});
+
+test('button practice is bounded and retires held input on timeout, cancellation and disposal', async () => {
+  for (const terminal of ['timeout', 'cancel', 'error', 'dispose']) {
+    const h = harness();
+    h.controller.startButtonTest();
+    h.controller.handleButtonEvent({ type: 'down', pttAttemptId: terminal });
+    if (terminal === 'timeout') [...h.scheduled.values()][0].fn();
+    else if (terminal === 'dispose') await h.controller.dispose();
+    else h.controller.handleButtonEvent({ type: terminal, pttAttemptId: terminal === 'cancel' ? terminal : undefined });
+    assert.equal(h.controller.busy, false, terminal);
+    assert.equal(h.scheduled.size, 0, terminal);
+    assert.deepEqual(h.calls, [['retire', terminal]], terminal);
+    assert.equal(h.captures.length, 0);
+    await h.controller.dispose();
+  }
+});
+
+test('on-screen practice cannot be completed by a global key and cannot start after disposal', async () => {
+  const h = harness();
+  h.controller.startButtonTest('screen');
+  assert.equal(h.controller.handleButtonEvent({ type: 'down', pttAttemptId: 'native' }), false);
+  assert.equal(h.state.buttonTest.phase, 'waiting');
+  for (const type of ['down', 'up']) h.controller.handleButtonEvent({ type, pttAttemptId: 'screen' }, 'screen');
+  assert.equal(h.state.buttonTest.phase, 'complete');
+  assert.deepEqual(h.calls, []);
+  await h.controller.dispose();
+  assert.equal(h.controller.startButtonTest(), false);
+});
 
 test('voice setup uses selected microphone and real recognition API without changing preferences', async () => {
   const h = harness();

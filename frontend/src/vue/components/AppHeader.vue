@@ -10,7 +10,7 @@ import { useSystemHostStore } from '../stores/system-host.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useShellStore } from '../stores/shell.js';
 import { useProfilesStore } from '../stores/profiles.js';
-import { focusSettingsSection } from '../settings-navigation.js';
+import { focusSettingsSection, openPhoneSettings } from '../settings-navigation.js';
 
 const status = useStatusStore();
 const systemHost = useSystemHostStore();
@@ -47,22 +47,6 @@ async function openRecordingView(tabId, close) {
   }
 }
 
-async function openMobileAccess() {
-  const targetTab = systemHost.remoteAccessEnabled === false ? 'settings' : 'system';
-  if (tabs.activeTabId !== targetTab && !tabs.requestTabChange(targetTab)) return;
-  await nextTick();
-  const scrollToSetup = () => {
-    document.getElementById(targetTab === 'settings' ? 'settings-phone-tablet-access' : 'system-mobile-access')?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    });
-  };
-  if (typeof window.requestAnimationFrame === 'function') {
-    window.requestAnimationFrame(scrollToSetup);
-  } else {
-    scrollToSetup();
-  }
-}
 </script>
 
 <template>
@@ -97,16 +81,16 @@ async function openMobileAccess() {
               id="header-mobile-access-btn"
               type="button"
               class="ff-button-secondary px-3 py-1 text-xs"
-              title="Open phone and tablet second-screen setup"
-              aria-label="Open phone and tablet second-screen setup"
-              @click="openMobileAccess"
+              title="Connect a phone or tablet"
+              aria-label="Connect a phone or tablet"
+              @click="openPhoneSettings(tabs)"
             >
               <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <rect x="5" y="2" width="14" height="20" rx="2" />
                 <path d="M9 6h6" />
                 <path d="M11.5 18h1" />
               </svg>
-              <span>Phone setup</span>
+              <span>Connect phone</span>
             </button>
           </div>
 

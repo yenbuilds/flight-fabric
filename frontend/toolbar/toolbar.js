@@ -231,8 +231,8 @@
     return node;
   }
 
-  function section(id, title, hint, build) {
-    var open = prefs.openSections[id] === true;
+  function section(id, title, hint, build, forceOpen) {
+    var open = forceOpen === true || prefs.openSections[id] === true;
     var wrap = el('div', 'section');
     var toggle = el('button', 'section-toggle');
     toggle.type = 'button';
@@ -252,8 +252,11 @@
       var next = body.hidden;
       body.hidden = !next;
       toggle.setAttribute('aria-expanded', next ? 'true' : 'false');
-      prefs.openSections[id] = next;
-      savePrefs();
+      // Searching reveals matches without changing the saved browsing layout.
+      if (!forceOpen) {
+        prefs.openSections[id] = next;
+        savePrefs();
+      }
       if (next && !body.firstChild) build(body);
     });
     wrap.appendChild(toggle);
@@ -1582,8 +1585,9 @@
       ));
     } else {
       var examples = voiceExamples(commands);
+      var tryCard = null;
       if (examples.length) {
-        var tryCard = card('Try saying', aircraftTitle());
+        tryCard = card('Try saying', aircraftTitle());
         var list = el('ul', 'phrase-list');
         examples.forEach(function (phrase) {
           var item = el('li', 'phrase');
@@ -1592,7 +1596,6 @@
           list.appendChild(item);
         });
         tryCard.appendChild(list);
-        panel.appendChild(tryCard);
       }
 
       var reference = card('Commands', commands.length + ' voice-enabled');
@@ -1608,9 +1611,11 @@
         renderCommandList(results, commands);
       });
       reference.appendChild(search);
+      reference.appendChild(el('p', 'voice-browse-help', 'Choose a system, or search by command or phrase.'));
       reference.appendChild(results);
       renderCommandList(results, commands);
       panel.appendChild(reference);
+      if (tryCard) panel.appendChild(tryCard);
     }
 
     panel.appendChild(renderQuestions());
@@ -1622,36 +1627,44 @@
     var query = state.voiceSearch.trim().toLowerCase();
     var groups = {};
     var order = [];
+    var count = 0;
     commands.forEach(function (command) {
+      var groupId = command.kind === 'preset' ? 'presets' : command.group;
       if (query) {
-        var haystack = (command.label + ' ' + command.patterns.join(' ') + ' ' + command.description + ' ' + (GROUP_LABELS[command.group] || command.group)).toLowerCase();
+        var haystack = (command.label + ' ' + command.patterns.join(' ') + ' ' + command.description + ' ' + (GROUP_LABELS[groupId] || groupId)).toLowerCase();
         if (haystack.indexOf(query) < 0) return;
       }
-      var groupId = command.kind === 'preset' ? 'presets' : command.group;
       if (!groups[groupId]) { groups[groupId] = []; order.push(groupId); }
       groups[groupId].push(command);
+      count += 1;
     });
     if (!order.length) {
       container.appendChild(el('div', 'muted', 'No commands match.'));
       return;
     }
+    if (query) container.appendChild(el('div', 'voice-match-count', count + (count === 1 ? ' matching command' : ' matching commands')));
     order.forEach(function (groupId) {
-      container.appendChild(el('div', 'group-title', GROUP_LABELS[groupId] || humanize(groupId)));
-      groups[groupId].forEach(function (command) {
-        var node = el('div', 'command');
-        var label = el('div', 'command-label');
-        label.appendChild(el('span', '', command.label));
-        var hint = inputHint(command.input, command.id);
-        if (hint) label.appendChild(el('span', 'command-input', hint));
-        node.appendChild(label);
-        var phrases = el('div', 'command-phrases');
-        command.patterns.slice(0, 4).forEach(function (pattern, index) {
-          if (index > 0) phrases.appendChild(document.createTextNode(' | '));
-          phrases.appendChild(phraseNode(pattern, ''));
+      var commandsInGroup = groups[groupId];
+      var id = 'voice-' + groupId.replace(/[^a-z0-9-]/gi, '-');
+      var group = section(id, GROUP_LABELS[groupId] || humanize(groupId),
+        commandsInGroup.length + (commandsInGroup.length === 1 ? ' command' : ' commands'), function (body) {
+        commandsInGroup.forEach(function (command) {
+          var node = el('div', 'command');
+          var label = el('div', 'command-label');
+          label.appendChild(el('span', '', command.label));
+          var hint = inputHint(command.input, command.id);
+          if (hint) label.appendChild(el('span', 'command-input', hint));
+          node.appendChild(label);
+          var phrases = el('div', 'command-phrases');
+          command.patterns.slice(0, 4).forEach(function (pattern) {
+            phrases.appendChild(phraseNode(pattern, 'command-phrase'));
+          });
+          node.appendChild(phrases);
+          body.appendChild(node);
         });
-        node.appendChild(phrases);
-        container.appendChild(node);
-      });
+      }, !!query);
+      group.className += ' voice-system';
+      container.appendChild(group);
     });
   }
 
@@ -1668,14 +1681,16 @@
       return node;
     }
     if (aircraftQuestions.length) {
-      node.appendChild(el('div', 'group-title', 'About the aircraft'));
-      node.appendChild(phraseList(aircraftQuestions));
+      node.appendChild(section('voice-questions-aircraft', 'About the aircraft', aircraftQuestions.length + (aircraftQuestions.length === 1 ? ' question' : ' questions'), function (body) {
+        body.appendChild(phraseList(aircraftQuestions));
+      }));
     } else if (key) {
       node.appendChild(el('div', 'kv-sub', 'Aircraft state questions are not available for this profile.'));
     }
     if (planQuestions.length) {
-      node.appendChild(el('div', 'group-title', 'About the flight plan'));
-      node.appendChild(phraseList(planQuestions));
+      node.appendChild(section('voice-questions-plan', 'About the flight plan', planQuestions.length + (planQuestions.length === 1 ? ' question' : ' questions'), function (body) {
+        body.appendChild(phraseList(planQuestions));
+      }));
     }
     return node;
   }

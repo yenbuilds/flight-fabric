@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia';
+import { nextTick } from 'vue';
 import { readStorageValue, writeStorageValue } from '../../app/browser-environment.js';
 import { initialVoiceTestState } from '../../voice/voice-setup-test.js';
 
@@ -53,6 +54,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     selectedInputDeviceId: '',
     spokenReadbacks: true,
     voiceTest: initialVoiceTestState(),
+    buttonTest: { phase: 'idle', message: '' },
     activeSessionId: '',
     _runtimeActions: null,
   }),
@@ -76,7 +78,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
       if (!state.runtime.available) return { action: 'Check voice setup', detail: 'Voice could not start. Open settings for details.' };
       if (state.inputDevicesError) return { action: 'Check voice setup', detail: 'Microphone access needs attention.' };
       if (!state.runtime.shortcutRegistered) return {
-        action: hasBinding ? 'Check voice setup' : 'Set up voice control',
+        action: hasBinding ? 'Check voice setup' : 'Set up push-to-talk',
         detail: hasBinding ? 'Push-to-talk needs attention.'
           : state.runtime.controllerEnabled ? 'Choose a keyboard shortcut or controller button.' : 'Choose a push-to-talk shortcut.',
         optional: !hasBinding,
@@ -86,9 +88,15 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     setupReminder() {
       return this.setupTask && (!this.setupTask.optional || !this.setupDismissed) ? this.setupTask : null;
     },
+    settingsAction() {
+      // An optional global binding is not incomplete setup for on-screen users.
+      return this.runtime.enabled && this.setupTask?.optional
+        ? 'Voice settings' : this.setupTask?.action || 'Voice settings';
+    },
     listening: (state) => ['starting', 'listening'].includes(state.status),
     finishing: (state) => state.status === 'finishing',
-    voiceTestBusy: (state) => ['starting', 'listening', 'recognizing', 'stopping', 'playing'].includes(state.voiceTest.phase),
+    voiceTestBusy: (state) => ['starting', 'listening', 'recognizing', 'stopping', 'playing'].includes(state.voiceTest.phase)
+      || ['waiting', 'held'].includes(state.buttonTest.phase),
     // A backend command result remains visible until the next PTT, while the
     // button stays available so success/failure acknowledgement never traps
     // the user in a terminal UI state.
@@ -98,6 +106,15 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     ready() { return !this.controllerSetup.active && !this.shortcutRecording.active && !this.voiceTestBusy && ['ready', 'sent', 'failed', 'error', 'unmatched', 'transcribed'].includes(this.status); },
   },
   actions: {
+    async openPanel(tabs) {
+      if (tabs.activeTabId !== 'autopilot' && !tabs.requestTabChange('autopilot')) return false;
+      tabs.closeMoreSheet();
+      // Let navigation and the More sheet settle before the dialog takes focus.
+      await nextTick();
+      if (tabs.activeTabId !== 'autopilot') return false;
+      this.panelOpen = true;
+      return true;
+    },
     dismissSetup() {
       if (!this.setupTask?.optional) return;
       this.setupDismissed = true;
@@ -189,6 +206,10 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     },
     setSpokenReadbacks(value = true) { this.spokenReadbacks = value === true; },
     setVoiceTestState(patch) { this.voiceTest = { ...this.voiceTest, ...patch }; },
+    setButtonTestState(patch) { this.buttonTest = { ...this.buttonTest, ...patch }; },
+    startButtonTest(kind) { return this._runtimeActions?.startButtonTest?.(kind) || false; },
+    cancelButtonTest() { return this._runtimeActions?.cancelButtonTest?.(); },
+    practiceButtonEvent(type) { return this._runtimeActions?.practiceButtonEvent?.(type) || false; },
     pressToTalk() { return this._runtimeActions?.begin?.() || false; },
     releaseToTalk() { return this._runtimeActions?.finish?.() || false; },
     cancel() { return this._runtimeActions?.cancel?.('user') || false; },

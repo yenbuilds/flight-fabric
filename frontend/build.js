@@ -24,7 +24,7 @@ const REQUIRED_TAILWIND_MARKERS = [
   '.space-y-5>',
   '.rounded-3xl{',
   '.border-border\\/80{',
-  '.bg-panel\\/75{',
+  '.bg-panel\\/40{',
   '.shadow-2xl{',
 ];
 

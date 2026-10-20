@@ -124,7 +124,7 @@ function collectMatches() {
   const candidates = Array.from(root.querySelectorAll(RESULT_TARGET_SELECTOR))
     .filter((element) => (
       isSearchable(element)
-      && !element.closest?.('.aircraft-page-tools, .aircraft-find, [data-aircraft-section-ribbon]')
+      && !element.closest?.('.aircraft-page-tools, .aircraft-find, [data-aircraft-section-ribbon], [data-aircraft-orientation]')
       && normalizeSearchText(searchableElementText(element)).includes(needle)
     ));
 
@@ -264,6 +264,7 @@ watch(() => props.contentKey, () => {
 });
 
 onBeforeUnmount(clearMatchMarkers);
+defineExpose({ open: () => expandSearch(), close: collapseSearch });
 </script>
 
 <template>

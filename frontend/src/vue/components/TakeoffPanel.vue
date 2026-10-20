@@ -62,7 +62,6 @@ const detailedAttention = computed(() => {
     aria-live="polite"
   >
     <div class="landing-waiting-copy">
-      <div class="landing-waiting-kicker">Takeoff Capture</div>
       <div class="landing-waiting-title">Ready for the next departure</div>
       <div id="takeoff-waiting-description" class="landing-waiting-description">{{ takeoff.waitingDescription }}</div>
     </div>

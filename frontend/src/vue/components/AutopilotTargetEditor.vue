@@ -216,8 +216,7 @@ onBeforeUnmount(stopRepeat);
     >
       <header class="autopilot-target-header">
         <div class="min-w-0">
-          <div class="controls-kicker">One-thumb tuner</div>
-          <h2 :id="`autopilot-target-title-${mode}`" class="mt-1 text-lg font-semibold text-gray-100">
+          <h2 :id="`autopilot-target-title-${mode}`" class="text-lg font-semibold text-gray-100">
             {{ definition.label }}
           </h2>
         </div>

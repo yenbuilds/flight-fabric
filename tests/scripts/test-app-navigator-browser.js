@@ -64,10 +64,10 @@ async function browser() {
     assert.equal(await evaluate("return document.querySelector('.app-workbench').inert;"), false);
 
     for (const [query, destination] of [
-      ['microphone', 'voice-settings'], ['mic', 'voice-settings'], ['microphone setup', 'voice-settings'],
+      ['voice control', 'voice-settings'], ['microphone', 'voice-settings'], ['mic', 'voice-settings'], ['microphone setup', 'voice-settings'],
       ['push to talk', 'voice-settings'], ['push-to-talk', 'voice-settings'], ['PTT', 'voice-settings'], ['voice settings', 'voice-settings'],
-      ['phone', 'system'], ['phone pairing', 'system'], ['pair', 'system'],
-      ['pairing', 'system'], ['tablet setup', 'system'],
+      ['phone', 'phone-setup'], ['phone pairing', 'phone-setup'], ['pair', 'phone-setup'],
+      ['pairing', 'phone-setup'], ['tablet setup', 'phone-setup'],
     ]) {
       await evaluate(`navigatorTest.tabs.requestTabChange('flight'); navigatorTest.shell.openNavigator();
         await navigatorTest.settle(); navigatorTest.query(${JSON.stringify(query)}); await navigatorTest.settle();`);
@@ -78,10 +78,19 @@ async function browser() {
       assert.equal(await evaluate('return document.activeElement.id;'), 'app-navigator-query');
       assert.equal(await evaluate('return navigatorTest.shell.navigatorOpen;'), true);
       await evaluate("navigatorTest.guard(false); navigatorTest.key(document.activeElement, 'Enter'); await navigatorTest.settle();");
-      assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), destination === 'voice-settings' ? 'settings' : destination, `${query}: Enter opens the existing destination`);
+      assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), ['voice-settings', 'phone-setup'].includes(destination) ? 'settings' : destination, `${query}: Enter opens the existing destination`);
       assert.equal(await evaluate('return navigatorTest.shell.navigatorOpen;'), false);
-      assert.equal(await evaluate('return document.activeElement.id;'), destination === 'voice-settings' ? 'settings-voice-control' : 'vue-main-root');
+      assert.equal(await evaluate('return document.activeElement.id;'), destination === 'voice-settings' ? 'settings-voice-control' : 'settings-phone-tablet-access');
     }
+
+    await evaluate("navigatorTest.tabs.requestTabChange('flight'); navigatorTest.shell.openNavigator(); await navigatorTest.settle(); navigatorTest.query('voice commands'); await navigatorTest.settle();");
+    assert.deepEqual(await evaluate("return [...document.querySelectorAll('[role=option]')].map(element => element.id);"), ['navigator-result-voice-control']);
+    await evaluate("navigatorTest.guard(true); navigatorTest.key(document.activeElement, 'Enter'); await navigatorTest.settle();");
+    assert.equal(await evaluate('return navigatorTest.voice.panelOpen;'), false, 'voice entry cannot bypass unsaved edits');
+    await evaluate("navigatorTest.guard(false); navigatorTest.key(document.activeElement, 'Enter'); await navigatorTest.settle();");
+    assert(await evaluate("return navigatorTest.tabs.activeTabId === 'autopilot' && navigatorTest.voice.panelOpen && !navigatorTest.shell.navigatorOpen;"), 'voice search opens operational controls on Aircraft');
+    assert.equal(await evaluate("return document.querySelector('.app-workbench').inert;"), false, 'search releases its background before opening voice');
+    await evaluate('navigatorTest.voice.panelOpen = false;');
 
     const shortcutCases = [
       ['typing', '#typing', {}], ['textarea', '#text-area', {}], ['select', '#select', {}],

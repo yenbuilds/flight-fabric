@@ -26,7 +26,7 @@ export const VALID_TAB_IDS = new Set([
 const DESKTOP_TABS = Object.freeze([
   { id: 'livemap', label: 'Live', icon: 'livemap' },
   { id: 'flight', label: 'Overview', icon: 'flight' },
-  { id: 'autopilot', label: 'Aircraft', icon: 'autopilot' },
+  { id: 'autopilot', label: 'Aircraft controls', icon: 'autopilot' },
   { id: 'dispatch', label: 'Simbrief', icon: 'dispatch' },
   { id: 'timeline', label: 'Logbook', icon: 'timeline' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
@@ -35,7 +35,7 @@ const DESKTOP_TABS = Object.freeze([
 
 const MOBILE_PRIMARY_TABS = Object.freeze([
   { id: 'livemap', label: 'Live', icon: 'livemap' },
-  { id: 'autopilot', label: 'Aircraft', icon: 'autopilot' },
+  { id: 'autopilot', label: 'Controls', ariaLabel: 'Aircraft controls', icon: 'autopilot' },
   { id: 'dispatch', label: 'Simbrief', icon: 'dispatch' },
   { id: 'timeline', label: 'Logbook', icon: 'timeline' },
 ]);

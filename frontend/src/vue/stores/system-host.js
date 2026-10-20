@@ -202,7 +202,7 @@ export const useSystemHostStore = defineStore('systemHost', () => {
   const remoteControlPairingUrl = computed(() => {
     if (!remoteViewerUrl.value || !shareAircraftControlToken.value) return '';
     const querySeparator = remoteViewerUrl.value.includes('?') ? '&' : '?';
-    return `${remoteViewerUrl.value}${querySeparator}aircraftControlToken=${encodeURIComponent(shareAircraftControlToken.value)}`;
+    return `${remoteViewerUrl.value}${querySeparator}aircraftControlToken=${encodeURIComponent(shareAircraftControlToken.value)}&tab=autopilot`;
   });
   const remotePhoneEntryUrl = computed(() => {
     if (remoteAccessEnabled.value !== true) return '';
@@ -293,8 +293,10 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     }
     if (settings.status === 'fulfilled') {
       if (settings.value?.settingsFile) settingsFile.value = settings.value.settingsFile;
-      remoteAccessEnabled.value = settings.value?.settings?.remoteAccess === true;
     }
+    // Saved choices may still be waiting for restart. Only the running
+    // backend can confirm that the phone address is actually reachable.
+    remoteAccessEnabled.value = null;
     if (bootstrap.status === 'fulfilled') {
       const payload = bootstrap.value?.body && typeof bootstrap.value.body === 'object'
         ? bootstrap.value.body

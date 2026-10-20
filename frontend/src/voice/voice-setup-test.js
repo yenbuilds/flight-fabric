@@ -23,8 +23,53 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
   let disposed = false;
   let feedbackGeneration = 0;
   let feedbackOwned = false;
+  let buttonSession = null;
+  const updateButton = (patch) => voiceStore.setButtonTestState?.(patch);
   const update = (patch) => voiceStore.setVoiceTestState?.(patch);
-  const isBusy = () => Boolean(active || closing || playback);
+  const isBusy = () => Boolean(active || closing || playback || buttonSession);
+  function endButtonTest(phase = 'idle', message = '') {
+    const session = buttonSession;
+    buttonSession = null;
+    if (session) {
+      timers.clearTimeout(session.deadline);
+      if (session.kind === 'global' && session.attempt) {
+        try { Promise.resolve(api?.retirePushToTalkAttempt?.(session.attempt)).catch(() => {}); } catch {}
+      }
+    }
+    updateButton({ phase, message });
+  }
+  function startButtonTest(kind = 'global') {
+    if (disposed || isBusy() || !canStart() || !voiceStore.runtime.enabled) return false;
+    if (!['global', 'screen'].includes(kind)) return false;
+    const session = { kind, attempt: '' };
+    buttonSession = session;
+    updateButton({ phase: 'waiting', message: kind === 'screen'
+      ? 'Hold the practice button below, then release.' : 'Press and release your saved shortcut or controller button.' });
+    session.deadline = timers.setTimeout(() => {
+      if (buttonSession === session) endButtonTest('error', 'No complete press and release received. Check your binding and try again.');
+    }, 15000);
+    return true;
+  }
+  function handleButtonEvent(event = {}, kind = 'global') {
+    const session = buttonSession;
+    if (!session || session.kind !== kind) return false;
+    if (event.type === 'error' || (event.type === 'cancel' && !event.pttAttemptId)) {
+      endButtonTest('error', 'Button check interrupted. Try again.');
+      return false; // The main controller still owns runtime-wide failure state.
+    }
+    const attempt = event.pttAttemptId;
+    if (!attempt) return false;
+    if (event.type === 'down') {
+      if (!session.attempt) session.attempt = attempt;
+      if (session.attempt !== attempt) return false;
+      updateButton({ phase: 'held', message: 'Press received. Release to finish the check.' });
+      return true;
+    }
+    if (attempt !== session.attempt) return false;
+    if (event.type === 'up') endButtonTest('complete', 'Press and release received. Your button works.');
+    else if (event.type === 'cancel') endButtonTest('error', 'Button check cancelled. Try again.');
+    return true;
+  }
   const clearTimers = (session) => {
     timers.clearTimeout(session.recordTimer);
     timers.clearTimeout(session.deadline);
@@ -42,6 +87,7 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
   }
 
   async function cancel(message = '') {
+    endButtonTest();
     feedbackGeneration++;
     if (active || playback || feedbackOwned) cancelReadback();
     feedbackOwned = false;
@@ -270,6 +316,7 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
   }
 
   return Object.freeze({ start, finish, cancel, playRecording, testSpokenFeedback,
+    startButtonTest, handleButtonEvent, cancelButtonTest: () => endButtonTest(),
     handleRecognitionEvent, get busy() { return isBusy(); },
     async dispose() { disposed = true; await cancel(); } });
 }

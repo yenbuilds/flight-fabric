@@ -1,5 +1,6 @@
 import {
   nextTick,
+  inject,
   onBeforeUnmount,
   unref,
   watch,
@@ -7,6 +8,7 @@ import {
 import { useTabsStore } from '../../stores/tabs.js';
 
 const STORAGE_PREFIX = 'flight-fabric:aircraft-section:v1:';
+export const AIRCRAFT_SECTION_VISIBILITY = Symbol('aircraft-section-visibility');
 const MAX_MEMORY_KEY_LENGTH = 200;
 
 function resolveValue(value) {
@@ -66,6 +68,7 @@ function sessionStorageOrNull() {
 
 export function useAircraftSectionMemory({ memoryKey, sections, onRestore } = {}) {
   const tabs = useTabsStore();
+  const sectionVisibility = inject(AIRCRAFT_SECTION_VISIBILITY, null);
   let restoredStorageKey = '';
   let resetIfMissing = false;
   let restoreTimer = null;
@@ -76,7 +79,7 @@ export function useAircraftSectionMemory({ memoryKey, sections, onRestore } = {}
     const value = resolveValue(sections);
     return Array.isArray(value) ? value : [];
   };
-  const aircraftTabIsActive = () => tabs.activeTabId === 'autopilot';
+  const aircraftTabIsActive = () => tabs.activeTabId === 'autopilot' && unref(sectionVisibility) !== false;
 
   function clearRestoreTimer() {
     if (restoreTimer == null || typeof window === 'undefined') return;
@@ -123,9 +126,7 @@ export function useAircraftSectionMemory({ memoryKey, sections, onRestore } = {}
     const storageKey = aircraftSectionStorageKey(currentMemoryKey());
     if (!storageKey || restoredStorageKey === storageKey) return;
 
-    restoredStorageKey = storageKey;
     const shouldReset = resetIfMissing;
-    resetIfMissing = false;
     clearRestoreTimer();
     nextTick(() => {
       if (
@@ -134,17 +135,20 @@ export function useAircraftSectionMemory({ memoryKey, sections, onRestore } = {}
         || aircraftSectionStorageKey(currentMemoryKey()) !== storageKey
         || typeof window === 'undefined'
       ) return;
+      clearRestoreTimer();
       restoreTimer = window.setTimeout(() => {
         restoreTimer = null;
+        restoredStorageKey = storageKey;
+        resetIfMissing = false;
         restoreSection(storageKey, shouldReset);
       }, 0);
     });
   }
 
   const stopTabWatch = watch(
-    () => tabs.activeTabId,
-    (tabId) => {
-      if (tabId === 'autopilot') {
+    aircraftTabIsActive,
+    (active) => {
+      if (active) {
         scheduleRestore();
       } else {
         // The tabs runtime restores the exact scroll offset on return, including

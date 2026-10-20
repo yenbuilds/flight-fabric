@@ -50,11 +50,11 @@ const altitudeDiagnosticCards = [
 ];
 
 const lightItems = [
-  { id: 'light-nav', name: 'nav', label: 'NAV' },
-  { id: 'light-bcn', name: 'beacon', label: 'BCN' },
-  { id: 'light-strb', name: 'strobe', label: 'STRB' },
-  { id: 'light-ldg', name: 'landing', label: 'LDG' },
-  { id: 'light-taxi', name: 'taxi', label: 'TAXI' },
+  { id: 'light-nav', name: 'nav', label: 'Nav' },
+  { id: 'light-bcn', name: 'beacon', label: 'Beacon' },
+  { id: 'light-strb', name: 'strobe', label: 'Strobe' },
+  { id: 'light-ldg', name: 'landing', label: 'Landing' },
+  { id: 'light-taxi', name: 'taxi', label: 'Taxi' },
 ];
 </script>
 
@@ -203,7 +203,8 @@ const lightItems = [
               :class="flight.lightClass(light.name)"
               :data-light="light.name"
             >
-              {{ light.label }}
+              <span>{{ light.label }}</span>
+              <strong>{{ flight.telemetry.lights[light.name] === true ? 'On' : flight.telemetry.lights[light.name] === false ? 'Off' : 'Unknown' }}</strong>
             </div>
           </div>
           <p id="lights-na" class="flight-empty-copy text-sm text-gray-500" :class="{ hidden: flight.telemetry.lights.available }">{{ flight.mode === 'live' ? 'Light data not available for this aircraft.' : 'Waiting for light data.' }}</p>
@@ -276,3 +277,28 @@ const lightItems = [
     </details>
   </div>
 </template>
+
+<style scoped>
+.flight-lights-bar { column-gap: 1.5rem; row-gap: .75rem; }
+.flight-lights-bar .light-indicator {
+  display: grid;
+  gap: .2rem;
+  min-width: 3.5rem;
+  padding: 0;
+  /* Legacy indicator styles use !important. Override only these readouts;
+     compact widgets and actual light controls retain their own presentation. */
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+  color: rgb(var(--muted-foreground)) !important;
+  font-family: var(--ff-font-ui);
+  font-size: .75rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-align: left;
+  cursor: default;
+}
+.flight-lights-bar .light-indicator strong { color: rgb(var(--foreground)); font-size: .8125rem; font-weight: 600; }
+.flight-lights-bar .light-indicator.on strong { color: rgb(var(--success)); }
+</style>

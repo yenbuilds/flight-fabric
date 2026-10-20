@@ -3,6 +3,8 @@
 // Used by the toolbar's real loader/browser fixture. All simulator writes are
 // recorded by its fake transport; navigation and settings must never add one.
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = async function checkToolbarSections({ win, page, root, click, bounds, mouse, key, press, until, count }) {
@@ -18,6 +20,11 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
   };
   const type = text => {
     for (const char of text) { const code = char === ' ' ? 'Space' : char; key('keyDown', code); key('char', char); key('keyUp', code); }
+  };
+  const captureVoice = async name => {
+    const directory = path.resolve(__dirname, '../../.tmp/toolbar-readability/after');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, name + '.png'), (await win.webContents.capturePage()).toPNG());
   };
 
   for (const width of [1200, 375, 320]) {
@@ -57,9 +64,24 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
     }
     assert.equal(await page('return document.documentElement.scrollWidth > innerWidth;'), false, 'expanded Plan fits ' + width);
 
-    await tab('voice'); await click('#voice-search'); type('apu');
+    await tab('voice');
+    assert.equal(await page(`return document.querySelectorAll('.command').length;`), 0, 'initial Voice is a compact system index');
+    await captureVoice('voice-' + width);
+    const system = await page(`return document.querySelector('.voice-system .section-toggle').id;`);
+    await click('#' + system);
+    assert.equal(await page(`return document.querySelector('#${system}').getAttribute('aria-expanded');`), 'true');
+    press('Space');
+    await until(page, `return document.querySelector('#${system}').getAttribute('aria-expanded');`, 'false');
+    key('keyDown', 'Enter'); key('char', '\r'); key('keyUp', 'Enter');
+    await until(page, `return document.querySelector('#${system}').getAttribute('aria-expanded');`, 'true');
+    await emit('capabilities');
+    await until(page, `return document.activeElement.id;`, system);
+    await captureVoice('voice-system-' + width);
+    await click('#voice-search'); type('apu');
     await until(page, `return document.querySelector('#voice-search').value;`, 'apu');
     assert.ok(await page(`return document.querySelectorAll('.command').length > 0;`));
+    assert.equal(await page(`return [...document.querySelectorAll('.voice-system .section-toggle')].every(n => n.getAttribute('aria-expanded') === 'true');`), true, 'search reveals matching systems');
+    await captureVoice('voice-search-' + width);
     await page(`document.querySelector('#voice-search').setSelectionRange(1, 2);`);
     await emit('capabilities'); await wait(80);
     assert.deepEqual(await page(`const n = document.activeElement; return [n.id, n.value, n.selectionStart, n.selectionEnd];`),
@@ -74,6 +96,13 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
     await until(page, `return document.querySelector('#tab-voice').textContent.includes('No commands match.');`);
     key('keyDown', 'A', ['control']); key('keyUp', 'A', ['control']); press('Backspace');
     await until(page, `return document.querySelector('#voice-search').value;`, '');
+    assert.equal(await page(`return document.querySelector('#${system}').getAttribute('aria-expanded');`), 'true', 'clearing search retains the chosen system');
+    await click('#' + system);
+    await until(page, `return document.querySelector('#section-toggle-voice-questions-plan') !== null;`);
+    await click('#section-toggle-voice-questions-plan');
+    assert.equal(await page(`return document.querySelector('#section-voice-questions-plan').hidden;`), false);
+    press('Space');
+    await until(page, `return document.querySelector('#section-voice-questions-plan').hidden;`);
     assert.equal(await root('return keyboardClaimed;'), true, 'typing, selection and Backspace stay captured');
     assert.equal(await page('return document.documentElement.scrollWidth > innerWidth;'), false, 'Voice fits ' + width);
 
@@ -86,7 +115,12 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
       assert.equal(await active(), id, 'changing a setting preserves focus on ' + id);
       assert.equal(await page(`return document.querySelector('#${id}').getAttribute('aria-pressed');`), 'true');
       assert.equal(await root('return keyboardClaimed;'), true);
+      if (id.startsWith('setting-scale-')) {
+        const expected = { 'setting-scale-s': 18, 'setting-scale-m': 21, 'setting-scale-l': 24 }[id];
+        assert.equal(await page(`return parseFloat(getComputedStyle(document.body).fontSize);`), expected);
+      }
     }
+    await captureVoice('settings-' + width);
     const controls = await page(`return document.querySelectorAll('#settings-sheet button').length;`);
     for (let step = 0; step < controls + 2; step++) {
       press('Tab');

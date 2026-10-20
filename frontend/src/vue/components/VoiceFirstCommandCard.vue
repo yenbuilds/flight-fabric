@@ -19,9 +19,6 @@ const enabling = ref(false);
 const ATTENTION_STATUSES = Object.freeze(['error', 'failed', 'blocked', 'unavailable', 'unmatched']);
 
 const voiceOff = computed(() => voice.runtime.enabled !== true);
-const eyebrow = computed(() => (
-  card.prompt?.aircraftName ? `Voice control · ${card.prompt.aircraftName}` : 'Voice control'
-));
 const holdDisabled = computed(() => !voice.ready && !voice.listening);
 const holdLabel = computed(() => {
   if (voice.listening) return 'Release to send';
@@ -44,7 +41,8 @@ const note = computed(() => {
 watch(visible, (show) => {
   if (!show) cancelLocalPress();
 });
-const doneDetail = computed(() => voice.lastCommand || voice.statusText || 'Command sent.');
+const doneDetail = computed(() => voice.lastCommand?.startsWith('Read aircraft state:')
+  ? voice.statusText : voice.lastCommand || voice.statusText || 'Command sent.');
 
 async function enableVoice() {
   if (enabling.value) return;
@@ -67,18 +65,17 @@ async function enableVoice() {
   >
     <template v-if="card.prompt.stage === 'try'">
       <div class="min-w-0">
-        <div class="app-prompt-reason">{{ eyebrow }}</div>
-        <div class="app-prompt-title">Try one voice command</div>
+        <div class="app-prompt-title">{{ card.prompt.readOnly ? 'Ask your aircraft a question' : 'Try one voice command' }}</div>
         <div class="app-prompt-intent">
           <template v-if="voiceOff">
             Turn on voice, hold the button, say
             <strong id="voice-first-command-example" class="text-fg">“{{ card.prompt.example }}”</strong>,
-            then let go. Recognition runs on this PC; audio never leaves it.
+            then let go. {{ card.prompt.readOnly ? 'This reads aircraft state without changing a control.' : 'This sends a command to your aircraft.' }}
           </template>
           <template v-else>
             Hold the button, say
             <strong id="voice-first-command-example" class="text-fg">“{{ card.prompt.example }}”</strong>,
-            then let go. Watch the flight deck, then listen for the readback.
+            then let go. {{ card.prompt.readOnly ? 'See the answer here, without changing a control.' : 'Watch the flight deck, then listen for the readback.' }}
           </template>
         </div>
         <div v-if="note" id="voice-first-command-note" class="app-prompt-footnote" aria-live="polite">{{ note }}</div>

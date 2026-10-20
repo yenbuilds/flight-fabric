@@ -25,10 +25,14 @@ async function install(installId) {
 
 <template>
   <section class="onboarding-toolbar" aria-label="MSFS toolbar installation">
-    <p class="onboarding-note">The toolbar is optional. You can install or manage it later in Settings.</p>
     <p v-if="!toolbar.available" class="onboarding-note" role="status">To install it, open the FlightFabric desktop app on your simulator PC.</p>
     <template v-else>
-      <p v-if="offersInstall" class="onboarding-note">Close MSFS before installing or updating the toolbar, then start it again.</p>
+      <div class="onboarding-toolbar-tools">
+        <p v-if="offersInstall" class="onboarding-note">Close MSFS before installing or updating.</p>
+        <button type="button" class="ff-button-ghost onboarding-toolbar-refresh" :disabled="disabled || toolbar.busy" @click="toolbar.refresh()">
+          {{ toolbar.loading ? 'Checking…' : 'Check again' }}
+        </button>
+      </div>
       <p v-if="toolbar.loading && !toolbar.hasLoaded" class="onboarding-note" role="status">Checking your MSFS 2024 installations…</p>
       <p v-else-if="toolbar.hasLoaded && !rows.length && !toolbar.error && !toolbar.sourceError" class="onboarding-note" role="status">No MSFS 2024 installation was found. FlightFabric checks the Microsoft Store and Steam locations on this PC.</p>
       <div v-for="row in rows" :key="row.key" class="onboarding-toolbar-install" :data-onboarding-install="row.installId">
@@ -49,10 +53,7 @@ async function install(installId) {
         {{ toolbar.error || toolbar.sourceError || (toolbar.result.action === 'install' ? 'Toolbar installed.' : toolbar.result.message) }}
         <template v-if="!toolbar.error && !toolbar.sourceError"> {{ toolbar.restartNotice }}</template>
       </p>
-      <button type="button" class="ff-button-ghost onboarding-toolbar-refresh" :disabled="disabled || toolbar.busy" @click="toolbar.refresh()">
-        {{ toolbar.loading ? 'Checking…' : 'Check again' }}
-      </button>
     </template>
-    <p class="onboarding-note">Once installed, load a flight and open <strong>FlightFabric</strong> from the in-flight toolbar. Keep the FlightFabric desktop app running.</p>
+    <p class="onboarding-note">After installing, load a flight and open <strong>FlightFabric</strong> from the in-flight toolbar. Keep the desktop app running.</p>
   </section>
 </template>

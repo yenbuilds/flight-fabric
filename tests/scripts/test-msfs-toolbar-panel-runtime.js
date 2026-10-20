@@ -598,6 +598,8 @@ test('toolbar voice examples and alternatives use punctuation available in the s
   runtime.api.receive(profile);
   runtime.api.state.voiceReference = { flightPlanQueries: ['what is my destination'], aircraftQueries: {} };
   runtime.api.selectTab('voice');
+  runtime.document.getElementById('section-toggle-voice-exterior-lights').fire('click');
+  runtime.document.getElementById('section-toggle-voice-questions-plan').fire('click');
   const text = runtime.document.getElementById('tab-voice').text();
   assert.ok(text.includes('Strobe lights on"'), text);
   assert.ok(text.includes('off / steady / strobe'), text);
@@ -1067,6 +1069,44 @@ test('toolbar voice status updates preserve the searchable command catalogue', (
   assert.equal(input.value, 'taxi');
   assert.match(voice.text(), /Listening now/);
   assert.ok(runtime.nodes.length - count < 20, 'a status update only rebuilds its small status card');
+});
+
+test('toolbar voice systems build on demand and search reveals matches without changing saved sections', () => {
+  const runtime = page(); runtime.api.boot();
+  const profile = { type: 'aircraftProfile', profile: { name: 'Test aircraft' }, controlCapabilities: {
+    aircraftCommands: { commands: [
+      { id: 'lights.taxi', label: 'Taxi lights', group: 'lights', speech: { patterns: ['taxi lights on', 'turn on taxi lights'] } },
+      { id: 'lights.strobe', label: 'Strobe lights', group: 'lights', speech: { patterns: ['strobe lights on'] } },
+      { id: 'electrical.apu', label: 'APU start', group: 'electrical', speech: { patterns: ['start apu'] } },
+      { id: 'configuration.departure', label: 'Departure setup', group: 'configuration', kind: 'preset', speech: { patterns: ['prepare for departure'] } },
+    ] },
+  } };
+  runtime.api.receive(profile); runtime.api.selectTab('voice');
+  const voice = runtime.document.getElementById('tab-voice');
+  assert.equal(voice.querySelector('.command'), null, 'the system index does not build hidden command rows');
+  const lights = voice.querySelector('.voice-system');
+  assert.match(lights.text(), /Exterior lights.*2 commands/);
+  lights.querySelector('button').fire('click');
+  assert.match(lights.text(), /turn on taxi lights/);
+  assert.equal(lights.querySelector('button')['aria-expanded'], 'true');
+  const saved = runtime.storage.get('ff_toolbar_prefs_v1');
+  const input = voice.querySelector('input');
+  input.value = 'start apu'; input.fire('input');
+  assert.match(voice.text(), /1 matching command/);
+  assert.match(voice.querySelector('.command').text(), /APU start/);
+  const match = voice.querySelector('.voice-system');
+  assert.equal(match.querySelector('button')['aria-expanded'], 'true');
+  match.querySelector('button').fire('click');
+  assert.equal(runtime.storage.get('ff_toolbar_prefs_v1'), saved, 'search disclosures never overwrite browsing preferences');
+  input.value = 'presets'; input.fire('input');
+  assert.match(voice.querySelector('.command').text(), /Departure setup/);
+  input.value = ''; input.fire('input');
+  assert.equal(voice.querySelector('.voice-system').querySelector('button')['aria-expanded'], 'true', 'clearing search restores the open system');
+  runtime.api.receive(profile);
+  assert.equal(voice.querySelector('.voice-system').querySelector('button')['aria-expanded'], 'true', 'capability refresh preserves browsing sections');
+  const restored = page({ storage: runtime.storage });
+  restored.api.receive(profile); restored.api.selectTab('voice');
+  assert.equal(restored.document.getElementById('tab-voice').querySelector('.voice-system').querySelector('button')['aria-expanded'], 'true', 'reopening retains the chosen system');
 });
 
 test('toolbar keeps tab buttons mounted across plan, catalogue and visibility updates', () => {

@@ -4,6 +4,8 @@ import { resolveAircraftSpecificTemplate } from '../../aircraft-specific/templat
 import { useAircraftControlsStore } from '../../stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../../stores/aircraft-specific.js';
 
+defineProps({ controlsVisible: { type: Boolean, default: true }, aircraftName: { type: String, default: '' } });
+
 const aircraftControls = useAircraftControlsStore();
 const aircraftSpecific = useAircraftSpecificStore();
 const templateComponent = computed(() => resolveAircraftSpecificTemplate(aircraftSpecific.templateId));
@@ -133,8 +135,11 @@ function isCommandPending(commandId) {
     :class="{ 'aircraft-specific-section--mobile-ribbon': ['fbw-a32nx', 'fbw-a380x', 'fenix-a32x', 'inibuilds-a350', 'pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId) }"
   >
     <div class="aircraft-connection-summary px-3 py-2 sm:px-4 border-b border-surface-200 flex flex-wrap items-center justify-between gap-2"
-      :class="{ 'aircraft-connection-summary--healthy': healthyConnection }">
-      <div class="text-xs text-muted-fg">{{ aircraftSpecific.statusLabel }}</div>
+      :class="{ 'aircraft-connection-summary--healthy': healthyConnection && controlsVisible }">
+      <div>
+        <h3 v-if="!controlsVisible && aircraftName" class="text-base font-semibold mb-1">{{ aircraftName }}</h3>
+        <p class="text-xs text-muted-fg">{{ aircraftSpecific.statusLabel }}</p>
+      </div>
       <div class="flex flex-wrap items-center justify-end gap-2">
         <button
           v-if="aircraftSpecific.controlsSetupRequired"
@@ -191,31 +196,35 @@ function isCommandPending(commandId) {
       </a>
     </div>
 
-    <Suspense>
-      <component
-        :is="templateComponent"
-        :key="templateInstanceKey"
-        v-bind="controlDependencyProps"
-        :values="aircraftSpecific.values"
-        :unavailable="aircraftSpecific.unavailable"
-        :source-status="aircraftSpecific.sourceStatus"
-        :source-statuses="aircraftSpecific.sourceStatuses"
-        :action-capabilities="aircraftSpecific.actionCapabilities"
-        :request-action="requestAction"
-        :request-command="requestCommand"
-        :is-command-supported="isCommandSupported"
-        :get-command="getCommand"
-        :is-action-pending="isActionPending"
-        :is-command-pending="isCommandPending"
-        :profile-key="aircraftSpecific.activeProfileKey || ''"
-      >
-        <template #presets><slot name="presets" /></template>
-        <template #avionics><slot name="avionics" /></template>
-      </component>
-      <template #fallback>
-        <div class="p-4 text-sm text-gray-500">Loading aircraft panel...</div>
-      </template>
-    </Suspense>
+    <div id="aircraft-cockpit-view" v-show="controlsVisible" :inert="!controlsVisible" role="tabpanel" aria-labelledby="aircraft-cockpit-tab" tabindex="0">
+      <slot name="before-controls" />
+      <Suspense>
+        <component
+          :is="templateComponent"
+          :key="templateInstanceKey"
+          v-bind="controlDependencyProps"
+          :values="aircraftSpecific.values"
+          :unavailable="aircraftSpecific.unavailable"
+          :source-status="aircraftSpecific.sourceStatus"
+          :source-statuses="aircraftSpecific.sourceStatuses"
+          :action-capabilities="aircraftSpecific.actionCapabilities"
+          :request-action="requestAction"
+          :request-command="requestCommand"
+          :is-command-supported="isCommandSupported"
+          :get-command="getCommand"
+          :is-action-pending="isActionPending"
+          :is-command-pending="isCommandPending"
+          :profile-key="aircraftSpecific.activeProfileKey || ''"
+        >
+          <template #presets><slot name="presets" /></template>
+          <template #avionics><slot name="avionics" /></template>
+        </component>
+        <template #fallback>
+          <div class="p-4 text-sm text-gray-500">Loading aircraft panel...</div>
+        </template>
+      </Suspense>
+      <slot name="after-controls" />
+    </div>
   </section>
 </template>
 

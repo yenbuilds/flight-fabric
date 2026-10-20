@@ -132,6 +132,11 @@ export const useSettingsUiStore = defineStore('settingsUi', {
   },
 
   actions: {
+    requestIntro() {
+      if (this.introOpen || this.introBlockedReason) return false;
+      this.introOpen = true;
+      return true;
+    },
     bindDesktopActions({
       detectMsfsInstalls = null,
       getStorageLocations = null,

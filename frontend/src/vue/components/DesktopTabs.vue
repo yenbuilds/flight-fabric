@@ -8,10 +8,18 @@ import { navigationTabId } from '../tab-config.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useShellStore } from '../stores/shell.js';
 import { useTabsStore } from '../stores/tabs.js';
+import { useProfilesStore } from '../stores/profiles.js';
+import { useSystemHostStore } from '../stores/system-host.js';
+import { useSettingsUiStore } from '../stores/settings-ui.js';
+import { openPhoneSettings, openSetup } from '../settings-navigation.js';
 
 const tabs = useTabsStore();
 const shell = useShellStore();
 const aircraftSpecific = useAircraftSpecificStore();
+const profiles = useProfilesStore();
+const systemHost = useSystemHostStore();
+const settingsUi = useSettingsUiStore();
+const canSetUpPhone = computed(() => systemHost.isElectron || profiles.authorizationScope === 'full-control');
 const groups = computed(() => {
   const routes = [...tabs.desktopPrimaryTabs, ...tabs.desktopSecondaryTabs];
   const withShortcuts = tab => ({ ...tab, shortcuts: routes.flatMap((route, index) => navigationTabId(route.id) === tab.id ? [String(index + 1)] : []) });
@@ -19,7 +27,8 @@ const groups = computed(() => {
   const secondary = tabs.desktopNavigationSecondaryTabs.map(withShortcuts);
   const utility = tab => ['settings', 'system'].includes(tab.id);
   return [
-    { id: 'primary', label: 'Flight', tabs: primary.filter(tab => !utility(tab)) },
+    { id: 'aircraft', label: 'Aircraft', tabs: primary.filter(tab => tab.id === 'autopilot') },
+    { id: 'primary', label: 'Flight', tabs: primary.filter(tab => !utility(tab) && tab.id !== 'autopilot') },
     { id: 'secondary', label: 'More views', tabs: secondary.filter(tab => !utility(tab)) },
     { id: 'utilities', label: 'Manage', tabs: [...primary, ...secondary].filter(utility) },
   ].filter(group => group.tabs.length);
@@ -41,11 +50,25 @@ const groups = computed(() => {
   <nav class="desktop-tab-bar sidebar-navigation" aria-label="Primary navigation">
     <template v-for="group in groups" :key="group.id">
       <template v-if="group.id === 'utilities'">
-        <VoiceControlSetupTask />
         <ToolbarPanelSetupTask />
       </template>
       <div class="sidebar-nav-group" :class="'sidebar-nav-' + group.id">
         <p class="sidebar-group-label">{{ group.label }}</p>
+        <template v-if="group.id === 'utilities' && canSetUpPhone">
+          <button class="desktop-tab" data-setup-navigation type="button" aria-label="Setup" aria-haspopup="dialog"
+            :disabled="Boolean(settingsUi.introBlockedReason)" :title="settingsUi.introBlockedReason || 'Setup — revisit the introduction'"
+            :aria-describedby="settingsUi.introBlockedReason ? 'sidebar-setup-help' : undefined" @click="openSetup(tabs, settingsUi)">
+            <TabIcon kind="setup" />
+            <span class="sidebar-label">Setup</span>
+          </button>
+          <p v-if="settingsUi.introBlockedReason" id="sidebar-setup-help" class="sidebar-label px-2 pb-1 text-xs text-muted-fg">{{ settingsUi.introBlockedReason }}</p>
+        </template>
+        <button v-if="group.id === 'utilities' && canSetUpPhone" class="desktop-tab" data-phone-setup-sidebar
+          type="button" aria-label="Connect a phone or tablet" aria-controls="tab-settings" title="Connect a phone or tablet"
+          @click="openPhoneSettings(tabs)">
+          <TabIcon kind="phone" />
+          <span class="sidebar-label">Connect phone</span>
+        </button>
         <button v-for="tab in group.tabs" :key="tab.id" class="desktop-tab" :class="{ active: tabs.activeNavigationTabId === tab.id }" :data-tab="tab.id"
           :aria-label="tab.id === 'autopilot' && aircraftSpecific.controlsSetupRequired ? tab.label + ', setup required' : tab.label"
           :aria-current="tabs.activeNavigationTabId === tab.id ? 'page' : undefined" :aria-controls="tab.id === 'livemap' ? 'tab-livemap tab-flight' : 'tab-' + tab.id"
@@ -55,6 +78,7 @@ const groups = computed(() => {
           <span v-if="tab.id === 'autopilot' && aircraftSpecific.controlsSetupRequired" class="sidebar-attention" data-aircraft-setup-indicator title="Aircraft controls require setup" aria-hidden="true"></span>
           <kbd class="desktop-tab-keycap sidebar-label" aria-hidden="true">{{ tab.shortcuts.join(' / ') }}</kbd>
         </button>
+        <VoiceControlSetupTask v-if="group.id === 'aircraft'" />
       </div>
     </template>
   </nav>

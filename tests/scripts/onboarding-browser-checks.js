@@ -34,12 +34,13 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
   }
   async function key(name, code, modifiers = 0) {
     for (const type of ['keyDown', 'keyUp']) {
-      await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type, key: name, code: name, windowsVirtualKeyCode: code, modifiers });
+      await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', { type, key: name, code: name, windowsVirtualKeyCode: code, modifiers,
+        ...(type === 'keyDown' && name === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}) });
     }
     await wait(30);
   }
   async function click(selector, touch = false, count = 1) {
-    const point = await evaluate(`const el=document.querySelector(${JSON.stringify(selector)}); el.scrollIntoView({block:'nearest'}); const r=el.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2};`);
+    const point = await evaluate(`const el=document.querySelector(${JSON.stringify(selector)}); el.scrollIntoView({block:'center'}); const r=el.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2};`);
     for (let n = 0; n < count; n++) {
       if (touch) {
         for (const type of ['touchStart', 'touchEnd']) await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchStart' ? [point] : [] });
@@ -50,7 +51,7 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
     await wait(50);
   }
   const next = '.onboarding-actions button[type="submit"]';
-  const back = '.onboarding-actions button[type="button"]';
+  const back = '[data-onboarding-back]';
   const voiceOn = '[name="onboarding-voice"][value="true"]';
   const voiceOff = '[name="onboarding-voice"][value="false"]';
   const automatic = '[name="onboarding-recording"][value="true"]';
@@ -84,7 +85,113 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
     assert(geometry.buttonVisible, `${name}: the next action stays visible while instructions scroll`);
   }
 
+  async function checkDesktopSteps() {
+    async function checkContent(label) {
+      const bounds = await evaluate(`const main=document.querySelector('.onboarding-main'),r=main.getBoundingClientRect();return {
+        scroll:main.scrollHeight-main.clientHeight,
+        clipped:[...main.querySelectorAll('legend,label,.onboarding-note,.onboarding-toolbar-install,button')]
+          .filter(el=>el.getClientRects().length).filter(el=>{const b=el.getBoundingClientRect();return b.top<r.top-1||b.bottom>r.bottom+1;}).map(el=>el.textContent.trim())};`);
+      assert(bounds.scroll <= 1 && !bounds.clipped.length, `${label}: complete content fits without scrolling: ${JSON.stringify(bounds)}`);
+    }
+    for (const [width, height] of [[1440,900], [1180,760], [1180,680], [900,600], [760,520]]) {
+      await load('firstVoicePreference=1&toolbar=1', width, height);
+      for (const step of [1, 2, 3]) {
+        assert.equal(await evaluate("return document.querySelector('.onboarding-form').dataset.onboardingStep;"), String(step));
+        await checkGeometry(`desktop ${width}x${height} step ${step}`, width, height);
+        await checkContent(`${width}x${height} step ${step}`);
+        if (step === 3) {
+          assert(await evaluate("return !document.querySelector('.onboarding-toolbar').closest('details') && !!document.querySelector('[data-onboarding-toolbar-action]');"), 'toolbar installation is visible on its own step');
+          await click(toolbarNow);
+          await checkContent(`${width}x${height} selected toolbar`);
+          if (width === 1180) {
+            await evaluate(`workbenchTest.toolbar.applyStatus({ok:true,installs:[...workbenchTest.toolbar.installs,
+              {...workbenchTest.toolbar.installs[0],installId:'msfs2024-store',label:'MSFS 2024 — Microsoft Store'}]});await workbenchTest.nextTick();`);
+            await checkContent(`${width}x${height} both MSFS installations`);
+          }
+        }
+        await capture(`onboarding-fit-${width}-${height}-${step}`);
+        if (step < 3) await click(next);
+      }
+      await click(back);
+      await click(back);
+      assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOn)}).checked;`), 'Back retains the proposed voice choice');
+      assert.deepEqual(await evaluate('return workbenchTest.setupFixture.requests;'), [], 'visiting all steps never saves completion');
+    }
+    for (const [width, height] of [[390,844], [320,700]]) {
+      await load('firstVoicePreference=1&toolbar=1', width, height);
+      for (const step of [1,2,3]) {
+        await checkGeometry(`narrow ${width} step ${step}`, width, height);
+        await evaluate("document.querySelector('.onboarding-main').scrollTop=0;");
+        await capture(`onboarding-fit-${width}-${height}-${step}`);
+        if (step < 3) await click(next);
+      }
+      await click(toolbarNow);
+      await click(install);
+      assert.equal(await evaluate('return workbenchTest.toolbarFixture.writes.length;'), 1, 'narrow toolbar action remains reachable');
+      await checkGeometry(`narrow ${width} installed`, width, height);
+    }
+  }
+  async function checkSetupNavigation() {
+    for (const [width, collapsed] of [[1440,false], [900,true], [320,false]]) {
+      await load('completed=1&voiceEnabled=1&autoStart=0&toolbar=1', width, 900);
+      await evaluate(`workbenchTest.whatsNew.dismiss(); workbenchTest.shell.sidebarCollapsed=${collapsed}; await workbenchTest.open('autopilot');`);
+      const origin = await evaluate('return workbenchTest.tabs.activeTabId;');
+      const entry = width > 760 ? '.app-sidebar [data-setup-navigation]' : '#mobile-more-sheet [data-setup-navigation]';
+      if (width < 760) await click('#mobile-more-btn');
+      assert(await evaluate(`const button=document.querySelector(${JSON.stringify(entry)});return !button.disabled && button.getClientRects().length && button.getAttribute('aria-haspopup')==='dialog';`), 'Setup stays available after completion in expanded/collapsed navigation and More');
+      await capture(`setup-navigation-${width}`);
+      if (collapsed) {
+        await evaluate(`document.querySelector(${JSON.stringify(entry)}).focus();`);
+        await key('Enter',13);
+      } else await click(entry);
+      assert(await isOpen(), 'permanent Setup reopens the existing modal');
+      assert.equal(await evaluate('return document.activeElement.id;'), 'onboarding-title', 'Setup moves keyboard focus into the guide');
+      assert.equal(await evaluate('return workbenchTest.tabs.moreSheetOpen;'), false, 'More releases focus before Setup opens');
+      assert.equal(await evaluate("return document.querySelector('.onboarding-form').dataset.onboardingStep;"), '1');
+      assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOn)}).checked;`), 'Setup starts with saved voice preference');
+      await click(voiceOff);
+      await click(next);
+      assert(await evaluate(`return document.querySelector(${JSON.stringify(manual)}).checked;`), 'Setup starts with saved recording preference');
+      await click(automatic);
+      await click('[data-close-intro]');
+      assert.equal(await isOpen(), false);
+      assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), origin, 'closing Setup preserves the current page');
+      assert.equal(await evaluate('return document.activeElement.id || document.activeElement.dataset.setupNavigation;'), width < 760 ? 'mobile-more-btn' : '', 'closing Setup returns focus to its visible entry');
+      assert.deepEqual(await evaluate('return [workbenchTest.setupFixture.requests,workbenchTest.setupFixture.voiceWrites,workbenchTest.toolbarFixture.writes];'), [[],[],[]], 'opening and cancelling Setup changes no preferences or installations');
+      await evaluate("workbenchTest.shell.openNavigator();await workbenchTest.nextTick();const query=document.getElementById('app-navigator-query');query.value='introduction';query.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();");
+      await key('Enter',13);
+      assert(await isOpen(), 'search finds the same Setup modal');
+      assert.equal(await evaluate("return document.querySelector('.onboarding-form').dataset.onboardingStep;"), '1', 'every visit starts from Voice');
+      assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOn)}).checked;`), 'cancelled draft is replaced by saved choices');
+      await key('Escape',27);
+      assert.equal(await isOpen(), false, 'Escape closes optional Setup');
+      assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), origin, 'search also keeps the current page');
+      await evaluate("await workbenchTest.open('settings');");
+      await click('#setting-recording-auto-start');
+      assert(await evaluate("return [...document.querySelectorAll('[data-setup-navigation]')].every(button=>button.disabled);"), 'unsaved Settings disables every permanent Setup entry');
+      assert.match(await evaluate('return workbenchTest.settingsUi.introBlockedReason;'), /Save or discard/);
+      assert.equal(await evaluate('return workbenchTest.settingsUi.requestIntro();'), false, 'shared replay action cannot bypass pending edits');
+      assert.equal(await isOpen(), false);
+      await evaluate("workbenchTest.shell.openNavigator();await workbenchTest.nextTick();const query=document.getElementById('app-navigator-query');query.value='introduction';query.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();");
+      assert.match(await evaluate("return document.getElementById('navigator-result-setup').textContent;"), /Save or discard/);
+      await key('Enter',13);
+      assert.equal(await isOpen(), false, 'search respects the same draft guard');
+      await key('Escape',27);
+      assert.equal(await evaluate('return workbenchTest.settingsEditor.recordingAutoStart;'), true, 'blocked Setup preserves the Settings draft');
+      await click('#settings-pending-reload-btn');
+      await evaluate('workbenchTest.deliverSettings();await workbenchTest.nextTick();');
+      assert(await evaluate("return [...document.querySelectorAll('[data-setup-navigation]')].every(button=>!button.disabled);"), 'Setup is usable again after the draft is discarded');
+    }
+    await load('completed=1&scope=aircraft-control', 320,700,true);
+    assert.equal(await evaluate("return document.querySelectorAll('[data-setup-navigation]').length;"),0,'paired phones do not offer PC setup');
+  }
+  if (process.env.FF_ONBOARDING_NAVIGATION_ONLY !== '1') await checkDesktopSteps();
+  if (process.env.FF_ONBOARDING_LAYOUT_ONLY === '1') return;
+  await checkSetupNavigation();
+  if (process.env.FF_ONBOARDING_NAVIGATION_ONLY === '1') return;
+
   async function assertSavedSettings(voiceEnabled, autoStart) {
+    await wait(80); // Let the completion handoff finish focusing Voice settings.
     await evaluate("workbenchTest.whatsNew.dismiss(); await workbenchTest.open('settings');");
     assert.deepEqual(await evaluate(`return {
       savedVoice: workbenchTest.voice.runtime.enabled,
@@ -386,6 +493,7 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
     assert.equal(await evaluate("return localStorage.getItem('ff_whats_new_seen_v1');"), null, 'completion broadcast does not mark welcome cards seen behind the still-pending dialog');
     await evaluate('await workbenchTest.completeSetupSave();');
     assert.equal(await isOpen(), false, 'matching durable success closes setup');
+    assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), existing ? 'autopilot' : 'settings', 'first completion leads directly to controls or voice setup');
     assert.equal(await evaluate('return workbenchTest.settingsUi.initialSetupReady;'), true, 'confirmed completion unlocks input with the modal');
     // The existing welcome flow uses the asynchronous browser Web Locks API.
     for (let attempt = 0; attempt < 80 && !await evaluate("return Boolean(localStorage.getItem('ff_whats_new_seen_v1'));" ); attempt++) await wait(25);

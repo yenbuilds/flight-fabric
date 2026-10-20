@@ -1062,6 +1062,7 @@ export function createVoiceControlController({
   }
 
   function handlePushToTalk(event = {}) {
+    if (voiceTest.handleButtonEvent(event)) return;
     const matchesAttempt = active?.source === 'global' && active.pttAttemptId === event.pttAttemptId;
     if (event.type === 'down') void begin('global', event.pttAttemptId);
     else if (event.type === 'up') {
@@ -1126,6 +1127,9 @@ export function createVoiceControlController({
       saveControllerButton: () => controllerAction('saveControllerButton'),
       clearControllerButton: () => controllerAction('clearControllerButton'),
       startVoiceTest: voiceTest.start,
+      startButtonTest: (kind) => isInputAllowed() && voiceTest.startButtonTest(kind),
+      cancelButtonTest: voiceTest.cancelButtonTest,
+      practiceButtonEvent: (type) => voiceTest.handleButtonEvent({ type, pttAttemptId: 'screen-practice' }, 'screen'),
       finishVoiceTest: voiceTest.finish,
       cancelVoiceTest: voiceTest.cancel,
       playVoiceTest: voiceTest.playRecording,

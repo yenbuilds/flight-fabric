@@ -12,7 +12,6 @@ import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import VoiceControlPanel from './VoiceControlPanel.vue';
-import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -82,20 +81,19 @@ onMounted(() => { mounted.value = true; });
         <header class="shrink-0 border-b border-white/10 bg-gradient-to-r from-emerald-500/[0.08] via-transparent to-sky-500/[0.05] px-4 py-4 sm:px-6 sm:py-5">
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0">
-              <div class="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">Desktop voice</div>
-              <h2 id="aircraft-voice-control-title" class="mt-1 text-xl font-semibold text-white sm:text-2xl">
-                Voice control
+              <h2 id="aircraft-voice-control-title" class="text-xl font-semibold text-white sm:text-2xl">
+                {{ voice.bridgeAvailable ? 'Voice commands' : 'Voice phrases' }}
               </h2>
               <p id="aircraft-voice-control-description" class="mt-1 max-w-2xl text-xs leading-5 text-muted-fg sm:text-sm">
-                <template v-if="voice.bridgeAvailable">Keep FlightFabric in the background and use your push-to-talk shortcut while flying, or hold the on-screen button below. Configure your microphone and shortcut in Settings.</template>
-                <template v-else>Voice control runs in FlightFabric on the simulator PC. You can browse the available commands here.</template>
+                <template v-if="voice.bridgeAvailable">Hold your push-to-talk button or the button below, say a phrase, then release.</template>
+                <template v-else>Keep these phrases beside your cockpit. Voice runs on your simulator PC.</template>
               </p>
             </div>
             <button
               ref="closeButtonRef"
               type="button"
               class="ff-touch-target shrink-0 rounded-lg p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
-              aria-label="Close voice control"
+              :aria-label="voice.bridgeAvailable ? 'Close voice commands' : 'Close voice phrases'"
               @click="closeModal"
             >
               <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -104,8 +102,7 @@ onMounted(() => { mounted.value = true; });
             </button>
           </div>
 
-          <div class="mt-4 flex flex-wrap items-center gap-2">
-            <KeyboardShortcutKeys v-if="voice.runtime.shortcut" :shortcut="voice.runtime.shortcut" class="text-[11px]" />
+          <div v-if="voiceCommandCount > 0" class="mt-4 flex flex-wrap items-center gap-2">
             <button
               v-if="voiceCommandCount > 0"
               type="button"

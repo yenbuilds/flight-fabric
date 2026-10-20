@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { isRemoteView } from '../../app/remote-view.js';
 import { useProfilesStore } from '../stores/profiles.js';
 import { useStatusStore } from '../stores/status.js';
+import SetupIllustration from './SetupIllustration.vue';
 
 const STORAGE_KEY = 'ff_device_pairing_request_v1';
 const requestId = ref('');
@@ -76,7 +77,11 @@ async function checkRequest() {
       status.value = 'approved';
       error.value = '';
       pollInterrupted.value = false;
-      reloadTimer = window.setTimeout(() => window.location.reload(), 700);
+      reloadTimer = window.setTimeout(() => {
+        const destination = new URL(window.location.href);
+        destination.searchParams.set('tab', 'autopilot');
+        window.location.replace(destination.href);
+      }, 700);
       return;
     }
     if (payload?.status === 'expired' || payload?.status === 'disabled') {
@@ -165,25 +170,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section v-if="isRemoteSecondScreen && !controlsPaired" id="device-pairing-request" class="mb-4 rounded-2xl border border-primary/30 bg-primary/10 p-4 shadow-lg shadow-black/10" aria-labelledby="device-pairing-title">
+  <section v-if="isRemoteSecondScreen && !controlsPaired" id="device-pairing-request" class="mb-4 rounded border border-primary/30 bg-primary/10 p-4 shadow-lg shadow-black/10" aria-labelledby="device-pairing-title">
     <div class="flex items-start gap-3">
-      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary" aria-hidden="true">
-        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="5" y="2" width="14" height="20" rx="2" />
-          <path d="M9 6h6" />
-          <path d="M11.5 18h1" />
-        </svg>
-      </div>
+      <SetupIllustration kind="phone" class="!w-16 !h-14" />
       <div class="min-w-0 flex-1" aria-live="polite">
-        <h2 id="device-pairing-title" class="text-sm font-semibold text-fg">Enable aircraft controls</h2>
-        <p v-if="(status === 'idle' || status === 'requesting') && backendReady" id="device-pairing-intro" class="mt-1 text-xs leading-5 text-muted-fg">This device is connected in viewer mode. Request access, then approve the matching code in <strong class="font-medium text-gray-200">Phone setup</strong> on the FlightFabric PC.</p>
+        <h2 id="device-pairing-title" class="text-sm font-semibold text-fg">Enable controls on this device</h2>
+        <p v-if="(status === 'idle' || status === 'requesting') && backendReady" id="device-pairing-intro" class="mt-1 text-xs leading-5 text-muted-fg">Get a code here, then approve it in <strong class="font-medium text-gray-200">Settings → Devices</strong> on your PC.</p>
         <p v-else-if="(status === 'idle' || status === 'requesting') && !backendReady" id="device-pairing-connecting" class="mt-1 text-xs leading-5 text-muted-fg">Waiting for the FlightFabric PC. Pairing will be available when this dashboard connects.</p>
         <template v-if="isPending">
-          <div class="mt-3 rounded-xl border border-primary/30 bg-panel/70 p-3">
+          <div class="mt-3 rounded border border-primary/30 bg-panel/70 p-3">
             <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-fg">Match this code on the PC</div>
             <div id="device-pairing-code" class="mt-1 font-mono text-3xl font-semibold tracking-[0.2em] text-primary" :aria-label="`Pairing code ${confirmationCode.split('').join(' ')}`">{{ confirmationCode }}</div>
           </div>
-          <p class="mt-2 text-xs leading-5 text-gray-200">In <strong class="font-medium">Phone setup</strong> on the PC, find the same code and choose <strong class="font-medium">Approve controls</strong>.</p>
+          <p class="mt-2 text-xs leading-5 text-gray-200">In <strong class="font-medium">Settings → Devices</strong> on the PC, find the same code and choose <strong class="font-medium">Approve controls</strong>.</p>
           <p class="mt-1 text-xs leading-5 text-muted-fg">Waiting for approval · expires in {{ remainingLabel }}</p>
           <p v-if="pollInterrupted" id="device-pairing-poll-warning" class="mt-2 text-xs leading-5 text-warning">Connection interrupted. FlightFabric will keep checking.</p>
         </template>

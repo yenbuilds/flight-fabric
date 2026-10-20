@@ -94,12 +94,12 @@ const emit = defineEmits(['open-settings']);
         <div class="flex flex-wrap items-center gap-2">
           <h2 v-if="!isModalPresentation" id="voice-control-title" class="text-sm font-semibold text-white">Voice control</h2>
         </div>
-        <div id="voice-control-status" class="flex items-center gap-2 text-xs text-muted-fg" :class="isModalPresentation ? '' : 'mt-1.5'" role="status" aria-live="polite">
+        <div v-if="voice.bridgeAvailable" id="voice-control-status" class="flex items-center gap-2 text-xs text-muted-fg" :class="isModalPresentation ? '' : 'mt-1.5'" role="status" aria-live="polite">
           <span class="h-2 w-2 shrink-0 rounded-full" :class="statusDotClass" aria-hidden="true"></span>
           <span>{{ voice.statusText }}</span>
         </div>
-        <button v-if="voice.bridgeAvailable" type="button" class="ff-button-secondary mt-3 text-xs" data-voice-settings-link @click="emit('open-settings')">Voice settings</button>
-        <p v-if="!voice.bridgeAvailable" class="mt-2 text-xs text-muted-fg">Configure voice control in FlightFabric on the simulator PC.</p>
+        <button v-if="voice.bridgeAvailable" type="button" class="ff-button-secondary mt-3 text-xs" data-voice-settings-link @click="emit('open-settings')">{{ voice.settingsAction }}</button>
+        <p v-if="!voice.bridgeAvailable" class="mt-2 text-xs text-muted-fg">Speak into the microphone connected to your simulator PC. This device is your phrase reference.</p>
         <p v-else-if="recognitionOff" class="mt-2 text-xs text-muted-fg">Enable voice control in Settings to talk.</p>
         <p v-else-if="voice.setupTask" class="mt-2 text-xs text-muted-fg">{{ voice.setupTask.detail }}</p>
         <VoiceRestartHint />
@@ -109,7 +109,7 @@ const emit = defineEmits(['open-settings']);
         <p v-if="voice.lastCommand" class="mt-1 text-xs text-emerald-300">{{ voice.lastCommand }}</p>
       </div>
 
-      <div class="flex flex-col items-stretch gap-2 sm:items-end">
+      <div v-if="voice.bridgeAvailable" class="flex flex-col items-stretch gap-2 sm:items-end">
         <button
           type="button"
           data-voice-push-to-talk
@@ -177,6 +177,9 @@ const emit = defineEmits(['open-settings']);
     </p>
 
     <p v-if="voice.runtime.mode === 'cloud' && voice.cloudUsage" class="mt-3 text-[11px] text-muted-fg">Last {{ voice.runtime.cloud.providerLabel }} request: {{ voice.cloudUsage.inputTokens }} input tokens · {{ voice.cloudUsage.outputTokens }} output tokens. Check your provider account for billed usage.</p>
-    <p class="mt-3 text-[11px] text-muted-fg">After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. {{ voice.runtime.mode === 'cloud' ? `Cloud preview sends the audio and supported aircraft controls to ${voice.runtime.cloud.providerLabel} using your API key.` : 'Audio remains local and is not saved.' }}</p>
+    <details v-if="voice.bridgeAvailable" class="setup-details mt-3 text-xs text-muted-fg">
+      <summary>About microphone use</summary>
+      <p>After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. {{ voice.runtime.mode === 'cloud' ? `Cloud preview sends the audio and supported aircraft controls to ${voice.runtime.cloud.providerLabel} using your API key.` : 'Audio remains local and is not saved.' }}</p>
+    </details>
   </section>
 </template>
