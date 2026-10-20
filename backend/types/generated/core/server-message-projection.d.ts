@@ -1,6 +1,7 @@
 type ClientScopeFlags = {
     __ffPrivilegedClient?: boolean;
     __ffAircraftControlClient?: boolean;
+    __ffToolbarPresetClient?: boolean;
 };
 type ServerMessage = Record<string, any>;
 export declare const UNPAIRED_PASSTHROUGH_SERVER_MESSAGE_TYPES: ReadonlyArray<string>;

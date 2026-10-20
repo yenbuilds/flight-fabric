@@ -1,5 +1,5 @@
 <script setup>
-import { SUPPORT_URL as href } from '../../support/links.js';
+import { SUPPORT_URL as href } from '../../support/content.js';
 </script>
 
 <template>

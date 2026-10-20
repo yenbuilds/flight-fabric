@@ -184,7 +184,6 @@
           "aircraft/aircraft-control-policy.js",
           "aircraft/aircraft-definition-catalogue.js",
           "aircraft/com-radio-contract.js",
-          "aircraft/cockpit-lighting.js",
           "aircraft/integration-behavior.js",
           "aircraft/lighting-overlay.js",
           "aircraft/flight-guidance-projection.js",

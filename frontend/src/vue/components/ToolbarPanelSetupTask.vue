@@ -2,7 +2,7 @@
 import { nextTick } from 'vue';
 import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
 import { useTabsStore } from '../stores/tabs.js';
-import { focusToolbarPanelSettings } from '../toolbar-panel-navigation.js';
+import { focusToolbarPanelSettings } from '../settings-navigation.js';
 
 const toolbarPanel = useToolbarPanelStore();
 const tabs = useTabsStore();

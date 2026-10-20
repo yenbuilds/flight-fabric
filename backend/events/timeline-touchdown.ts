@@ -3,7 +3,7 @@
 const landingDistance = require('../landing/landing-distance');
 const { findRunwayByPosition } = require('../landing/airport-geometry-service');
 const { buildStabilityScoringContext } = require('../stability/stability-policy');
-const { computeCrosswind } = require('../utils/helpers');
+const { computeCrosswind } = require('../utils/aviation-frames');
 const {
   buildTouchdownRunwayAnalysis,
 } = require('../analysis/flight-analysis') as {

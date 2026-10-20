@@ -60,7 +60,7 @@ function profilePoint({
 }
 
 async function main() {
-  const { approachProfileApi } = await import(frontendUrl('src', 'landing', 'approach-profile-global.js'));
+  const { approachProfileApi } = await import(frontendUrl('src', 'landing', 'approach-profile-renderer.js'));
   const { buildLandingApproachProfileHtml } = await import(frontendUrl('src', 'timeline', 'landing-detail.js'));
   let passed = 0;
   let failed = 0;

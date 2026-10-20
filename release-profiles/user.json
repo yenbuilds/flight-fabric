@@ -69,7 +69,6 @@
     ],
     "frontend": [
       "index.html",
-      "app-settings-shared.js",
       "src/app/bootstrap.js"
     ],
     "tools": [],

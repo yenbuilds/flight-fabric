@@ -6,7 +6,7 @@
  */
 
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
-const { normalizeSurface } = require(resolveBackendRuntimeFile('aircraft', 'surface-normalizer.js'));
+const { normalizeSurface } = require(resolveBackendRuntimeFile('telemetry-provider', 'simulator-state.js'));
 
 function assert(condition, message) {
   if (!condition) throw new Error(message || 'Assertion failed');

@@ -2183,7 +2183,7 @@ try {
     ['aircraft/integration-engine/cockpit-lighting-schema.js', ['hasValidCockpitLightingGroups']],
     ['aircraft/aircraft-definition-catalogue.js', ['readAircraftDefinitionFiles']],
     ['aircraft/com-radio-contract.js', ['comRadioOperations']],
-    ['aircraft/cockpit-lighting.js', ['cockpitLightingGroups']],
+    ['aircraft/aircraft-command-catalogue.js', ['cockpitLightingGroups']],
     ['aircraft/barometer-contract.js', ['baroSides']],
     ['aircraft/barometer-execution.js', ['resolveBarometerExecution']],
     ['aircraft/conditional-write-execution.js', ['captureConditionalWriteState', 'executeConditionalWrites']],

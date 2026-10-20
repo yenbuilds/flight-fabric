@@ -9,4 +9,5 @@ export declare function headingDifferenceDegrees(leftHeadingDeg: unknown, rightH
 export declare function roundedHeadingDifferenceDegrees(leftHeadingDeg: unknown, rightHeadingDeg: unknown, precision?: number): number | null;
 export declare function getAircraftTrueHeadingDeg(input: HeadingInput): number | null;
 export declare function getRunwayTrueHeadingDeg(input: HeadingInput): number | null;
+export declare function computeCrosswind(windSpeed: unknown, windDirDeg: unknown, headingDeg: unknown): number | null;
 export {};

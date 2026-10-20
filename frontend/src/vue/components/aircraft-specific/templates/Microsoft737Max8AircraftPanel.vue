@@ -1,44 +1,7 @@
-<script>
-function formatMicrosoft737Max8Draft(rawValue) {
-  const current = Number(rawValue);
-  if (!Number.isFinite(current)) return '';
-  return Number.isInteger(current) ? String(current) : String(Number(current.toFixed(2)));
-}
-
-export function reconcileMicrosoft737Max8NumericDraftState(state = {}, snapshot = {}, previous = []) {
-  const {
-    rawValue,
-    unavailable = false,
-    profileKey,
-    sourceStatus,
-    pending = false,
-  } = snapshot;
-  const next = {
-    draft: typeof state.draft === 'string' ? state.draft : '',
-    dirty: state.dirty === true,
-    error: typeof state.error === 'string' ? state.error : '',
-  };
-  const contextChanged = previous[2] !== undefined
-    && (previous[2] !== profileKey || previous[3] !== sourceStatus);
-
-  if (contextChanged || sourceStatus !== 'connected' || unavailable) {
-    next.dirty = false;
-    next.error = '';
-  }
-  if (unavailable || sourceStatus !== 'connected') {
-    next.draft = '';
-    return next;
-  }
-  if (!contextChanged && previous[4] !== undefined && pending) return next;
-  if (!next.dirty) next.draft = formatMicrosoft737Max8Draft(rawValue);
-  return next;
-}
-</script>
-
 <script setup>
 import { computed, reactive, watch } from 'vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
-import { parseMcpDraftNumber, submitMcpDraft } from '../mcp-input.js';
+import { parseMcpDraftNumber, submitMcpDraft, reconcileMcpNumericDraftState } from '../mcp-input.js';
 
 const props = defineProps({
   profileKey: { type: String, default: '' },
@@ -167,7 +130,7 @@ for (const control of selectorControls) {
       groupPending(control.groupId),
     ],
     ([rawValue, unavailable, profileKey, sourceStatus, pending], previous = []) => {
-      const next = reconcileMicrosoft737Max8NumericDraftState({
+      const next = reconcileMcpNumericDraftState({
         draft: selectorDrafts[control.id],
         dirty: selectorDirty[control.id],
         error: selectorErrors[control.id],

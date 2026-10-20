@@ -4,7 +4,7 @@ import {
   emitTakeoffReceived,
   emitWsMessage,
 } from './runtime-signals.js';
-import { getFlightFabricAppSettings } from '../settings/shared-runtime.js';
+import { getFlightFabricAppSettings } from './shared-globals.js';
 
 const FLIGHT_STORE_MESSAGE_TYPES = new Set([
   'ias',
@@ -401,5 +401,32 @@ export function createAppMessageHandler({
         handleCabinAnnouncement(cabinAnnouncementDeps, message);
         break;
     }
+  };
+}
+
+export function createStatusIndicatorsController({
+  statusStore = null,
+} = {}) {
+  function updateVreSamplingIndicator(message) {
+    statusStore?.updateVreSampling?.(message);
+  }
+
+  function updateAssistsIndicator(data) {
+    statusStore?.updateAssists?.(data);
+  }
+
+  function updateSurfaceIndicator(surface) {
+    statusStore?.updateSurface?.(surface);
+  }
+
+  function updateRecordingIndicator(message) {
+    statusStore?.updateRecording?.(message);
+  }
+
+  return {
+    updateAssistsIndicator,
+    updateRecordingIndicator,
+    updateVreSamplingIndicator,
+    updateSurfaceIndicator,
   };
 }

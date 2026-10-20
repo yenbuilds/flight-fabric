@@ -1,5 +1,6 @@
 const fs = require('fs');
-const { decodeLights, rad2deg } = require("../../backend/utils/helpers");
+const { decodeLights } = require("../../backend/telemetry-provider/simulator-state");
+const { rad2deg } = require("../../backend/utils/units");
 const { feetToMeters, fpmToMs } = require("../../backend/utils/units");
 
 // ------------------------------

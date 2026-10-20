@@ -503,7 +503,7 @@ async function main() {
     import(toFrontendUrl('src', 'landing', 'controller.js')),
     import(toFrontendUrl('src', 'landing', 'mock-runtime.js')),
     import(toFrontendUrl('src', 'data-sources', 'lvar-inspector-controller.js')),
-    import(toFrontendUrl('src', 'ui', 'status-indicators.js')),
+    import(toFrontendUrl('src', 'app', 'message-handlers.js')),
     import(toFrontendUrl('src', 'live-map', 'map-controller.js')),
     import(toFrontendUrl('src', 'live-map', 'plane-icon.js')),
     import(toFrontendUrl('src', 'live-map', 'geo.js')),
@@ -516,7 +516,7 @@ async function main() {
     import(toFrontendUrl('src', 'timeline', 'pfd.js')),
     import(toFrontendUrl('src', 'timeline', 'pfd-overlay.js')),
     import(toFrontendUrl('src', 'timeline', 'landing-detail.js')),
-    import(toFrontendUrl('src', 'landing', 'approach-profile-global.js')),
+    import(toFrontendUrl('src', 'landing', 'approach-profile-renderer.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'aircraft-section-memory.js')),
     import(toFrontendUrl('src', 'ui', 'motion.js')),
   ]);

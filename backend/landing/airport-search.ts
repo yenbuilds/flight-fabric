@@ -10,9 +10,9 @@
 'use strict';
 
 const Debug = require('../core/debug') as DebugModule;
-const { resolveOurAirportsFile } = require('./ourairports-paths');
-const csvCache = require('./ourairports-csv-cache') as CsvCacheModule;
-const { getRunwayCsvIndexes } = require('./runway-csv-columns') as RunwayCsvColumnsModule;
+const { resolveOurAirportsFile } = require('./ourairports-data');
+const csvCache = require('./ourairports-data') as CsvCacheModule;
+const { getRunwayCsvIndexes } = require('./ourairports-data') as RunwayCsvColumnsModule;
 const { parseCsvLine } = require('../utils/csv') as CsvModule;
 
 type DebugModule = {

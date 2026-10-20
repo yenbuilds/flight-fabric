@@ -10,7 +10,7 @@ const ROOT = path.resolve(__dirname, '../..');
 
 test('published support redirects are current and the app opens the stable URL', async () => {
   assert.deepEqual(syncSupportLink({ check: true }), []);
-  const appLinks = await import('../../frontend/src/support/links.js');
+  const appLinks = await import('../../frontend/src/support/content.js');
   assert.equal(appLinks.SUPPORT_URL, SUPPORT_URL);
   assert.equal(resolveAllowedExternalUrl(SUPPORT_URL), SUPPORT_URL);
   for (const url of [

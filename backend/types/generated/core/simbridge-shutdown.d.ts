@@ -29,4 +29,6 @@ export declare function finalizeRecordingForShutdown({ flightActive, endActiveFl
  * must not be skipped because an unrelated component hangs earlier in cleanup.
  */
 export declare function runSimbridgeShutdownSequence({ finalizationTask, provider, historyIndexHandle, cabinAnnouncementsHandle, updateCheckerHandle, stopHandle, closeServersTask, }: ShutdownSequenceOptions): Promise<void>;
+/** Update installation requires a positive cleanup result, including deadlines. */
+export declare function runShutdownTask(task: () => unknown, timeoutMs: number, label: string, strict?: boolean): Promise<unknown>;
 export {};

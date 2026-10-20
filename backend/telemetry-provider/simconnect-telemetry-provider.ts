@@ -97,7 +97,7 @@ const sdkRegistry = require('./sdk-registry.js') as {
   } | null;
 };
 const { makeSpoilersObj } = require('../aircraft/spoilers');
-const { decodeLights } = require('../utils/helpers');
+const { decodeLights } = require('../telemetry-provider/simulator-state');
 const { encodeFrequencyBcd16Mhz } = require('../utils/radio-frequency');
 const { NAV_RADIO_FIELDS, captureNavRadios } = require('./nav-radio-state');
 const { COM_RADIO_DEFINITIONS, COM_RADIO_FIELDS, captureComRadio, executeComRadioTransaction } = require('./com-radio-control');

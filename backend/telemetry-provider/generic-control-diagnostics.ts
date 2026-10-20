@@ -1,6 +1,6 @@
 'use strict';
 
-const { decodeLights } = require('../utils/helpers');
+const { decodeLights } = require('../telemetry-provider/simulator-state');
 
 const LIGHT_EVENTS: Readonly<Record<string, string>> = Object.freeze({
   NAV_LIGHTS_SET: 'nav',

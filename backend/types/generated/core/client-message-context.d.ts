@@ -3,6 +3,7 @@ export type ClientMessageContextState = {
     getSimState?: unknown;
     getPhase: unknown;
     flightCsvWriter: unknown;
+    getFlightRecordingStatus?: unknown;
     flightCsvStore?: unknown;
     recordingBundleGuard: unknown;
     flightActive: unknown;

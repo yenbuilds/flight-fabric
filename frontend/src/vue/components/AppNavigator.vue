@@ -7,9 +7,8 @@ import { useShellStore } from '../stores/shell.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useToolbarPanelStore } from '../stores/toolbar-panel.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
-import { focusVoiceSettings } from '../voice-settings-navigation.js';
-import { focusToolbarPanelSettings } from '../toolbar-panel-navigation.js';
-import { SUPPORT_URL as supportHref } from '../../support/links.js';
+import { focusVoiceSettings, focusToolbarPanelSettings } from '../settings-navigation.js';
+import { SUPPORT_URL as supportHref } from '../../support/content.js';
 
 const shell = useShellStore();
 const tabs = useTabsStore();

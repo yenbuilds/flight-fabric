@@ -6,14 +6,13 @@ import { createAutopilotPanel } from '../aircraft/autopilot-panel.js';
 import { createAircraftControlController } from '../aircraft/control-controller.js';
 import {
   LIVE_TELEMETRY_MESSAGE_TYPES,
-} from '../telemetry/display-defaults.js';
-import { createTelemetryDisplay } from '../telemetry/display.js';
+  createTelemetryDisplay,
+} from '../telemetry/display.js';
 import { createLandingController } from '../landing/controller.js';
 import { createTelemetryWarnings } from '../telemetry/warnings.js';
 import { createAppFeedback } from '../ui/feedback.js';
 import { bindSectionMotion } from '../ui/motion.js';
-import { createAppMessageHandler } from './message-handlers.js';
-import { createStatusIndicatorsController } from '../ui/status-indicators.js';
+import { createAppMessageHandler, createStatusIndicatorsController } from './message-handlers.js';
 import { createLvarInspectorController } from '../data-sources/lvar-inspector-controller.js';
 import { createConnection } from '../ws/connection.js';
 import { createVoiceControlController } from '../voice/voice-controller.js';

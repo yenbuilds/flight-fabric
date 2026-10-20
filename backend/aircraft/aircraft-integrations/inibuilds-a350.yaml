@@ -13,7 +13,7 @@
 # software. Raw names and selector detents remain private to this family
 # adapter; standard surface state is explicitly named below.
 
-# Shared source notes: cockpit-lighting.ts
+# Shared presentation: ../aircraft-command-catalogue.ts
 # These helper notes retain their stated aircraft and verification scope.
 # Explicit aircraft contracts, not generic MSFS potentiometer guesses. FBW
 # indices come from each aircraft's Flight Deck API. Headwind was separately

@@ -1,9 +1,25 @@
+/** Shared MSFS ground-control ownership boundary. Candidates still require live acceptance. */
+import { type TaxiObservation } from '../autotaxi/session.js';
 import { type TaxiAircraftConfigResult } from '../autotaxi/aircraft-config.js';
 type RecordValue = Record<string, any>;
 export type AutotaxiOptions = {
     resolveModel?: (aircraftCfgPath: string) => TaxiAircraftConfigResult;
+    readOnly?: boolean;
 };
 export declare function createAutotaxi(provider: RecordValue, profiles: RecordValue, now: () => number, options?: AutotaxiOptions): {
+    groundContext: {
+        capture: () => TaxiObservation;
+        parked: () => boolean | null;
+        tug: () => {
+            state: any;
+            forwardSpeedFps: any;
+        };
+        airport: (icao: string, runway: string | null) => Promise<any>;
+        dimensions: () => {
+            wheelbaseM: number;
+            lengthM: number;
+        };
+    };
     state: (includeScene?: boolean) => {
         support: {
             family: import("../autotaxi/adapters.js").TaxiFamily;
@@ -23,6 +39,8 @@ export declare function createAutotaxi(provider: RecordValue, profiles: RecordVa
         observedSpeedKts: number;
         commanded: import("../autotaxi/controller.js").TaxiInput;
         canStart: boolean;
+        canGuide: boolean;
+        guidanceUnavailableReason: string;
         unavailableReason: string;
         handling: {
             id: string;
@@ -55,7 +73,7 @@ export declare function createAutotaxi(provider: RecordValue, profiles: RecordVa
         reason: string;
     };
     request: (message: Record<string, any>, client: unknown, connected?: () => boolean) => Promise<{
-        support: {
+        support?: {
             family: import("../autotaxi/adapters.js").TaxiFamily;
             aircraftLabel: string;
             qualificationStatus: "unsupported" | "candidate";
@@ -73,6 +91,8 @@ export declare function createAutotaxi(provider: RecordValue, profiles: RecordVa
         observedSpeedKts: number;
         commanded: import("../autotaxi/controller.js").TaxiInput;
         canStart: boolean;
+        canGuide: boolean;
+        guidanceUnavailableReason: string;
         unavailableReason: string;
         handling: {
             id: string;
@@ -104,7 +124,7 @@ export declare function createAutotaxi(provider: RecordValue, profiles: RecordVa
         status: "idle" | import("../autotaxi/controller.js").TaxiStatus | "planning";
         reason: string;
     } | {
-        support: {
+        support?: {
             family: import("../autotaxi/adapters.js").TaxiFamily;
             aircraftLabel: string;
             qualificationStatus: "unsupported" | "candidate";
@@ -124,6 +144,8 @@ export declare function createAutotaxi(provider: RecordValue, profiles: RecordVa
         observedSpeedKts: number;
         commanded: import("../autotaxi/controller.js").TaxiInput;
         canStart: boolean;
+        canGuide: boolean;
+        guidanceUnavailableReason: string;
         unavailableReason: string;
         handling: {
             id: string;
@@ -155,7 +177,7 @@ export declare function createAutotaxi(provider: RecordValue, profiles: RecordVa
         status: "idle" | import("../autotaxi/controller.js").TaxiStatus | "planning";
         reason: string;
     } | {
-        support: {
+        support?: {
             family: import("../autotaxi/adapters.js").TaxiFamily;
             aircraftLabel: string;
             qualificationStatus: "unsupported" | "candidate";
@@ -175,6 +197,8 @@ export declare function createAutotaxi(provider: RecordValue, profiles: RecordVa
         observedSpeedKts: number;
         commanded: import("../autotaxi/controller.js").TaxiInput;
         canStart: boolean;
+        canGuide: boolean;
+        guidanceUnavailableReason: string;
         unavailableReason: string;
         handling: {
             id: string;

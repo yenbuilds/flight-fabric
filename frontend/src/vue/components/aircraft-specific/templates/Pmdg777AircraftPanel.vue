@@ -1,3 +1,34 @@
+<script>
+const ENUM_INPUT_BY_ACTION = Object.freeze({
+  'controls.gear.up': 'up',
+  'controls.gear.down': 'down',
+});
+
+const BOOLEAN_INPUT_BY_ACTION = Object.freeze({
+  'controls.speedbrake.stowed': false,
+  'controls.speedbrake.armed': true,
+});
+
+export function buildPmdg777CommandInput(control, action) {
+  if (Object.prototype.hasOwnProperty.call(action || {}, 'commandInput')) {
+    return { value: action.commandInput };
+  }
+
+  if (control?.groupId === 'controls.gear') {
+    return { value: ENUM_INPUT_BY_ACTION[action?.id] };
+  }
+  if (control?.groupId === 'controls.flaps') {
+    return { value: action?.value === 'UP' ? 'up' : String(action?.value) };
+  }
+  if (control?.groupId === 'controls.speedbrake') {
+    if (action?.id === 'controls.speedbrake.half') return { value: 'half' };
+    if (action?.id === 'controls.speedbrake.full') return { value: 'full' };
+    return { value: BOOLEAN_INPUT_BY_ACTION[action?.id] };
+  }
+  return { value: action?.value };
+}
+</script>
+
 <script setup>
 import {
   computed,
@@ -7,7 +38,6 @@ import {
 } from 'vue';
 import AircraftSectionRibbon from '../AircraftSectionRibbon.vue';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
-import { buildPmdg777CommandInput } from '../pmdg777-command-routing.js';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
 
 const props = defineProps({

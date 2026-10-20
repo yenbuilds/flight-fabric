@@ -9,10 +9,10 @@
 
 'use strict';
 
-const { resolveOurAirportsFile } = require('./ourairports-paths');
-const csvCache = require('./ourairports-csv-cache') as CsvCacheModule;
+const { resolveOurAirportsFile } = require('./ourairports-data');
+const csvCache = require('./ourairports-data') as CsvCacheModule;
 const { parseCsvLine, splitCsvLines } = require('../utils/csv') as CsvModule;
-const { getRunwayCsvIndexes } = require('./runway-csv-columns') as RunwayCsvColumnsModule;
+const { getRunwayCsvIndexes } = require('./ourairports-data') as RunwayCsvColumnsModule;
 const {
   deriveTrueBearingFromCoordinates,
   getRunwayTrueHeadingDeg,

@@ -1,84 +1,75 @@
-import type { AircraftIntegrationActionRoute } from './aircraft-integrations/types.js';
-import { executeBaroTransaction } from './aircraft-integrations/fbw-a32nx/baro-control.js';
-import { executeFenixBaroTransaction } from './aircraft-integrations/fenix-a32x/baro-control.js';
-type ReadSources = {
-    raw: (id: string) => {
-        value: unknown;
-        updatedAt: unknown;
-    };
-    decoded: (id: string) => {
-        observed: unknown;
-        fresh: boolean;
-        updatedAtMs: number;
-    };
-};
+import type { AircraftIntegrationActionRoute } from './integration-engine/types.js';
+import { type ControlReadSources } from './staged-control-execution.js';
 type ExecutionRequest = {
     value?: number;
     isCurrent: () => boolean;
     /** A fresh, current-profile snapshot gate on every capture, never a cached observation. */
-    capture: () => ReadSources | null;
-    sendEvent: Parameters<typeof executeBaroTransaction>[0]['sendEvent'];
-    setNamedVar: Parameters<typeof executeBaroTransaction>[0]['setNamedVar'];
-    executeCode: Parameters<typeof executeFenixBaroTransaction>[0]['executeCode'];
-    findException: Parameters<typeof executeBaroTransaction>[0]['findException'];
+    capture: () => ControlReadSources | null;
+    sendEvent: (name: string, value: number) => Promise<any>;
+    setNamedVar: (input: {
+        name: string;
+        unit: string;
+        value: number;
+    }) => Promise<any>;
+    executeCode: (code: string) => Promise<any>;
+    findException?: (ids: number[], since: number) => unknown;
 };
 /**
- * Aircraft-owned compatibility dispatch for the existing, registry-validated
- * barometer contracts. It accepts no provider instance or executable profile
- * callbacks. The three procedures remain distinct pending later engine work.
+ * Public barometer result adaptation for registry-validated neutral recipes.
+ * Sampling contracts, writes and procedures belong to each YAML recipe.
  */
-export declare function resolveBarometerExecution(adapterId: string, route: AircraftIntegrationActionRoute): {
+export declare function resolveBarometerExecution(_adapterId: string, route: AircraftIntegrationActionRoute): {
     requiresCalculatorTransport: boolean;
     execute: (request: ExecutionRequest) => Promise<{
+        code: any;
         baro: {
-            confirmedSides: ("captain" | "firstOfficer")[];
+            confirmedSides: string[];
             unit?: string;
             value?: number;
-            target: import("./barometer-contract.js").BaroTarget;
+            target: "captain" | "firstOfficer" | "both";
             mode: string;
         };
         noOp?: boolean;
         idempotent?: boolean;
         ok: boolean;
-        code: string;
         executionStarted?: undefined;
         error?: undefined;
     } | {
-        ok: boolean;
         code: any;
-        executionStarted: boolean;
-        error: any;
         baro: {
-            confirmedSides: ("captain" | "firstOfficer")[];
+            confirmedSides: string[];
             unit?: string;
             value?: number;
-            target: import("./barometer-contract.js").BaroTarget;
+            target: "captain" | "firstOfficer" | "both";
             mode: string;
         };
+        ok: boolean;
+        executionStarted: boolean;
+        error: any;
     }>;
 } | {
     requiresCalculatorTransport: boolean;
     execute: (request: ExecutionRequest) => Promise<{
+        baro: {
+            target: "captain" | "firstOfficer" | "both";
+            mode: string;
+            confirmedSides: string[];
+        };
+        code: any;
+        error?: any;
         ok: boolean;
-        code: string;
         executionStarted: boolean;
         noOp: boolean;
-        baro: {
-            target: import("./barometer-contract.js").BaroTarget;
-            mode: string;
-            confirmedSides: ("captain" | "firstOfficer")[];
-        };
-        error?: undefined;
     } | {
-        ok: boolean;
+        baro: {
+            target: "captain" | "firstOfficer" | "both";
+            mode: string;
+            confirmedSides: string[];
+        };
         code: any;
         error: any;
+        ok: boolean;
         executionStarted: boolean;
-        baro: {
-            target: import("./barometer-contract.js").BaroTarget;
-            mode: string;
-            confirmedSides: ("captain" | "firstOfficer")[];
-        };
         noOp?: undefined;
     }>;
 };

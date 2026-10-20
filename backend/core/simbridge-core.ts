@@ -7,7 +7,9 @@ const crypto = require('crypto');
 
 const config = require('./config');
 const { MSG } = require('./message-types');
-const { computeCrosswind, decodeGearState, rad2deg } = require('../utils/helpers');
+const { computeCrosswind } = require('../utils/aviation-frames');
+const { decodeGearState } = require('../telemetry-provider/simulator-state');
+const { rad2deg } = require('../utils/units');
 const {
   runStability,
   resetStability,
@@ -21,7 +23,7 @@ const {
   buildStabilityScoringContext,
 } = require('../stability/stability-policy');
 const { sendBasicStreams, sendAttitude, sendGear, sendFlapsSpoilers, sendSurface, sendFuel, sendPosition, sendEnvironment, assessAutopilotReliability, sendAutopilot, sendControls, sendSimTime } = require('../events/broadcasters');
-const { normalizeSurface } = require('../aircraft/surface-normalizer');
+const { normalizeSurface } = require('../telemetry-provider/simulator-state');
 const { updatePhase, getPhase } = require('../lifecycle/phase-runner');
 const { PHASES, APPROACH_PHASES } = require('../lifecycle/phases');
 const Debug = optionalRequire('./debug', {

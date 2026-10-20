@@ -268,7 +268,7 @@ test('StabilityBreakdown documents all _ok fields produced by stability-runner.j
 // ---------------------------------------------------------------------------
 
 test('GearState documents all fields returned by decodeGearState in helpers.js', () => {
-  const src = stripComments(read('backend/utils/helpers.js'));
+  const src = stripComments(read('backend/telemetry-provider/simulator-state.ts'));
   const afterFn = src.slice(findFunctionStart(src, 'decodeGearState'));
   const runtimeFields = extractObjectFields(afterFn, 'return {');
   assert(runtimeFields.size > 0, 'could not extract decodeGearState property names from helpers.js');

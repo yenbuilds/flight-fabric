@@ -4,7 +4,7 @@ import {
   DEFAULT_THEME,
   normalizeThemeName,
   persistThemeName,
-} from '../../theme/definition.js';
+} from '../../theme/runtime.js';
 
 export const useThemeStore = defineStore('theme', () => {
   const currentTheme = ref(DEFAULT_THEME);

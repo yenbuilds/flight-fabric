@@ -1,7 +1,7 @@
 # FlightFabric aircraft definition.
 # Schema version 1; preserves existing data, ordering, inheritance and verification limits.
 
-# Shared source notes: cockpit-lighting.ts
+# Shared presentation: ../aircraft-command-catalogue.ts
 # These helper notes retain their stated aircraft and verification scope.
 # Explicit aircraft contracts, not generic MSFS potentiometer guesses. FBW
 # indices come from each aircraft's Flight Deck API. Headwind was separately

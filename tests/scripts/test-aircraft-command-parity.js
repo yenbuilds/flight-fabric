@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { resolveBackendRuntimeFile: runtime } = require('./backend-runtime-paths');
 const loader = require(runtime('aircraft/aircraft-profile-loader.js'));
 const { buildAircraftControlCapabilities, resolveAircraftCommand, executeAircraftCommand } = require(runtime('aircraft/aircraft-control-service.js'));
-const { aircraftParityBindings } = require(runtime('aircraft/aircraft-command-parity.js'));
+const { aircraftParityBindings } = require(runtime('aircraft/aircraft-command-catalogue.js'));
 const { defaultAircraftIntegrationRegistry: registry } = require(runtime('aircraft/integration-engine/index.js'));
 const capabilities = { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'lvar', 'simvar'],
   integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'simbridge-mcdu', 'input-event'] };

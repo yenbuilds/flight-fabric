@@ -49,7 +49,7 @@ module.exports = async function checkSettingsNavigation({ win, evaluate, capture
       assert(await evaluate("return originalSettingsInput===document.getElementById('setting-recording-auto-start') && workbenchTest.settingsForm.pendingVisible;"), 'section changes retain mounted controls and unsaved drafts');
     }
     await evaluate(`
-      const {focusVoiceSettings}=await import('/frontend/src/vue/voice-settings-navigation.js');
+      const {focusVoiceSettings}=await import('/frontend/src/vue/settings-navigation.js');
       await focusVoiceSettings(workbenchTest.tabs);
     `);
     assert(await evaluate("return document.activeElement.id==='settings-voice-control' && getComputedStyle(document.getElementById('voice-settings-configuration')).display!=='none';"), 'existing Voice shortcut reveals setup and focuses its section');
@@ -58,7 +58,7 @@ module.exports = async function checkSettingsNavigation({ win, evaluate, capture
     await evaluate("workbenchTest.voice.voiceTest.phase='idle';document.querySelector('[data-voice-open-test]').click();await workbenchTest.nextTick();");
     assert.equal(await evaluate('return workbenchTest.voice.voiceTest.phase;'), 'idle', 'Test voice opens the controls without recording automatically');
     await evaluate(`
-      const {focusToolbarPanelSettings}=await import('/frontend/src/vue/toolbar-panel-navigation.js');
+      const {focusToolbarPanelSettings}=await import('/frontend/src/vue/settings-navigation.js');
       await focusToolbarPanelSettings(workbenchTest.tabs);
     `);
     await capture(`settings-navigation-${width}-toolbar`);

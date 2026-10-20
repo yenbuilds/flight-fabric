@@ -11,7 +11,7 @@ export declare function resolveLoadedProfile(params: {
     visited?: Set<string>;
     ensureBundledProfilesAvailable: () => void;
     resolveProfilePath: (locatorValue: unknown) => AnyRecord | null;
-    readProfileFile: (filePath: string) => AnyRecord | null;
+    readProfileFile: (filePath: string, profileKey: string) => AnyRecord | null;
     isProfileDefinition: (profile: unknown) => boolean;
     buildCanonicalProfile: (resolved: AnyRecord, rawProfile: AnyRecord) => AnyRecord;
     resolveInheritance: (profile: AnyRecord, visited: Set<string>) => AnyRecord;

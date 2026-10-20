@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
+import { getFlightFabricAppSettings } from '../../app/shared-globals.js';
 
 const { APP_SETTINGS_DEFAULTS } = getFlightFabricAppSettings();
 

@@ -17,6 +17,11 @@ export type TaxiAxisConfig = Readonly<{
     engineCount: number;
     maxThrottle: number;
 }>;
+export declare class TaxiControlWriteError extends Error {
+    readonly command: string;
+    readonly transportError: string;
+    constructor(command: string, transportError: string);
+}
 export declare function brakeAxis(fraction: number): number;
 /** App-owned bounded recipes. Event/variable names cannot come from a client. */
 export declare function writeGroundAxes(input: TaxiInput, transport: TaxiAxisTransport, valid: () => boolean, config: TaxiAxisConfig): Promise<void>;

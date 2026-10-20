@@ -15,7 +15,12 @@ const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const helpers = require(resolveBackendRuntimeFile('utils', 'helpers.js'));
+const helpers = {
+  ...require(resolveBackendRuntimeFile('telemetry-provider', 'simulator-state.js')),
+  ...require(resolveBackendRuntimeFile('utils', 'aviation-frames.js')),
+  ...require(resolveBackendRuntimeFile('utils', 'units.js')),
+  ...require(resolveBackendRuntimeFile('utils', 'storage-paths.js')),
+};
 
 let passed = 0;
 let failed = 0;

@@ -1,6 +1,6 @@
-import { createApp, nextTick } from 'vue';
+import { createApp, h, nextTick, reactive } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
-import '../../frontend/app-settings-shared.js';
+import '../../shared/app-settings-shared.js';
 import AircraftTabShell from '../../frontend/src/vue/components/AircraftTabShell.vue';
 import { useAircraftControlsStore } from '../../frontend/src/vue/stores/aircraft-controls.js';
 import { useAircraftSpecificStore } from '../../frontend/src/vue/stores/aircraft-specific.js';
@@ -141,10 +141,11 @@ specific.bindRuntimeActions({
   requestCommand: (commandId, input, options) => controls.requestControlCommand({ type: 'canonical', commandId, input }, options),
 });
 let active;
+let numericPanelMounted = false;
 let sdkStatus = 'connected';
 let sourceStatus = 'connected';
 function publish() {
-  if (!active) return;
+  if (!active || numericPanelMounted) return;
   const updatedAt = new Date().toISOString();
   specific.ingestState({ profileKey: active.capabilities.aircraftCommands.profileKey, profileRevision: 1,
     templateId: active.templateId, available: true, sourceStatus: { overall: sourceStatus, sdk: sdkStatus, lvar: 'connected', simvar: 'connected',
@@ -153,6 +154,37 @@ function publish() {
     valueUpdatedAt: Object.fromEntries(Object.keys(active.values).map(id => [id, updatedAt])), unavailable: [] });
 }
 window.layoutTest = {
+  numericDraftState: null,
+  async mountNumericPanel(panel, fieldId) {
+    const loaders = {
+      'fbw-a380x': () => import('../../frontend/src/vue/components/aircraft-specific/templates/FbwA380xAircraftPanel.vue'),
+      'inibuilds-a330': () => import('../../frontend/src/vue/components/aircraft-specific/templates/IniBuildsA330AircraftPanel.vue'),
+      'microsoft-737-max-8': () => import('../../frontend/src/vue/components/aircraft-specific/templates/Microsoft737Max8AircraftPanel.vue'),
+      'microsoft-inibuilds-a32x': () => import('../../frontend/src/vue/components/aircraft-specific/templates/MicrosoftIniBuildsA32xAircraftPanel.vue'),
+    };
+    const { default: Component } = await loaders[panel]();
+    const state = reactive({ values: { [fieldId]: 12000 }, unavailable: [], sourceStatus: 'connected',
+      profileKey: 'test/initial/' + panel, pending: false, accepted: true, commands: [] });
+    numericPanelMounted = true;
+    mountedApp.unmount();
+    controls.setAvailability({ enabled: true });
+    const dispatch = (route, id, groupId, value) => {
+      state.commands.push({ route, id, groupId, value, accepted: state.accepted });
+      if (state.accepted) state.pending = true;
+      return state.accepted;
+    };
+    this.numericDraftState = state;
+    mountedApp = createApp({ setup: () => () => h(Component, {
+      values: state.values, unavailable: state.unavailable, sourceStatus: state.sourceStatus, profileKey: state.profileKey,
+      actionCapabilities: { 'flightGuidance.altitude.set': true },
+      isCommandSupported: id => id === 'flightGuidance.altitude.set',
+      isActionPending: groupId => groupId === 'flightGuidance.altitude' && state.pending,
+      requestAction: (id, groupId, value) => dispatch('action', id, groupId, value),
+      requestCommand: (id, groupId, input) => dispatch('command', id, groupId, input.value),
+    }) }).use(pinia);
+    mountedApp.mount('#app');
+    await nextTick();
+  },
   holdMediaChanges() { mediaChanges.held = true; },
   releaseMediaChanges() {
     mediaChanges.held = false;

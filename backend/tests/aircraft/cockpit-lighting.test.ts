@@ -1,6 +1,6 @@
 import assert = require('node:assert/strict');
 import test = require('node:test');
-import { cockpitLightingGroups } from '../../aircraft/cockpit-lighting';
+import { cockpitLightingGroups } from '../../aircraft/aircraft-command-catalogue';
 const { SimConnectTelemetryProvider } = require('../../telemetry-provider/simconnect-telemetry-provider');
 
 const loader = require('../../aircraft/aircraft-profile-loader');

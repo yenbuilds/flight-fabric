@@ -11,7 +11,7 @@ import {
   subscribeAppSettingsSaved,
   subscribeWsOpen,
 } from '../../app/runtime-signals.js';
-import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
+import { getFlightFabricAppSettings } from '../../app/shared-globals.js';
 import { initSettingsRuntime } from '../../settings/runtime.js';
 import SettingsAboutLegal from './SettingsAboutLegal.vue';
 import SettingsActionBar from './SettingsActionBar.vue';

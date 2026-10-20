@@ -4,7 +4,7 @@ const WebSocket = require('ws') as new (url: string) => WsInstance;
 
 const config = require('../core/config') as ConfigModule;
 const eventBus = require('../core/event-bus') as EventBusModule;
-const { decodeSurfaceType } = require('../utils/helpers') as HelpersModule;
+const { decodeSurfaceType } = require('../telemetry-provider/simulator-state') as HelpersModule;
 
 type ConfigModule = {
   xplane: {

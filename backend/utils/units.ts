@@ -61,3 +61,9 @@ export function msToFpm(ms: number): number {
 export function fpmToMs(fpm: number): number {
   return Number.isFinite(fpm) ? fpm * FPM_TO_MS : 0;
 }
+
+const RAD2DEG = 180 / Math.PI;
+
+export function rad2deg(rad: number): number {
+  return rad * RAD2DEG;
+}

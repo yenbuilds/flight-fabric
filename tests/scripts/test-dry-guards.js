@@ -150,8 +150,9 @@ test('runtime destructive filesystem operations use explicit safe-fs guards', ()
   assert(safeFsSource.includes('target is a symbolic link'), 'safe-fs should reject symlink targets by default');
   assert(safeFsSource.includes('target parent contains a symbolic link'), 'safe-fs should reject symlinked parent directories by default');
 
-  assert(timelineGeneratorSource.includes('safeUnlinkSync({'), 'flight CSV deletion should route through safeUnlinkSync');
-  assert(timelineGeneratorSource.includes("operation: 'deleteFlightCsv'"), 'flight CSV deletion should name the guarded operation');
+  const recordingDeletionSource = readRepoFile('backend/flight-recording/recording-bundle-deletion.ts');
+  assert(recordingDeletionSource.includes('safeUnlinkSync({'), 'flight CSV deletion should route through safeUnlinkSync');
+  assert(recordingDeletionSource.includes("operation: 'deleteFlightCsv'"), 'flight CSV deletion should name the guarded operation');
   assert(timelineGeneratorSource.includes("operation: 'writeTimelineSidecar'"), 'timeline sidecar writes should use guarded app-format writes');
   assert(!profileLoaderSource.includes('safeCopyFileSync({'), 'bundled profiles should not be copied into app data');
   assert(!profileLoaderSource.includes('seedBundledAircraftProfile'), 'bundled profile app-data seeding should stay removed');
@@ -591,10 +592,10 @@ test('frontend settings page consumes the shared settings module', () => {
   const settingsShellSource = readRepoFile('frontend/src/vue/components/SettingsTabShell.vue');
   const runtimeSource = readRepoFile('frontend/src/settings/runtime.js');
   const sharedGlobalsSource = readRepoFile('frontend/src/app/shared-globals.js');
-  const sharedRuntimeSource = readRepoFile('frontend/src/settings/shared-runtime.js');
+  const sharedRuntimeSource = readRepoFile('frontend/src/app/shared-globals.js');
   const settingsPanelsSource = readRepoFile('frontend/src/vue/components/SettingsFormPanels.vue');
   const editorStoreSource = readRepoFile('frontend/src/vue/stores/settings-editor.js');
-  assert(settingsShellSource.includes("from '../../settings/shared-runtime.js';"));
+  assert(settingsShellSource.includes("from '../../app/shared-globals.js';"));
   assert(settingsShellSource.includes('getFlightFabricAppSettings()'));
   assert(settingsShellSource.includes('const tabs = useTabsStore();'), 'SettingsTabShell should own the tabs store for the settings runtime');
   assert(settingsShellSource.includes('tabsStore: tabs'), 'SettingsTabShell should pass the tabs store into the settings runtime');
@@ -606,8 +607,8 @@ test('frontend settings page consumes the shared settings module', () => {
   );
   assert(sharedGlobalsSource.includes('export function getFlightPhases('), 'shared globals helper should centralize phase lookup');
   assert(sharedRuntimeSource.includes('export function getFlightFabricAppSettings()'), 'settings shared-runtime helper should centralize app-settings global access');
-  assert(sharedRuntimeSource.includes("from '../app/shared-globals.js';"), 'settings shared-runtime helper should reuse the shared globals bridge');
-  assert(editorStoreSource.includes("from '../../settings/shared-runtime.js';"), 'settings editor store should read shared globals through the shared-runtime helper');
+  assert(sharedRuntimeSource.includes('getGlobalRootObject().FlightFabricAppSettings'), 'settings shared-runtime helper should reuse the shared globals bridge');
+  assert(editorStoreSource.includes("from '../../app/shared-globals.js';"), 'settings editor store should read shared globals through the shared-runtime helper');
   assert(runtimeSource.includes('registerBeforeChangeGuard'), 'settings runtime should use the tabs store leave-guard API');
   assert(runtimeSource.includes("() => tabsStore.activeTabId"), 'settings runtime should watch the tabs store for activation');
   assert(editorStoreSource.includes('sanitizeCabinAnnouncementStyle('));
@@ -677,7 +678,7 @@ test('fixed navigation is resolved centrally with no retired workspace entry poi
 });
 
 test('support asks use one untagged destination, one rule module and one prompt slot', () => {
-  const linksSource = readRepoFile('frontend/src/support/links.js');
+  const linksSource = readRepoFile('frontend/src/support/content.js');
   const rulesSource = readRepoFile('frontend/src/support/milestones.js');
   const supportStoreSource = readRepoFile('frontend/src/vue/stores/support.js');
   const supportRuntimeSource = readRepoFile('frontend/src/support/runtime.js');
@@ -693,7 +694,7 @@ test('support asks use one untagged destination, one rule module and one prompt 
   const kofiOutsideHelper = ['frontend/src/vue/components/AppFooter.vue', 'frontend/src/vue/components/AppNavigator.vue', 'frontend/src/vue/components/SupportLink.vue', 'frontend/src/vue/components/SupportSection.vue', 'frontend/src/vue/components/SupportPrompt.vue', 'frontend/src/vue/components/WhatsNewCard.vue', 'frontend/src/vue/components/SettingsAboutLegal.vue']
     .filter((file) => readRepoFile(file).includes('ko-fi.com'));
   assert.deepEqual(kofiOutsideHelper, [], 'provider destinations must not appear in app components');
-  assert(linksSource.includes("export const SUPPORT_URL = 'https://www.flightfabric.com/support/'"), 'links.js owns the stable support URL');
+  assert(linksSource.includes("export const SUPPORT_URL = 'https://www.flightfabric.com/support/'"), 'content.js owns the stable support URL');
   assert(policySource.includes("const SUPPORT_URL = 'https://www.flightfabric.com/support/'") && !policySource.includes('KOFI_SOURCE_TAG'), 'the Electron policy only allows the fixed support entry point');
   for (const source of [linksSource, navigatorSource, promptSource, readRepoFile('frontend/src/vue/components/SupportSection.vue'), readRepoFile('frontend/src/vue/components/SupportLink.vue')]) {
     assert(!source.includes('?src=') && !source.includes('SUPPORT_SOURCES') && !source.includes('kofiLink'), 'support links must not add source tags');
@@ -728,8 +729,8 @@ test('support asks use one untagged destination, one rule module and one prompt 
   }
   assert(navigatorSource.includes('SUPPORT_URL as supportHref')
     && footerSource.includes("shell.openNavigator('help')")
-    && !footerSource.includes('support/links.js'), 'the footer should route support through Help');
-  assert(!whatsNewCardSource.includes('support/links.js'), 'release highlights never bypass support prompt limits');
+    && !footerSource.includes('support/content.js'), 'the footer should route support through Help');
+  assert(!whatsNewCardSource.includes('support/content.js'), 'release highlights never bypass support prompt limits');
 
   assert(rulesSource.includes('export const SUPPORT_MILESTONES = Object.freeze([10, 50, 100, 250, 500])'), 'the milestones live in the rules module');
   assert(rulesSource.includes('SUPPORT_MIN_DAYS_BETWEEN_PROMPTS = 30') && rulesSource.includes('SUPPORT_MIN_DAYS_SINCE_FIRST_SEEN = 7'), 'the quiet periods are named constants');
@@ -773,7 +774,7 @@ test('dark-only theme keeps DOM mutation in a runtime helper instead of the stor
   const vueMainSource = readRepoFile('frontend/src/vue/main.js');
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const indexCssSource = readRepoFile('frontend/index.css');
-  const themeDefinitionSource = readRepoFile('frontend/src/theme/definition.js');
+  const themeDefinitionSource = readRepoFile('frontend/src/theme/runtime.js');
 
   assert(themeStoreSource.includes('function bindRuntime('), 'theme store should expose explicit runtime bindings');
   assert(themeStoreSource.includes('const runtimeBound = ref(false);'), 'theme store should expose whether runtime theme actions are bound');
@@ -795,7 +796,7 @@ test('browser environment helper centralizes store-level storage and media-query
   const browserEnvironmentSource = readRepoFile('frontend/src/app/browser-environment.js');
   const simbriefStoreSource = readRepoFile('frontend/src/vue/stores/simbrief.js');
   const profilesStoreSource = readRepoFile('frontend/src/vue/stores/profiles.js');
-  const themeDefinitionSource = readRepoFile('frontend/src/theme/definition.js');
+  const themeDefinitionSource = readRepoFile('frontend/src/theme/runtime.js');
   const themeStoreSource = readRepoFile('frontend/src/vue/stores/theme.js');
   const timelineStoreSource = readRepoFile('frontend/src/vue/stores/timeline.js');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
@@ -1004,7 +1005,7 @@ test('timeline and live-map helpers are now store-first', () => {
 
 test('sim menu and quick-glance visibility are Vue state driven', () => {
   const appShellSource = readRepoFile('frontend/src/vue/components/AppShell.vue');
-  const displayDefaultsSource = readRepoFile('frontend/src/telemetry/display-defaults.js');
+  const displayDefaultsSource = readRepoFile('frontend/src/telemetry/display.js');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
   const appRuntimeSource = readRepoFile('frontend/src/app/runtime.js');
   const messageHandlersSource = readRepoFile('frontend/src/app/message-handlers.js');
@@ -1034,7 +1035,7 @@ test('VRE sampling diagnostics are Vue state driven in the debug modal', () => {
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const debugModalSource = readRepoFile('frontend/src/vue/components/DebugTelemetryModal.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
-  const statusIndicatorsSource = readRepoFile('frontend/src/ui/status-indicators.js');
+  const statusIndicatorsSource = readRepoFile('frontend/src/app/message-handlers.js');
   const appRuntimeSource = readRepoFile('frontend/src/app/runtime.js');
 
   assert(statusStoreSource.includes('vreSampling: getDefaultVreSampling()'), 'status store should own VRE sampling state');
@@ -1052,7 +1053,7 @@ test('VRE sampling diagnostics are Vue state driven in the debug modal', () => {
 test('assists indicator is Vue state driven', () => {
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
-  const statusIndicatorsSource = readRepoFile('frontend/src/ui/status-indicators.js');
+  const statusIndicatorsSource = readRepoFile('frontend/src/app/message-handlers.js');
 
   assert(statusStoreSource.includes('ASSIST_CATEGORIES'), 'status store should own assist display categories');
   assert(statusStoreSource.includes('updateAssists(data)'), 'status store should expose an assists update action');
@@ -1067,7 +1068,7 @@ test('assists indicator is Vue state driven', () => {
 test('recording indicator is Vue state driven', () => {
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
-  const statusIndicatorsSource = readRepoFile('frontend/src/ui/status-indicators.js');
+  const statusIndicatorsSource = readRepoFile('frontend/src/app/message-handlers.js');
 
   assert(statusStoreSource.includes('recording: getDefaultRecording()'), 'status store should own recording state');
   assert(statusStoreSource.includes('updateRecording(message)'), 'status store should expose a recording update action');
@@ -1086,7 +1087,7 @@ test('recording indicator is Vue state driven', () => {
 test('surface indicator is Vue state driven', () => {
   const appFooterSource = readRepoFile('frontend/src/vue/components/AppFooter.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
-  const statusIndicatorsSource = readRepoFile('frontend/src/ui/status-indicators.js');
+  const statusIndicatorsSource = readRepoFile('frontend/src/app/message-handlers.js');
 
   assert(statusStoreSource.includes('surface: getDefaultSurface()'), 'status store should own surface state');
   assert(statusStoreSource.includes('updateSurface(surface)'), 'status store should expose a surface update action');
@@ -1118,7 +1119,7 @@ test('header flight time and aircraft profile are Vue state driven', () => {
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
   const messageHandlersSource = readRepoFile('frontend/src/app/message-handlers.js');
-  const displayDefaultsSource = readRepoFile('frontend/src/telemetry/display-defaults.js');
+  const displayDefaultsSource = readRepoFile('frontend/src/telemetry/display.js');
 
   assert(statusStoreSource.includes('flightTime: \'00:00:00\''), 'status store should own flight time state');
   assert(statusStoreSource.includes('aircraftProfile: getDefaultAircraftProfile()'), 'status store should own aircraft profile display state');
@@ -1281,7 +1282,7 @@ test('debug modal chrome is Vue state driven', () => {
 });
 
 test('flight telemetry panel values are Vue state driven', () => {
-  const displayDefaultsSource = readRepoFile('frontend/src/telemetry/display-defaults.js');
+  const displayDefaultsSource = readRepoFile('frontend/src/telemetry/display.js');
   const telemetryDisplaySource = readRepoFile('frontend/src/telemetry/display.js');
   const telemetryWarningsSource = readRepoFile('frontend/src/telemetry/warnings.js');
   const messageHandlersSource = readRepoFile('frontend/src/app/message-handlers.js');
@@ -1560,7 +1561,7 @@ test('landing and cabin runtime bridges use shared services instead of direct gl
   const appBootstrapSource = readRepoFile('frontend/src/app/bootstrap.js');
   const appShellSource = readRepoFile('frontend/src/vue/components/AppShell.vue');
   const landingControllerSource = readRepoFile('frontend/src/landing/controller.js');
-  const landingCardSource = readRepoFile('frontend/src/landing/card.js');
+  const landingCardSource = readRepoFile('frontend/src/landing/controller.js');
   const runtimeSignalsSource = readRepoFile('frontend/src/app/runtime-signals.js');
   const timelineStoreSource = readRepoFile('frontend/src/vue/stores/timeline.js');
   const appRuntimeSource = readRepoFile('frontend/src/app/runtime.js');
@@ -1570,7 +1571,7 @@ test('landing and cabin runtime bridges use shared services instead of direct gl
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const mockLandingSource = readRepoFile('frontend/src/landing/mock-runtime.js');
   const landingPanelSource = readRepoFile('frontend/src/vue/components/LandingPanel.vue');
-  const approachProfileSource = readRepoFile('frontend/src/landing/approach-profile-global.js');
+  const approachProfileSource = readRepoFile('frontend/src/landing/approach-profile-renderer.js');
 
   assert(sharedSource.includes("getCabinAnnouncements()"));
   assert(runtimeSignalsSource.includes('emitLandingReceived'), 'runtime signals should expose landing-received emissions');
@@ -1734,7 +1735,7 @@ test('frontend HTML and HTTP server expose the shared settings script', () => {
   const dashboardBootstrapSource = readRepoFile('frontend/src/app/bootstrap.js');
   const httpServer = readRepoFile('backend/core/http-server.js');
   assert(html.includes('type="module" src="src/app/bootstrap.js"'));
-  assert(dashboardBootstrapSource.includes("import '../../app-settings-shared.js';"));
+  assert(dashboardBootstrapSource.includes("import '../../../shared/app-settings-shared.js';"));
   assert(httpServer.includes("urlPath.match(/^\\/shared\\/.*\\.js$/)"));
   assert(httpServer.includes("'Cache-Control': 'no-store, max-age=0'"), 'local app assets should not let stale browser cache hide live-update fixes');
 });

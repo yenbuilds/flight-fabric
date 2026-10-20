@@ -7,10 +7,12 @@ import { useVoiceControlStore } from '../../src/vue/stores/voice-control.js';
 import { createAircraftControlController } from '../../src/aircraft/control-controller.js';
 import { createAutopilotPanel } from '../../src/aircraft/autopilot-panel.js';
 import { initialVoiceTestState } from '../../src/voice/voice-setup-test.js';
-import { flapResultText } from '../../src/aircraft/flap-controls.js';
-import { gearResultText } from '../../src/aircraft/gear-controls.js';
-import { spoilerObservationFailureText } from '../../src/aircraft/spoiler-controls.js';
-import { flightGuidanceObservationFailureText } from '../../src/aircraft/flight-guidance-controls.js';
+import {
+  flapResultText,
+  gearResultText,
+  spoilerObservationFailureText,
+  flightGuidanceObservationFailureText,
+} from '../../src/aircraft/command-result-presentation.js';
 import { createPcmCapture } from '../../src/voice/pcm-capture.js';
 import { createPushToTalkTone } from '../../src/voice/push-to-talk-tone.js';
 

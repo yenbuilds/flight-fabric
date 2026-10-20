@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('node:fs') as typeof import('node:fs');
-const { resolveExistingDirectory } = require('../utils/helpers') as {
+const { resolveExistingDirectory } = require('../utils/storage-paths') as {
   resolveExistingDirectory: (_targetPath: unknown) => string | null;
 };
 

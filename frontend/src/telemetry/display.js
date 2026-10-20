@@ -1,3 +1,22 @@
+export const LIVE_TELEMETRY_MESSAGE_TYPES = new Set([
+  'ias',
+  'gs',
+  'vs',
+  'altitude',
+  'heading',
+  'xwind',
+  'fuel',
+  'environment',
+  'autopilot',
+  'navRadios',
+  'gear',
+  'lights',
+  'flaps',
+  'spoilers',
+  'engines',
+  'flightTime',
+]);
+
 export function createTelemetryDisplay({
   currentState,
   preferences,

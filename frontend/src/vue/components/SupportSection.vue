@@ -1,6 +1,5 @@
 <script setup>
-import { SUPPORT_NOTE, SUPPORT_THANKS } from '../../support/copy.js';
-import { SUPPORT_URL as coffeeHref } from '../../support/links.js';
+import { SUPPORT_NOTE, SUPPORT_THANKS, SUPPORT_URL as coffeeHref } from '../../support/content.js';
 import { useSupportStore } from '../stores/support.js';
 
 // The one place in the app that explains who builds it and why a coffee

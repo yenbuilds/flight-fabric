@@ -37,7 +37,10 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/core/http-server.ts', 'validated-static-assets', 'close=2,createReadStream=1,existsSync=2,fstat=1,lstatSync=2,open=1,readFile=1,realpathSync=2'],
   ['backend/core/user-settings.ts', 'guarded-settings', 'existsSync=2,readFileSync=1'],
   ['backend/events/timeline-csv-helpers.ts', 'recording-storage', 'promises.lstat=1'],
-  ['backend/events/timeline-generator.ts', 'recording-storage', 'closeSync=7,existsSync=8,fstatSync=1,lstatSync=9,openSync=3,readFileSync=3,readSync=4,readdirSync=3,renameSync=1,rmdirSync=1,statSync=1'],
+  ['backend/events/timeline-generator.ts', 'recording-storage', 'closeSync=5,existsSync=4,fstatSync=1,lstatSync=3,openSync=1,readFileSync=2,readSync=2'],
+  // The unchanged preflight, identity checks, atomic rename and crash recovery
+  // now belong to the recording deletion transaction, separate from analysis.
+  ['backend/flight-recording/recording-bundle-deletion.ts', 'recording-storage', 'closeSync=2,existsSync=4,lstatSync=6,openSync=2,readFileSync=1,readSync=2,readdirSync=3,renameSync=1,rmdirSync=1,statSync=1'],
   ['backend/flight-recording/aircraft-specific-jsonl-reader.ts', 'recording-storage', 'promises.lstat=1,promises.open=1'],
   ['backend/flight-recording/aircraft-specific-jsonl-recorder.ts', 'recording-storage', 'closeSync=1,createWriteStream=1,existsSync=2,fdatasync=1,fdatasyncSync=1,fstatSync=2,lstatSync=1,openSync=1,rmdirSync=1,statSync=2,unlinkSync=1,writeFileSync=1'],
   ['backend/flight-recording/automation-jsonl-reader.ts', 'recording-storage', 'promises.lstat=1,promises.open=1'],
@@ -58,7 +61,7 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/history-index/history-summary-sidecar.ts', 'recording-storage', 'closeSync=1,fstatSync=1,lstatSync=3,openSync=1,readFileSync=1,readSync=1'],
   ['backend/history-index/sqlite-runtime.ts', 'recording-storage', 'existsSync=6,renameSync=2'],
   ['backend/landing/flight-logbook.ts', 'recording-storage', 'existsSync=1,lstatSync=3,promises.open=1,promises.readFile=1,readFileSync=1'],
-  ['backend/landing/ourairports-csv-cache.ts', 'release-owned-content', 'existsSync=1,readFileSync=1'],
+  ['backend/landing/ourairports-data.ts', 'release-owned-content', 'existsSync=1,readFileSync=1'],
   // Takeoff log: reads its own app-data JSON (fixed basename under the app data
   // root); writes go through safeReplaceTextFileSync like the landing logbook.
   ['backend/takeoff/takeoff-logbook.ts', 'recording-storage', 'readFileSync=1,statSync=2'],
@@ -69,9 +72,9 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/telemetry-provider/sidecar-process-ownership.ts', 'release-owned-runtime', 'existsSync=1,readFileSync=3,readdirSync=1,unlinkSync=1,writeFileSync=1'],
   ['backend/utils/bounded-utf8-record-reader.ts', 'recording-storage', 'promises.open=1'],
   ['backend/utils/flight-logs-dir.ts', 'recording-storage', 'existsSync=1,lstatSync=1'],
-  ['backend/utils/helpers.ts', 'recording-storage', 'statSync=1'],
   ['backend/utils/safe-fs.ts', 'safety-primitive', 'closeSync=2,copyFileSync=1,existsSync=6,fsyncSync=1,lstatSync=5,openSync=1,realpathSync=1,renameSync=1,unlinkSync=1,writeFileSync=2'],
-  ['backend/utils/storage-paths.ts', 'guarded-settings', 'existsSync=1,mkdirSync=1,readdirSync=1,statSync=2'],
+  // Includes the unchanged nearest-existing-directory read used by recording capacity checks.
+  ['backend/utils/storage-paths.ts', 'guarded-settings', 'existsSync=1,mkdirSync=1,readdirSync=1,statSync=3'],
   ['backend/utils/user-identity.ts', 'guarded-settings', 'existsSync=1,readFileSync=1'],
   // Updater availability reads a fixed uninstall filename beside this executable;
   // installer authorization still requires the signed feed and verified bytes.

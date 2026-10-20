@@ -41,3 +41,38 @@ export function submitMcpDraft({
   if (typeof requestAction !== 'function') return false;
   return requestAction(config.actionId, groupId, next);
 }
+
+function formatMcpNumericDraft(rawValue) {
+  const current = Number(rawValue);
+  if (!Number.isFinite(current)) return '';
+  return Number.isInteger(current) ? String(current) : String(Number(current.toFixed(2)));
+}
+
+export function reconcileMcpNumericDraftState(state = {}, snapshot = {}, previous = []) {
+  const {
+    rawValue,
+    unavailable = false,
+    profileKey,
+    sourceStatus,
+    pending = false,
+  } = snapshot;
+  const next = {
+    draft: typeof state.draft === 'string' ? state.draft : '',
+    dirty: state.dirty === true,
+    error: typeof state.error === 'string' ? state.error : '',
+  };
+  const contextChanged = previous[2] !== undefined
+    && (previous[2] !== profileKey || previous[3] !== sourceStatus);
+
+  if (contextChanged || sourceStatus !== 'connected' || unavailable) {
+    next.dirty = false;
+    next.error = '';
+  }
+  if (unavailable || sourceStatus !== 'connected') {
+    next.draft = '';
+    return next;
+  }
+  if (!contextChanged && previous[4] !== undefined && pending) return next;
+  if (!next.dirty) next.draft = formatMcpNumericDraft(rawValue);
+  return next;
+}

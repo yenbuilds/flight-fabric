@@ -15,6 +15,97 @@ const AUTOTAXI_FIXTURE = process.env.FF_AUTOTAXI_LAYOUT_FIXTURE === '1';
 const templateFor = id => INCLUDED_A32X.includes(id) ? 'microsoft-inibuilds-a32x' : id === A380 ? 'inibuilds-a380' : ['fenix-a319', 'fenix-a320', 'fenix-a321'].includes(id) ? 'fenix-a32x' : id.startsWith('inibuilds-a350') ? 'inibuilds-a350' : id;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+async function checkMountedNumericDrafts({ evaluate }) {
+  const cases = [
+    { panel: 'fbw-a380x', field: 'flightGuidance.altitudeFt', input: 'a380-target-altitude', route: 'command' },
+    { panel: 'inibuilds-a330', field: 'flightGuidance.altitudeFt', input: 'a330-target-altitude', route: 'action' },
+    { panel: 'microsoft-737-max-8', field: 'mcp.altitudeFt', input: 'microsoft-737-max-8-target-altitude', route: 'action' },
+    { panel: 'microsoft-inibuilds-a32x', field: 'fcu.altitudeFtNative', input: 'microsoft-inibuilds-a32x-target-altitude', route: 'action' },
+  ];
+  for (const fixture of cases) {
+    const result = await evaluate(`
+      const fixture = ${JSON.stringify(fixture)};
+      await layoutTest.mountNumericPanel(fixture.panel, fixture.field);
+      const state = layoutTest.numericDraftState;
+      const input = () => document.getElementById(fixture.input);
+      const states = {};
+      const record = name => {
+        const element = input();
+        states[name] = { value: element.value, disabled: element.disabled,
+          invalid: element.getAttribute('aria-invalid'),
+          error: element.form.querySelector('[role="alert"]')?.textContent || '' };
+      };
+      const type = async value => {
+        input().value = value;
+        input().dispatchEvent(new Event('input', { bubbles: true }));
+        await layoutTest.settle();
+      };
+      const submit = async () => { input().form.requestSubmit(); await layoutTest.settle(); };
+      record('initial');
+      state.values[fixture.field] = 13000; await layoutTest.settle(); record('live');
+      await type('15000');
+      state.values[fixture.field] = 13500; await layoutTest.settle(); record('dirty');
+      await type('15050'); await submit(); record('invalid');
+      state.values[fixture.field] = 14000; await layoutTest.settle(); record('invalidAfterTelemetry');
+      const invalidDispatchCount = state.commands.length;
+      state.pending = true; state.unavailable = [fixture.field];
+      await layoutTest.settle(); record('unavailablePending');
+      state.unavailable = []; state.values[fixture.field] = 14500;
+      await layoutTest.settle(); record('availablePending');
+      state.pending = false; await layoutTest.settle(); record('available');
+      await type('15000'); state.accepted = false; await submit(); record('rejected');
+      state.values[fixture.field] = 14600; await layoutTest.settle(); record('rejectedAfterTelemetry');
+      state.accepted = true; await submit(); record('acceptedPending');
+      state.values[fixture.field] = 14700; await layoutTest.settle(); record('pendingReadback');
+      state.values[fixture.field] = 15000; state.pending = false;
+      await layoutTest.settle(); record('confirmed');
+      await type('15550'); await submit();
+      state.sourceStatus = 'disconnected'; await layoutTest.settle(); record('disconnected');
+      state.values[fixture.field] = 16000; state.sourceStatus = 'connected';
+      await layoutTest.settle(); record('reconnected');
+      await type('17000'); state.sourceStatus = 'stale';
+      await layoutTest.settle(); record('stale');
+      state.values[fixture.field] = 16500; state.sourceStatus = 'connected';
+      await layoutTest.settle(); record('fresh');
+      await type('18000');
+      // This is an isolated component-boundary context token, not a claim
+      // that one aircraft's commands are supported by another aircraft.
+      state.profileKey = 'test/replacement/' + fixture.panel;
+      state.values[fixture.field] = 17500; await layoutTest.settle(); record('contextChanged');
+      await type('19000');
+      const commands = state.commands.map(command => ({ ...command }));
+      const retiredInput = input();
+      await layoutTest.mountNumericPanel(fixture.panel, fixture.field);
+      const replacedInput = input() !== retiredInput;
+      state.values[fixture.field] = 40000; state.sourceStatus = 'disconnected';
+      await layoutTest.settle(); record('freshInstance');
+      layoutTest.numericDraftState.values[fixture.field] = 12500;
+      await layoutTest.settle(); record('freshInstanceLive');
+      return { states, commands, invalidDispatchCount, replacedInput };
+    `);
+    for (const [name, value, disabled = false, invalid = false] of [
+      ['initial', '12000'], ['live', '13000'], ['dirty', '15000'],
+      ['invalid', '15050', false, true], ['invalidAfterTelemetry', '15050', false, true],
+      ['unavailablePending', '', true], ['availablePending', '', true], ['available', '14500'],
+      ['rejected', '15000', false, true], ['rejectedAfterTelemetry', '15000', false, true],
+      ['acceptedPending', '15000', true], ['pendingReadback', '15000', true], ['confirmed', '15000'],
+      ['disconnected', '', true], ['reconnected', '16000'], ['stale', '', true], ['fresh', '16500'],
+      ['contextChanged', '17500'], ['freshInstance', '12000'], ['freshInstanceLive', '12500'],
+    ]) {
+      const actual = result.states[name];
+      assert.deepEqual({ value: actual.value, disabled: actual.disabled, invalid: actual.invalid },
+        { value, disabled, invalid: String(invalid) }, fixture.panel + ': ' + name);
+      assert.equal(Boolean(actual.error), invalid, fixture.panel + ': inline error at ' + name);
+    }
+    assert.equal(result.invalidDispatchCount, 0, fixture.panel + ': invalid target never dispatches');
+    assert.deepEqual(result.commands, [false, true].map(accepted => ({
+      route: fixture.route, id: 'flightGuidance.altitude.set', groupId: 'flightGuidance.altitude', value: 15000, accepted,
+    })), fixture.panel + ': form uses the exact target, command/action route and pending group');
+    assert.equal(result.replacedInput, true, fixture.panel + ': fresh instance replaces the previous input');
+  }
+  console.log('PASS Mounted numeric drafts: four production panels, real input/form events, telemetry, rejection/pending, field loss, source/context reset and instance isolation.');
+}
+
 async function browser() {
   const { app, BrowserWindow } = require('electron');
   app.setPath('userData', path.join(OUTPUT, `user-data-${process.pid}`));
@@ -56,6 +147,11 @@ async function browser() {
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await ready('[data-aircraft-template="pmdg-737"]');
+    if (process.env.FF_NUMERIC_DRAFTS_ONLY === '1') {
+      await checkMountedNumericDrafts({ evaluate });
+      assert.deepEqual(errors, [], 'Mounted numeric drafts have no browser errors');
+      win.destroy(); app.exit(0); return;
+    }
     if (process.env.FF_AIRCRAFT_SECTIONS_ONLY === '1') {
       await require('./aircraft-section-browser-checks')({ win, evaluate, settled, wait, output: OUTPUT });
       assert.deepEqual(errors, [], 'Aircraft section navigation has no browser errors');
@@ -846,6 +942,9 @@ async function browser() {
       }
       await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await layoutTest.settle();`);
       assert.equal(await evaluate(`return document.activeElement.hasAttribute('data-cdu-trigger');`), true);
+    }
+    if (!process.env.FF_CDU_LAYOUT_ONLY && !process.env.FF_AIRCRAFT_TOOLS_ONLY && !process.env.FF_AUTOTAXI_LAYOUT_ONLY) {
+      await checkMountedNumericDrafts({ evaluate });
     }
     assert.deepEqual(errors, [], 'no runtime errors');
     console.log(process.env.FF_CDU_LAYOUT_ONLY === '1'

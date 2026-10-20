@@ -6,7 +6,7 @@ import { useTimelineStore } from '../../src/vue/stores/timeline.js';
 import { initTimelinePage } from '../../src/timeline/bootstrap.js';
 import { createTimelineMap3dController } from '../../src/timeline/map-3d-controller.js';
 import { createTimelineMapViewSwitch } from '../../src/timeline/map-view-switch.js';
-import { getEventPosition } from '../../src/timeline/map.js';
+import { getEventPosition } from '../../src/timeline/event-map-presentation.js';
 import {
   createFakeScene,
   createFakeThreeLoader,

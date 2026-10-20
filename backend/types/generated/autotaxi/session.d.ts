@@ -17,16 +17,21 @@ export type TaxiObservation = TaxiSample & Position & {
     profileKey: string;
     profileRevision: number;
     generation: unknown;
+    /** Read-only route guidance needs position/context, not engine or control readiness. */
+    guidanceReady?: boolean;
+    guidanceReason?: string;
 };
 export type TaxiSessionDependencies = {
     now: () => number;
     capture: () => TaxiObservation;
-    /** Resolve the actual loaded aircraft. Explicit null blocks preview/start;
+    /** Resolve the actual loaded aircraft. Explicit null blocks automatic control;
      * omitted only preserves legacy standalone callers and test fixtures. */
     handling?: () => TaxiHandling | null;
     /** Airport geometry; runway is null for a stand destination. */
     airport: (icao: string, runway: string | null) => Promise<TaxiAirport>;
     write: (input: TaxiInput, sameAircraft: () => boolean) => Promise<void>;
+    /** One bounded transport recovery after a failed stop. Never resumes motion. */
+    recover?: (error: unknown, sameAircraft: () => boolean) => Promise<boolean>;
     /** Set the parking brake while the toe brakes are held. Without it a stopped session keeps holding the toe brakes. */
     park?: (sameAircraft: () => boolean) => Promise<void>;
     /** Current parking-brake lever state, or null when unknown. */
@@ -46,6 +51,8 @@ export declare function createTaxiSession(deps: TaxiSessionDependencies): {
         observedSpeedKts: number;
         commanded: TaxiInput;
         canStart: boolean;
+        canGuide: boolean;
+        guidanceUnavailableReason: string;
         unavailableReason: string;
         handling: {
             id: string;
@@ -90,6 +97,8 @@ export declare function createTaxiSession(deps: TaxiSessionDependencies): {
         observedSpeedKts: number;
         commanded: TaxiInput;
         canStart: boolean;
+        canGuide: boolean;
+        guidanceUnavailableReason: string;
         unavailableReason: string;
         handling: {
             id: string;
@@ -134,6 +143,8 @@ export declare function createTaxiSession(deps: TaxiSessionDependencies): {
         observedSpeedKts: number;
         commanded: TaxiInput;
         canStart: boolean;
+        canGuide: boolean;
+        guidanceUnavailableReason: string;
         unavailableReason: string;
         handling: {
             id: string;
@@ -176,6 +187,8 @@ export declare function createTaxiSession(deps: TaxiSessionDependencies): {
         observedSpeedKts: number;
         commanded: TaxiInput;
         canStart: boolean;
+        canGuide: boolean;
+        guidanceUnavailableReason: string;
         unavailableReason: string;
         handling: {
             id: string;

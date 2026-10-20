@@ -27,7 +27,7 @@ const {
   hasMeaningfulSourceValue: (value: unknown) => boolean;
   isRecord: (value: unknown) => value is AnyRecord;
 };
-const { decodeLights } = require('../utils/helpers') as {
+const { decodeLights } = require('../telemetry-provider/simulator-state') as {
   decodeLights: (value: number) => AnyRecord;
 };
 

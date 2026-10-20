@@ -6,8 +6,12 @@ type LoggerFn = (...args: unknown[]) => void;
 type WsSocketLike = {
     on: (eventName: string, handler: (...args: any[]) => void | Promise<void>) => void;
     send?: (payload: string, ...args: any[]) => void;
+    bufferedAmount?: number;
+    readyState?: number;
+    terminate?: () => void;
     __ffPrivilegedClient?: boolean;
     __ffAircraftControlClient?: boolean;
+    __ffToolbarPresetClient?: boolean;
     __ffAircraftControlPairingStatus?: AircraftControlPairingStatus;
     __ffSubscribedTypes?: ReadonlySet<string> | null;
 };

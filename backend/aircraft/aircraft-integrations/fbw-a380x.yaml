@@ -29,7 +29,7 @@
 # This manifest enumerates every allowed write. The confirmed executor selects
 # the necessary mode/unit writes from fresh observations; it never blindly pushes.
 
-# Shared source notes: cockpit-lighting.ts
+# Shared presentation: ../aircraft-command-catalogue.ts
 # These helper notes retain their stated aircraft and verification scope.
 # Explicit aircraft contracts, not generic MSFS potentiometer guesses. FBW
 # indices come from each aircraft's Flight Deck API. Headwind was separately

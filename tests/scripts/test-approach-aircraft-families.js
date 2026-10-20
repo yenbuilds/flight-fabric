@@ -92,7 +92,7 @@ test('every advertised exact flap target has a reviewed lever source rather than
 });
 
 test('all PMDG heading and approach catalogue bindings share canonical and direct observation-loss feedback', async () => {
-  const { flightGuidanceObservationFailureText } = await import('../../frontend/src/aircraft/flight-guidance-controls.js');
+  const { flightGuidanceObservationFailureText } = await import('../../frontend/src/aircraft/command-result-presentation.js');
   const { formatAviationReadback } = await import('../../frontend/src/voice/local-readback.js');
   const failure = { ok: false, executionStarted: true, code: 'aircraft_integration_readback_timeout' };
   for (const family of ['pmdg-737', 'pmdg-777']) for (const profileId of families[family]) {
@@ -115,7 +115,7 @@ test('all PMDG heading and approach catalogue bindings share canonical and direc
 });
 
 test('every advertised spoiler command and its direct route share observation-loss feedback', async () => {
-  const { spoilerObservationFailureText } = await import('../../frontend/src/aircraft/spoiler-controls.js');
+  const { spoilerObservationFailureText } = await import('../../frontend/src/aircraft/command-result-presentation.js');
   const failure = { ok: false, executionStarted: true, code: 'aircraft_integration_readback_timeout' };
   const covered = new Set(), directActions = new Set();
   // Exercise real catalogue bindings, including percentage sliders whose UI

@@ -1,17 +1,12 @@
 <script setup>
 import {
   computed,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
   ref,
   watch,
 } from 'vue';
 import AircraftHotGroupModal from '../AircraftHotGroupModal.vue';
-import { useAircraftSectionMemory } from '../aircraft-section-memory.js';
-import { aircraftSectionAnchorY, useAircraftPageSections } from '../aircraft-page-sections.js';
+import { useAircraftPageSections, useAircraftSectionNavigation } from '../aircraft-page-sections.js';
 import { mcpDraftKey, submitMcpDraft } from '../mcp-input.js';
-import { useDocumentEvent } from '../../../composables/useDocumentEvent.js';
 
 const props = defineProps({
   values: { type: Object, default: () => ({}) },
@@ -30,17 +25,7 @@ const props = defineProps({
 
 const unavailableFields = computed(() => new Set(props.unavailable));
 const mcpDrafts = ref({});
-const sectionRibbon = ref(null);
-const sectionMenu = ref(null);
-const sectionMenuButton = ref(null);
-const activeSectionIndex = ref(0);
-const sectionMenuOpen = ref(false);
 const initialPowerOpen = ref(false);
-let sectionScrollTarget = null;
-let sectionSyncTimer = null;
-let ribbonSwipeStart = null;
-let suppressRibbonClick = false;
-let suppressRibbonClickTimer = null;
 const sdkSourceStatus = computed(() => (
   typeof props.sourceStatuses.sdk === 'string' && props.sourceStatuses.sdk
     ? props.sourceStatuses.sdk
@@ -66,9 +51,6 @@ const mobileSections = useAircraftPageSections([
   Object.freeze({ id: 'systems', label: 'Systems', title: 'Air & Systems', detail: 'Packs, bleed air, anti-ice, APU and warning state.' }),
 ]);
 
-const activeSection = computed(() => mobileSections.value[activeSectionIndex.value] || mobileSections.value[0]);
-const previousSection = computed(() => mobileSections.value[activeSectionIndex.value - 1] || null);
-const nextSection = computed(() => mobileSections.value[activeSectionIndex.value + 1] || null);
 
 const variant = computed(() => {
   const liveModel = props.values['aircraft.model'];
@@ -648,189 +630,29 @@ function gearClass(gear) {
   return 'border-surface-200 bg-surface-50 text-gray-400';
 }
 
-function sectionElement(index) {
-  const section = mobileSections.value[index];
-  return section ? document.getElementById(section.targetId || `pmdg-737-section-${section.id}`) : null;
-}
-
-function closeSectionMenu({ restoreFocus = false } = {}) {
-  sectionMenuOpen.value = false;
-  if (restoreFocus) nextTick(() => sectionMenuButton.value?.focus?.({ preventScroll: true }));
-}
-
-function openSectionMenu() {
-  if (suppressRibbonClick) {
-    suppressRibbonClick = false;
-    return;
-  }
-  sectionMenuOpen.value = true;
-  nextTick(() => {
-    sectionMenu.value?.querySelector?.('[data-pmdg-section-choice]')?.focus?.({ preventScroll: true });
-  });
-}
-
-function goToSection(index, options = {}) {
-  const numericIndex = Number(index);
-  if (!Number.isFinite(numericIndex)) return false;
-  const boundedIndex = Math.max(0, Math.min(mobileSections.value.length - 1, Math.trunc(numericIndex)));
-  const section = mobileSections.value[boundedIndex];
-  const target = sectionElement(boundedIndex);
-  if (!section || !target) return false;
-
-  activeSectionIndex.value = boundedIndex;
-  if (options.remember !== false) rememberSection(section.id);
-  closeSectionMenu();
-  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
-  target.scrollIntoView?.({
-    behavior: options.behavior || (reducedMotion ? 'auto' : 'smooth'),
-    block: 'start',
-  });
-  if (options.focus !== false) target.focus?.({ preventScroll: true });
-  return true;
-}
-
-const { aircraftTabIsActive, rememberSection } = useAircraftSectionMemory({
-  memoryKey: () => props.profileKey || 'bundled/msfs/pmdg-737',
+const {
+  sectionRibbon,
+  sectionMenu,
+  sectionMenuButton,
+  activeSectionIndex,
+  sectionMenuOpen,
+  activeSection,
+  previousSection,
+  nextSection,
+  closeSectionMenu,
+  openSectionMenu,
+  goToSection,
+  handleSectionButtonClick,
+  clearRibbonSwipe,
+  handleRibbonPointerDown,
+  handleRibbonPointerUp,
+} = useAircraftSectionNavigation({
   sections: mobileSections,
-  onRestore: (sectionId) => {
-    const index = mobileSections.value.findIndex((section) => section.id === sectionId);
-    return index >= 0
-      ? goToSection(index, { behavior: 'auto', focus: false, remember: false })
-      : false;
-  },
-});
-
-function handleSectionButtonClick(index) {
-  if (suppressRibbonClick) {
-    suppressRibbonClick = false;
-    return;
-  }
-  goToSection(index);
-}
-
-function handleRibbonPointerDown(event) {
-  if (event?.button != null && event.button !== 0) return;
-  // Keep the two dedicated arrow targets as unambiguous taps. Swiping remains
-  // available across the wider centre target, while a small pointer wobble on
-  // an arrow can no longer suppress its subsequent click.
-  if (event?.target?.closest?.('.pmdg-mobile-section-ribbon__neighbor')) {
-    clearRibbonSwipe();
-    return;
-  }
-  const x = Number(event?.clientX);
-  const y = Number(event?.clientY);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    clearRibbonSwipe();
-    return;
-  }
-  ribbonSwipeStart = {
-    pointerId: event.pointerId,
-    x,
-    y,
-  };
-}
-
-function clearRibbonSwipe() {
-  ribbonSwipeStart = null;
-}
-
-function handleRibbonPointerUp(event) {
-  const start = ribbonSwipeStart;
-  clearRibbonSwipe();
-  if (!start || start.pointerId !== event.pointerId) return;
-
-  const endX = Number(event?.clientX);
-  const endY = Number(event?.clientY);
-  if (!Number.isFinite(endX) || !Number.isFinite(endY)) return;
-  const deltaX = endX - start.x;
-  const deltaY = endY - start.y;
-  const ribbonWidth = sectionRibbon.value?.getBoundingClientRect?.().width || 320;
-  const threshold = Math.max(44, ribbonWidth * 0.16);
-  if (Math.abs(deltaX) < threshold || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
-
-  const nextIndex = activeSectionIndex.value + (deltaX < 0 ? 1 : -1);
-  if (nextIndex < 0 || nextIndex >= mobileSections.value.length) return;
-
-  event.preventDefault?.();
-  suppressRibbonClick = true;
-  if (suppressRibbonClickTimer != null) window.clearTimeout(suppressRibbonClickTimer);
-  suppressRibbonClickTimer = window.setTimeout(() => {
-    suppressRibbonClick = false;
-    suppressRibbonClickTimer = null;
-  }, 400);
-  goToSection(nextIndex);
-}
-
-function syncActiveSection() {
-  sectionSyncTimer = null;
-  if (!aircraftTabIsActive()) return;
-  let nextIndex = 0;
-
-  for (let index = 0; index < mobileSections.value.length; index += 1) {
-    const target = sectionElement(index);
-    const anchorY = aircraftSectionAnchorY(sectionRibbon.value, sectionScrollTarget, target);
-    if (!target || target.getBoundingClientRect().top > anchorY) break;
-    nextIndex = index;
-  }
-
-  const scroller = sectionScrollTarget;
-  if (
-    scroller
-    && scroller !== window
-    && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 24
-  ) {
-    nextIndex = mobileSections.value.length - 1;
-  }
-  activeSectionIndex.value = nextIndex;
-  rememberSection(mobileSections.value[nextIndex]?.id);
-}
-
-function scheduleSectionSync() {
-  if (sectionSyncTimer != null || !aircraftTabIsActive()) return;
-  sectionSyncTimer = window.setTimeout(syncActiveSection, 32);
-}
-
-watch(mobileSections, () => nextTick(scheduleSectionSync));
-
-function handleDocumentKeydown(event) {
-  if (!sectionMenuOpen.value) return;
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    closeSectionMenu({ restoreFocus: true });
-    return;
-  }
-  if (event.key !== 'Tab') return;
-
-  const focusable = Array.from(sectionMenu.value?.querySelectorAll?.('button:not(:disabled)') || []);
-  if (focusable.length === 0) return;
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-useDocumentEvent('keydown', handleDocumentKeydown);
-
-onMounted(() => {
-  sectionScrollTarget = document.getElementById('vue-main-root') || window;
-  sectionScrollTarget.addEventListener?.('scroll', scheduleSectionSync, { passive: true });
-  window.addEventListener('resize', scheduleSectionSync, { passive: true });
-  nextTick(scheduleSectionSync);
-});
-
-onBeforeUnmount(() => {
-  sectionScrollTarget?.removeEventListener?.('scroll', scheduleSectionSync);
-  window.removeEventListener('resize', scheduleSectionSync);
-  if (sectionSyncTimer != null) window.clearTimeout(sectionSyncTimer);
-  if (suppressRibbonClickTimer != null) window.clearTimeout(suppressRibbonClickTimer);
-  sectionScrollTarget = null;
-  sectionSyncTimer = null;
-  suppressRibbonClickTimer = null;
+  sectionIdPrefix: () => 'pmdg-737-section-',
+  memoryKey: () => props.profileKey || 'bundled/msfs/pmdg-737',
+  choiceSelector: '[data-pmdg-section-choice]',
+  neighborSelector: '.pmdg-mobile-section-ribbon__neighbor',
+  expandAncestorDetails: false,
 });
 </script>
 

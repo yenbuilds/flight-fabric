@@ -9,7 +9,7 @@ const { createHarness } = require('../../../tests/support/mini-test-harness') as
   };
 };
 
-const csvCache = require('../../landing/ourairports-csv-cache') as {
+const csvCache = require('../../landing/ourairports-data') as {
   getContent: (fileName: string) => string | null;
   releaseAll: () => void;
 };

@@ -24,3 +24,4 @@ export declare function msToFpm(ms: number): number;
  * Convert feet/minute to meters/second.
  */
 export declare function fpmToMs(fpm: number): number;
+export declare function rad2deg(rad: number): number;

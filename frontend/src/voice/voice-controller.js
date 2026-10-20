@@ -12,10 +12,12 @@ import {
 import { createLocalReadback, formatAviationReadback, formatComRadioReadback, formatBaroReadback } from './local-readback.js';
 import { baroResultText } from '../aircraft/baro.js';
 import { comRadioResultText } from '../aircraft/com-radio.js';
-import { flapResultText } from '../aircraft/flap-controls.js';
-import { gearResultText } from '../aircraft/gear-controls.js';
-import { spoilerObservationFailureText } from '../aircraft/spoiler-controls.js';
-import { flightGuidanceObservationFailureText } from '../aircraft/flight-guidance-controls.js';
+import {
+  flapResultText,
+  gearResultText,
+  spoilerObservationFailureText,
+  flightGuidanceObservationFailureText,
+} from '../aircraft/command-result-presentation.js';
 import { createPushToTalkTone } from './push-to-talk-tone.js';
 import { answerAircraftStateQuery, canQueryAircraftState, stateQueryExamples } from './state-queries.js';
 import { answerFlightPlanQuery, flightPlanQueryExamples } from './flight-plan-queries.js';

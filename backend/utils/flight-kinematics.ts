@@ -3,7 +3,7 @@
 // Safe to run in the real-time loop because it only normalizes/derives
 // directly from current/previous samples (no intent inference or scoring).
 
-const rates = require('./rates.js') as typeof import('./rates');
+const { rad2deg } = require('./units.js') as { rad2deg: (rad: number) => number };
 
 export type IasTrendInput = {
   ias: number;
@@ -45,17 +45,12 @@ export function computePitchBankRates({
   bank,
   dtSeconds,
 }: PitchBankRatesInput): PitchBankRatesResult {
-  const { pitchRateDeg, bankRateDeg } = rates.computeRates(
-    previousPitch,
-    previousBank,
-    pitch,
-    bank,
-    dtSeconds,
-  );
+  const pitchRate = (pitch - previousPitch) / dtSeconds;
+  const bankRate = (bank - previousBank) / dtSeconds;
 
   return {
-    pitchRateDeg,
-    bankRateDeg,
+    pitchRateDeg: rad2deg(pitchRate),
+    bankRateDeg: rad2deg(bankRate),
     nextPreviousPitch: pitch,
     nextPreviousBank: bank,
   };

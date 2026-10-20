@@ -1,46 +1,7 @@
-<script>
-function formatA330NumericDraft(rawValue) {
-  const current = Number(rawValue);
-  if (!Number.isFinite(current)) return '';
-  return Number.isInteger(current) ? String(current) : String(Number(current.toFixed(2)));
-}
-
-export function reconcileA330NumericDraftState(state = {}, snapshot = {}, previous = []) {
-  const {
-    rawValue,
-    unavailable = false,
-    profileKey,
-    sourceStatus,
-    pending = false,
-  } = snapshot;
-  const next = {
-    draft: typeof state.draft === 'string' ? state.draft : '',
-    dirty: state.dirty === true,
-    error: typeof state.error === 'string' ? state.error : '',
-  };
-  const contextChanged = previous[2] !== undefined
-    && (previous[2] !== profileKey || previous[3] !== sourceStatus);
-
-  if (contextChanged || sourceStatus !== 'connected' || unavailable) {
-    next.dirty = false;
-    next.error = '';
-  }
-  if (unavailable || sourceStatus !== 'connected') {
-    next.draft = '';
-    return next;
-  }
-
-  const hasPreviousSnapshot = previous[4] !== undefined;
-  if (!contextChanged && hasPreviousSnapshot && pending) return next;
-  if (next.dirty !== true) next.draft = formatA330NumericDraft(rawValue);
-  return next;
-}
-</script>
-
 <script setup>
 import { computed, reactive, watch } from 'vue';
 import { useAircraftControlsStore } from '../../../stores/aircraft-controls.js';
-import { parseMcpDraftNumber, submitMcpDraft } from '../mcp-input.js';
+import { parseMcpDraftNumber, submitMcpDraft, reconcileMcpNumericDraftState } from '../mcp-input.js';
 
 const props = defineProps({
   profileKey: { type: String, default: '' },
@@ -235,7 +196,7 @@ for (const control of allNumericControls) {
       groupPending(control.groupId),
     ],
     ([rawValue, unavailable, profileKey, sourceStatus, pending], previous = []) => {
-      const next = reconcileA330NumericDraftState({
+      const next = reconcileMcpNumericDraftState({
         draft: selectorDrafts[control.id],
         dirty: selectorDirty[control.id],
         error: selectorErrors[control.id],

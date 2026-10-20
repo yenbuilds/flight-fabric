@@ -3,7 +3,7 @@ import FlightStatePanel from './FlightStatePanel.vue';
 import FlightTelemetryPanel from './FlightTelemetryPanel.vue';
 import LastLandingSummary from './LastLandingSummary.vue';
 import LastTakeoffSummary from './LastTakeoffSummary.vue';
-import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
+import { getFlightFabricAppSettings } from '../../app/shared-globals.js';
 
 const { TAKEOFF_SCORING_ENABLED } = getFlightFabricAppSettings();
 </script>

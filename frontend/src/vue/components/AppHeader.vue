@@ -10,7 +10,7 @@ import { useSystemHostStore } from '../stores/system-host.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useShellStore } from '../stores/shell.js';
 import { useProfilesStore } from '../stores/profiles.js';
-import { focusSettingsSection } from '../settings-section-navigation.js';
+import { focusSettingsSection } from '../settings-navigation.js';
 
 const status = useStatusStore();
 const systemHost = useSystemHostStore();

@@ -17,7 +17,6 @@ const SOURCE = /\.(?:[cm]?js|[cm]?ts|tsx|jsx|vue)$/i;
 // list does not permit a new aircraft-specific sibling or raw LVAR recipes.
 const DISPATCH_OWNERS = new Set([
   'backend/aircraft/aircraft-command-catalogue.ts',
-  'backend/aircraft/aircraft-command-parity.ts',
   'backend/aircraft/aircraft-control-policy.ts',
   'backend/aircraft/aircraft-timeline-projections.ts',
   'backend/aircraft/barometer-execution.ts',

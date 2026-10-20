@@ -1,3 +1,9 @@
+import type { LightingPresetGroup } from './integration-engine/cockpit-lighting-schema.js';
+/** Shared intent only. Each family below explicitly selects its own existing actions. */
+export declare const PARITY_COMMAND_DEFINITIONS: readonly AircraftCommandDefinition[];
+export declare function aircraftParityBindings(adapterId: string): readonly AircraftCommandBinding[];
+/** Return independent presentation values; callers cannot mutate the frozen catalogue. */
+export declare function cockpitLightingGroups(adapterId: string): readonly LightingPresetGroup[];
 type GenericRecord = Record<string, any>;
 export type AircraftCommandInput = Readonly<{
     kind: 'none';
@@ -63,6 +69,7 @@ export type AircraftCommandBinding = Readonly<{
     choices: Readonly<Record<string, readonly Readonly<{
         label: string;
         request: LegacyRequest;
+        settleMs?: number;
     }>[]>>;
 } | {
     kind: 'sequence';

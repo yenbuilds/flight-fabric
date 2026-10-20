@@ -8,7 +8,7 @@
 const config = require('../core/config') as ConfigModule;
 const { gradeLandingForProfile, buildLandingRateScoringContext } = require('./landing') as LandingModule;
 const { makeFlapsObj } = require('../aircraft/flaps') as FlapsModule;
-const { computeCrosswind } = require('../utils/helpers') as HelpersModule;
+const { computeCrosswind } = require('../utils/aviation-frames') as HelpersModule;
 const Debug = require('../core/debug') as DebugModule;
 const { msToFpm, metersToFeet } = require('../utils/units') as UnitsModule;
 const timeSource = require('../core/time-source') as TimeSourceModule;

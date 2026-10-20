@@ -4,7 +4,7 @@
 // the same surface as the 2D controller so the view switch can swap them.
 
 import { findNearestTimelineTrackPoint, selectTimelineMapEventMarkers } from './map-controller.js';
-import { getTimelineEventMarkerVisual } from './map.js';
+import { getTimelineEventMarkerVisual } from './event-map-presentation.js';
 import { getEventAttitudeDeg, normalizeTimelineTrackPoints } from './track-points.js';
 import { createFlightScene, WEBGL_CONTEXT_LOST_STATUS } from '../maps/three-d/scene.js';
 import { loadThree as defaultLoadThree } from '../maps/three-d/load-three.js';

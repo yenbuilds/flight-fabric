@@ -2,7 +2,7 @@
 import { nextTick } from 'vue';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useTabsStore } from '../stores/tabs.js';
-import { openVoiceSettings } from '../voice-settings-navigation.js';
+import { openVoiceSettings } from '../settings-navigation.js';
 import VoiceRestartHint from './VoiceRestartHint.vue';
 
 const voice = useVoiceControlStore();

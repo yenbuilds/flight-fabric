@@ -1,6 +1,6 @@
 // ES module - strict mode is implicit in modules.
 import '../maps/runtime.js';
-import '../../app-settings-shared.js';
+import '../../../shared/app-settings-shared.js';
 import { vueRuntimeContext } from '../vue/main.js';
 import { initAppRuntime } from './runtime.js';
 

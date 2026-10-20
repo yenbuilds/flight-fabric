@@ -12,7 +12,7 @@ import {
 } from '../../app/runtime-signals.js';
 import { buildLandingPresentation, gradeHex, gradeSeverity } from '../../landing/scoring.js';
 import { takeoffGradeHex, takeoffGradeSeverity } from '../../takeoff/presentation.js';
-import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
+import { getFlightFabricAppSettings } from '../../app/shared-globals.js';
 
 import {
   HIDDEN_STABILITY_METRICS,

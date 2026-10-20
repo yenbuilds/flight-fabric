@@ -14,7 +14,7 @@ import TakeoffPanel from './TakeoffPanel.vue';
 import TimelineTabShell from './TimelineTabShell.vue';
 import { useLandingStore } from '../stores/landing.js';
 import { useTabsStore } from '../stores/tabs.js';
-import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
+import { getFlightFabricAppSettings } from '../../app/shared-globals.js';
 
 const { TAKEOFF_SCORING_ENABLED } = getFlightFabricAppSettings();
 const landing = useLandingStore();

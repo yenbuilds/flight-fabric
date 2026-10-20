@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { SUPPORT_NOTE_SHORT } from '../../support/copy.js';
-import { SUPPORT_URL as coffeeHref } from '../../support/links.js';
+import { SUPPORT_NOTE_SHORT, SUPPORT_URL as coffeeHref } from '../../support/content.js';
 import { useSupportStore } from '../stores/support.js';
 
 // Milestone card: shows what the app has done for this person, then asks

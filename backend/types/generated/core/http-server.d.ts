@@ -52,7 +52,7 @@ export declare function buildBootstrapPayload(req: RequestLike, wsAuthToken: str
         wsPort: number | null;
     };
 };
-export declare function startHttpServer({ wsPort, httpPort, remoteAccessEnable, wsAuthToken, aircraftControlToken, devicePairing, Debug, onFatalError, }: {
+export declare function startHttpServer({ wsPort, httpPort, remoteAccessEnable, wsAuthToken, aircraftControlToken, devicePairing, Debug, onFatalError, isShuttingDown, }: {
     wsPort: number;
     httpPort: number | null | undefined;
     remoteAccessEnable: boolean;
@@ -79,6 +79,7 @@ export declare function startHttpServer({ wsPort, httpPort, remoteAccessEnable, 
     } | null;
     Debug: DebugLike;
     onFatalError?: (error: Error) => void;
+    isShuttingDown?: () => boolean;
 }): {
     httpServer: import('http').Server;
     httpPort: number;

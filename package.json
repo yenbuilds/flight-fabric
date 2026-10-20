@@ -22,7 +22,7 @@
     "test:repo-hygiene": "node tests/scripts/test-repo-hygiene.js",
     "test:safety-notices": "node tests/scripts/test-safety-notices.js",
     "build:backend:runtime": "node scripts/build-backend-runtime.js",
-    "build:backend:types": "node node_modules/typescript/bin/tsc -b tsconfig.backend.declarations.json",
+    "build:backend:types": "node scripts/build-backend-types.js",
     "typecheck:backend": "node node_modules/typescript/bin/tsc -p tsconfig.backend.json",
     "typecheck:backend:tests": "node node_modules/typescript/bin/tsc -p tsconfig.backend.tests.json",
     "typecheck:backend:all": "npm run typecheck:backend && npm run typecheck:backend:tests",

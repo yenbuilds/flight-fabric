@@ -11,7 +11,7 @@ const SYDNEY_LAT = -33.9461;
 const SYDNEY_LON = 151.177;
 
 function loadFreshAirportSearch(t: import('node:test').TestContext) {
-  const modulePaths = ['../../landing/airport-search', '../../landing/ourairports-csv-cache'].map((name) => require.resolve(name));
+  const modulePaths = ['../../landing/airport-search', '../../landing/ourairports-data'].map((name) => require.resolve(name));
   const previousModules = modulePaths.map((modulePath) => require.cache[modulePath]);
   for (const modulePath of modulePaths) delete require.cache[modulePath];
   t.after(() => {
@@ -20,7 +20,7 @@ function loadFreshAirportSearch(t: import('node:test').TestContext) {
       if (previousModules[index]) require.cache[modulePath] = previousModules[index];
     }
   });
-  return { search: require('../../landing/airport-search'), csvCache: require('../../landing/ourairports-csv-cache') };
+  return { search: require('../../landing/airport-search'), csvCache: require('../../landing/ourairports-data') };
 }
 
 test('airport statistics load bundled data and retain the loaded state', (t) => {

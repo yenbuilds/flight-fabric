@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * test-flight-kinematics.js
- * Unit tests for backend/utils/flight-kinematics.js and backend/utils/rates.js
+ * Unit tests for backend/utils/flight-kinematics.js
  *
  * Run: node tests/scripts/test-flight-kinematics.js
  */
@@ -10,7 +10,6 @@
 
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 const { computeIasTrend, computePitchBankRates } = require(resolveBackendRuntimeFile('utils', 'flight-kinematics.js'));
-const { computeRates } = require(resolveBackendRuntimeFile('utils', 'rates.js'));
 
 let passed = 0;
 let failed = 0;
@@ -70,13 +69,13 @@ test('nextPreviousIAS always equals current IAS', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// computeRates (rates.js)
+// computePitchBankRates calculations
 // ─────────────────────────────────────────────────────────────────────────────
 
-console.log('\n=== computeRates Tests ===\n');
+console.log('\n=== Pitch and bank rate calculations ===\n');
 
 test('zero rates when pitch and bank unchanged', () => {
-  const result = computeRates(0, 0, 0, 0, 1.0);
+  const result = computePitchBankRates({ previousPitch: 0, previousBank: 0, pitch: 0, bank: 0, dtSeconds: 1.0 });
   assertEqual(result.pitchRateDeg, 0, 'pitchRateDeg should be 0');
   assertEqual(result.bankRateDeg, 0, 'bankRateDeg should be 0');
 });
@@ -85,7 +84,7 @@ test('positive pitch rate when pitching up', () => {
   // Pitch from 0 to 5 degrees in 1 second
   const prevPitch = 0;
   const currPitch = 5 * DEG_TO_RAD;
-  const result = computeRates(prevPitch, 0, currPitch, 0, 1.0);
+  const result = computePitchBankRates({ previousPitch: prevPitch, previousBank: 0, pitch: currPitch, bank: 0, dtSeconds: 1.0 });
   assertApprox(result.pitchRateDeg, 5, 0.01, 'pitchRateDeg should be ~5 deg/s');
 });
 
@@ -93,7 +92,7 @@ test('negative pitch rate when pitching down', () => {
   // Pitch from 5 to 0 degrees in 1 second
   const prevPitch = 5 * DEG_TO_RAD;
   const currPitch = 0;
-  const result = computeRates(prevPitch, 0, currPitch, 0, 1.0);
+  const result = computePitchBankRates({ previousPitch: prevPitch, previousBank: 0, pitch: currPitch, bank: 0, dtSeconds: 1.0 });
   assertApprox(result.pitchRateDeg, -5, 0.01, 'pitchRateDeg should be ~-5 deg/s');
 });
 
@@ -101,7 +100,7 @@ test('positive bank rate when rolling right', () => {
   // Bank from 0 to 10 degrees in 1 second
   const prevBank = 0;
   const currBank = 10 * DEG_TO_RAD;
-  const result = computeRates(0, prevBank, 0, currBank, 1.0);
+  const result = computePitchBankRates({ previousPitch: 0, previousBank: prevBank, pitch: 0, bank: currBank, dtSeconds: 1.0 });
   assertApprox(result.bankRateDeg, 10, 0.01, 'bankRateDeg should be ~10 deg/s');
 });
 
@@ -109,8 +108,8 @@ test('rate scales with dt (faster dt = higher rate)', () => {
   // Same angle change in 0.5s vs 1.0s
   const prevPitch = 0;
   const currPitch = 5 * DEG_TO_RAD;
-  const result1s = computeRates(prevPitch, 0, currPitch, 0, 1.0);
-  const result05s = computeRates(prevPitch, 0, currPitch, 0, 0.5);
+  const result1s = computePitchBankRates({ previousPitch: prevPitch, previousBank: 0, pitch: currPitch, bank: 0, dtSeconds: 1.0 });
+  const result05s = computePitchBankRates({ previousPitch: prevPitch, previousBank: 0, pitch: currPitch, bank: 0, dtSeconds: 0.5 });
   assertApprox(result05s.pitchRateDeg, result1s.pitchRateDeg * 2, 0.01, 'rate should double with half dt');
 });
 

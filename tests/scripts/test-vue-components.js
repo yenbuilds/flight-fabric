@@ -275,10 +275,12 @@ async function main() {
     import(toFrontendUrl('src', 'vue', 'stores', 'takeoff.js')),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'template-registry.js')),
     import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js')),
-    import(toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'pmdg777-command-routing.js')),
-    import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'paired-throttle-detents.js')),
+    import(pathToFileURL(compileVueComponent(path.join(frontendRoot, 'src/vue/components/aircraft-specific/templates/Pmdg777AircraftPanel.vue'))).href),
+    import(pathToFileURL(compileVueComponent(path.join(frontendRoot, 'src/vue/components/aircraft-specific/templates/FenixThrottleControl.vue'))).href),
     import(toFrontendUrl('src', 'vue', 'aircraft-specific', 'throttle-quadrant-geometry.js')),
   ]);
+
+  const sectionNavigationSource = fs.readFileSync(path.join(frontendRoot, 'src/vue/components/aircraft-specific/aircraft-page-sections.js'), 'utf8');
 
   let passed = 0;
   let failed = 0;
@@ -1095,17 +1097,9 @@ async function main() {
   });
 
   await test('FlyByWire A380X numeric drafts reconcile availability and pending readback', async () => {
-    const componentPath = path.join(
-      frontendRoot,
-      'src',
-      'vue',
-      'components',
-      'aircraft-specific',
-      'templates',
-      'FbwA380xAircraftPanel.vue',
+    const { reconcileMcpNumericDraftState: reconcileA380NumericDraftState } = await import(
+      toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js'),
     );
-    const componentUrl = `${pathToFileURL(compileVueComponent(componentPath)).href}?t=a380-draft-lifecycle-${Date.now()}`;
-    const { reconcileA380NumericDraftState } = await import(componentUrl);
     const profileKey = 'bundled/msfs/fbw-a380x';
     const snapshot = (overrides = {}) => ({
       rawValue: 37000,
@@ -1154,17 +1148,9 @@ async function main() {
   });
 
   await test('iniBuilds A330 numeric drafts clear on field unavailability without regressing pending or rejection state', async () => {
-    const componentPath = path.join(
-      frontendRoot,
-      'src',
-      'vue',
-      'components',
-      'aircraft-specific',
-      'templates',
-      'IniBuildsA330AircraftPanel.vue',
+    const { reconcileMcpNumericDraftState: reconcileA330NumericDraftState } = await import(
+      toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js'),
     );
-    const componentUrl = `${pathToFileURL(compileVueComponent(componentPath)).href}?t=a330-draft-lifecycle-${Date.now()}`;
-    const { reconcileA330NumericDraftState } = await import(componentUrl);
     const profileKey = 'bundled/msfs/inibuilds-a330';
     const snapshot = (overrides = {}) => ({
       rawValue: 250,
@@ -5040,14 +5026,17 @@ async function main() {
     assert.doesNotMatch(searchSource, /aircraft-find--mobile-hidden/, 'section navigation should not remove phone Find controls');
     assert.match(pmdgSource, /@media \(max-width: 760px\)[\s\S]*?\.pmdg-mobile-section-ribbon\s*\{\s*display:\s*grid;/, 'PMDG section navigation should remain available alongside phone search');
     assert.match(pmdgSource, /\.pmdg-mobile-section-ribbon-anchor\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?height:\s*2\.75rem;/, 'the mobile ribbon should remain reachable while reserving only its visible control height');
-    assert.match(pmdgSource, /Number\.isFinite\(endX\)[\s\S]*Number\.isFinite\(endY\)/, 'coordinate-free pointer activation must not be misread as a swipe to another section');
-    assert.match(pmdgSource, /target\?\.closest\?\.\('\.pmdg-mobile-section-ribbon__neighbor'\)/, 'arrow taps should bypass ribbon swipe detection so they always advance one section');
+    assert.match(sectionNavigationSource, /Number\.isFinite\(endX\)[\s\S]*Number\.isFinite\(endY\)/, 'coordinate-free pointer activation must not be misread as a swipe to another section');
+    assert.match(pmdgSource, /neighborSelector:\s*'\.pmdg-mobile-section-ribbon__neighbor'/, 'arrow taps should bypass ribbon swipe detection so they always advance one section');
     assert.equal((pmdgSource.match(/@pointerdown\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both arrow targets should stop ribbon swipe tracking before their click');
     assert.equal((pmdgSource.match(/@pointerup\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both arrow targets should end without the ribbon interpreting a tap as a swipe');
-    assert.doesNotMatch(pmdgSource, /setPointerCapture/, 'the ribbon must not retarget ordinary button taps away from its arrow and chooser controls');
-    assert.match(pmdgSource, /useAircraftSectionMemory/, 'PMDG 737 should use the guarded shared section-memory behavior');
+    assert.doesNotMatch(sectionNavigationSource, /setPointerCapture/, 'the ribbon must not retarget ordinary button taps away from its arrow and chooser controls');
+    assert.match(sectionNavigationSource, /useAircraftSectionMemory/, 'PMDG 737 should use the guarded shared section-memory behavior');
+    assert.match(pmdgSource, /expandAncestorDetails:\s*false/);
+    assert.match(pmdgSource, /useAircraftSectionNavigation/);
+    assert.match(sectionNavigationSource, /closest\?\.\(neighborSelector\)/);
     assert.match(pmdgSource, /memoryKey:\s*\(\) => props\.profileKey/, 'PMDG 737 section memory should be isolated by exact profile key');
-    assert.match(pmdgSource, /focus:\s*false,\s*remember:\s*false/, 'restoring a section must not steal focus or rewrite memory');
+    assert.match(sectionNavigationSource, /focus:\s*false,\s*remember:\s*false/, 'restoring a section must not steal focus or rewrite memory');
     assert.match(html, /class="[^"]*\bpmdg-mobile-section-ribbon\b[^"]*"[^>]*aria-label="PMDG 737 page sections"[^>]*data-no-swipe/, 'desktop section choices and the phone ribbon should share navigation and keep gestures inside the aircraft task');
     assert.match(html, /aria-label="Open all PMDG 737 sections"/, 'the center target should expose the complete section chooser');
     const expectedSections = ['mcp', 'radios', 'exterior', 'cabin', 'flight-controls', 'gear-brakes', 'systems'];
@@ -5156,9 +5145,9 @@ async function main() {
     assert.match(ribbonSource, /@media \(max-width: 760px\)[\s\S]*?\.aircraft-section-ribbon\s*\{[\s\S]*?display:\s*grid;/, 'the 777 ribbon should replace search at the same mobile breakpoint as the 737');
     assert.equal((ribbonSource.match(/@pointerdown\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both reusable ribbon arrows should bypass swipe tracking');
     assert.equal((ribbonSource.match(/@pointerup\.stop="clearRibbonSwipe"/g) || []).length, 2, 'both reusable ribbon arrows should remain reliable taps');
-    assert.match(ribbonSource, /useAircraftSectionMemory/, 'shared aircraft ribbons should use guarded session section memory');
-    assert.match(ribbonSource, /!aircraftTabIsActive\(\)/, 'hidden aircraft ribbons must not record scroll from another tab');
-    assert.match(ribbonSource, /focus:\s*false,\s*remember:\s*false/, 'shared ribbon restoration must not steal focus or recursively persist');
+    assert.match(sectionNavigationSource, /useAircraftSectionMemory/, 'shared aircraft ribbons should use guarded session section memory');
+    assert.match(sectionNavigationSource, /!aircraftTabIsActive\(\)/, 'hidden aircraft ribbons must not record scroll from another tab');
+    assert.match(sectionNavigationSource, /focus:\s*false,\s*remember:\s*false/, 'shared ribbon restoration must not steal focus or recursively persist');
     assert.match(searchSource, /details:not\(\[open\]\)/, 'Aircraft search should index controls hidden only by a closed details group');
     assert.match(searchSource, /details\.open = true/, 'selecting a result should reveal its closed 777 system group');
   });
@@ -6591,17 +6580,9 @@ async function main() {
   });
 
   await test('Microsoft 737 MAX 8 numeric drafts discard stale intent and reconcile pending readback', async () => {
-    const componentPath = path.join(
-      frontendRoot,
-      'src',
-      'vue',
-      'components',
-      'aircraft-specific',
-      'templates',
-      'Microsoft737Max8AircraftPanel.vue',
+    const { reconcileMcpNumericDraftState: reconcileMicrosoft737Max8NumericDraftState } = await import(
+      toFrontendUrl('src', 'vue', 'components', 'aircraft-specific', 'mcp-input.js'),
     );
-    const componentUrl = `${pathToFileURL(compileVueComponent(componentPath)).href}?t=max-draft-lifecycle-${Date.now()}`;
-    const { reconcileMicrosoft737Max8NumericDraftState } = await import(componentUrl);
     const profileKey = 'bundled/msfs/microsoft-737-max-8';
     const snapshot = (overrides = {}) => ({
       rawValue: 12000,

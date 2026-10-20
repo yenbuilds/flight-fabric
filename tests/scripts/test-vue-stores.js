@@ -129,7 +129,7 @@ async function main() {
     eventCategory,
     eventPassesMapFilter,
     getTimelineEventMarkerVisual,
-  } = await import(toFrontendUrl('src', 'timeline', 'map.js'));
+  } = await import(toFrontendUrl('src', 'timeline', 'event-map-presentation.js'));
   const { buildLandingDetailSections } = await import(toFrontendUrl('src', 'timeline', 'landing-detail.js'));
   const {
     buildTimelineSummaryState,

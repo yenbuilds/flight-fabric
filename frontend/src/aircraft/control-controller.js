@@ -6,10 +6,12 @@ import {
 } from './control-ui.js';
 import { comRadioResultText } from './com-radio.js';
 import { baroResultText } from './baro.js';
-import { flapResultText } from './flap-controls.js';
-import { gearResultText } from './gear-controls.js';
-import { spoilerObservationFailureText } from './spoiler-controls.js';
-import { flightGuidanceObservationFailureText } from './flight-guidance-controls.js';
+import {
+  flapResultText,
+  gearResultText,
+  spoilerObservationFailureText,
+  flightGuidanceObservationFailureText,
+} from './command-result-presentation.js';
 
 export function createAircraftControlController({
   WebSocketRef = WebSocket,

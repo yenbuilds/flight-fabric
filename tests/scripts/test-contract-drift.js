@@ -777,7 +777,7 @@ test('frontend WebSocket message handlers only switch on registered MSG values',
 });
 
 test('frontend live telemetry message allowlist is registered and handled', () => {
-  const defaultsSource = stripCommentsPreserveLines(read('frontend/src/telemetry/display-defaults.js'));
+  const defaultsSource = stripCommentsPreserveLines(read('frontend/src/telemetry/display.js'));
   const handlerSource = stripCommentsPreserveLines(read('frontend/src/app/message-handlers.js'));
   const liveTypes = getSetStringValues(defaultsSource, 'LIVE_TELEMETRY_MESSAGE_TYPES');
   const handledTypes = getSwitchCaseStrings(handlerSource, 'message\\.type', 'app message handler');

@@ -26,6 +26,7 @@ function clearStoreModules() {
     resolveBackendPath('flight-recording', 'csv-read-guard.js'),
     resolveBackendPath('flight-recording', 'recording-bundle-lifecycle.js'),
     resolveBackendPath('events', 'timeline-generator.js'),
+    resolveBackendPath('flight-recording', 'recording-bundle-deletion.js'),
     resolveBackendPath('history-index', 'history-index-store.js'),
     resolveBackendPath('history-index', 'source-identity.js'),
     resolveBackendPath('history-index', 'sqlite-runtime.js'),

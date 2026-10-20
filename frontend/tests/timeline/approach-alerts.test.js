@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { buildTimelineEventRowState } from '../../src/timeline/events.js';
 import { buildTimelineSummaryState } from '../../src/timeline/model.js';
 import { buildTimelineEventDetailState } from '../../src/timeline/detail-state.js';
-import { getTimelineEventMarkerVisual } from '../../src/timeline/map.js';
+import { getTimelineEventMarkerVisual } from '../../src/timeline/event-map-presentation.js';
 import { getStabilityContextSummary, getStabilityMetricPresentation } from '../../src/landing/stability-context.js';
 import { buildLandingPresentation } from '../../src/landing/scoring.js';
 import { buildLandingDetailSections } from '../../src/timeline/landing-detail.js';

@@ -11,7 +11,7 @@ import {
   eventPassesMapFilter as mapEventPassesFilter,
   getEventPosition as getMapEventPosition,
   getTimelineEventMarkerVisual as getMapEventMarkerVisual,
-} from './map.js';
+} from './event-map-presentation.js';
 import {
   createTimelineMapController,
 } from './map-controller.js';
@@ -29,9 +29,9 @@ import {
 import { buildTimelineSummaryState, compactTimelineEvents, formatDuration, normalizeTimelineForUI } from './model.js';
 import { attachTimelinePfdOverlayFitter } from './pfd-overlay.js';
 import { createTimelinePageController } from './page-controller.js';
-import { createTimelineProfileController } from './profile.js';
+import { createTimelineProfileController } from './pfd-profile.js';
 import { createTimelineRuntime } from './runtime.js';
-import { approachProfileApi } from '../landing/approach-profile-global.js';
+import { approachProfileApi } from '../landing/approach-profile-renderer.js';
 
 function defaultCoordValidator(lat, lon) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;

@@ -1,7 +1,7 @@
 <script setup>
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useTabsStore } from '../stores/tabs.js';
-import { focusSettingsSection } from '../settings-section-navigation.js';
+import { focusSettingsSection } from '../settings-navigation.js';
 
 const props = defineProps({ sections: { type: Array, required: true } });
 const tabs = useTabsStore();

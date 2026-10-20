@@ -22,7 +22,7 @@ const { getUserId, getSessionId } = require('../utils/user-identity') as {
   getUserId: () => string | null;
   getSessionId: () => string | null;
 };
-const { computeCrosswind } = require('../utils/helpers') as {
+const { computeCrosswind } = require('../utils/aviation-frames') as {
   computeCrosswind: (windSpeed: unknown, windDirDeg: unknown, headingDeg: unknown) => number | null;
 };
 const { makeFlapsObj } = require('../aircraft/flaps') as { makeFlapsObj: (...args: unknown[]) => AnyRecord | null };

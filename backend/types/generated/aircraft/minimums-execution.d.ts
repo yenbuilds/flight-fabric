@@ -1,8 +1,8 @@
-import type { AircraftIntegrationActionRoute } from './aircraft-integrations/types.js';
-import { executeA32nxMinimums } from './aircraft-integrations/fbw-a32nx/minimums-control.js';
-type ExecutionRequest = Omit<Parameters<typeof executeA32nxMinimums>[0], 'target'>;
-/** Aircraft-owned selection for the existing registry-validated minimums route. */
-export declare function resolveMinimumsExecution(adapterId: string, route: AircraftIntegrationActionRoute): {
+import type { AircraftIntegrationActionRoute } from './integration-engine/types.js';
+import { executeGuardedDisplayEntry } from './guarded-display-entry.js';
+type ExecutionRequest = Omit<Parameters<typeof executeGuardedDisplayEntry>[0], 'recipe'>;
+/** Public minimums result adapter for the registry-validated display-entry recipe. */
+export declare function resolveMinimumsExecution(_adapterId: string, route: AircraftIntegrationActionRoute): {
     execute: (request: ExecutionRequest) => Promise<{
         ok: boolean;
         code: string;
@@ -22,6 +22,20 @@ export declare function resolveMinimumsExecution(adapterId: string, route: Aircr
         confirmedValue: number;
         executionStarted: boolean;
         code?: undefined;
+        error?: undefined;
+        noOp?: undefined;
+    } | {
+        code: string;
+        ok: boolean;
+        noOp: boolean;
+        confirmedValue: number;
+        executionStarted: boolean;
+        error?: undefined;
+    } | {
+        code: string;
+        ok: boolean;
+        confirmedValue: number;
+        executionStarted: boolean;
         error?: undefined;
         noOp?: undefined;
     }>;

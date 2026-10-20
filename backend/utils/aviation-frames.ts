@@ -154,3 +154,29 @@ export function getRunwayTrueHeadingDeg(input: HeadingInput): number | null {
     input.heading,
   ));
 }
+
+const DEG2RAD = Math.PI / 180;
+
+function norm360(degrees: number): number {
+  return ((degrees % 360) + 360) % 360;
+}
+
+function normDelta180(delta: number): number {
+  return (((delta + 180) % 360) + 360) % 360 - 180;
+}
+
+export function computeCrosswind(windSpeed: unknown, windDirDeg: unknown, headingDeg: unknown): number | null {
+  if (!Number.isFinite(windSpeed) || !Number.isFinite(windDirDeg) || !Number.isFinite(headingDeg)) return null;
+  const speed = windSpeed as number;
+  const direction = windDirDeg as number;
+  const heading = headingDeg as number;
+  if (Math.abs(speed) < 0.1) return 0;
+
+  const normalizedHeading = norm360(heading);
+  const normalizedWindDirection = norm360(direction);
+  const delta = normDelta180(normalizedWindDirection - normalizedHeading);
+  const relativeRadians = delta * DEG2RAD;
+
+  const crosswind = speed * Math.sin(relativeRadians);
+  return Math.round(crosswind * 10) / 10;
+}

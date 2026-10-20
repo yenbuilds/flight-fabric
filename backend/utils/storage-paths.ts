@@ -258,7 +258,26 @@ function getDocumentsDirCandidates(env: EnvLike = process.env): string[] {
   return dedupePaths(candidates);
 }
 
+function resolveExistingDirectory(targetPath: unknown): string | null {
+  if (typeof targetPath !== 'string' || !targetPath.trim()) return null;
+
+  let candidate = path.resolve(targetPath);
+  while (true) {
+    try {
+      if (fs.statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // Walk upward until an existing directory is found. The Flight Logs
+      // directory may not exist yet when the pre-recording check runs.
+    }
+
+    const parent = path.dirname(candidate);
+    if (parent === candidate) return null;
+    candidate = parent;
+  }
+}
+
 const storagePathsApi = {
+  resolveExistingDirectory,
   APP_DATA_MARKER_FILE_NAME,
   APP_NAME,
   AUDIO_DIR_NAME,

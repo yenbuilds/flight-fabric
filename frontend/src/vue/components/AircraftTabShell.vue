@@ -5,7 +5,7 @@ import { resolveAircraftSpecificTemplate } from '../aircraft-specific/template-r
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useTabsStore } from '../stores/tabs.js';
-import { openVoiceSettings } from '../voice-settings-navigation.js';
+import { openVoiceSettings } from '../settings-navigation.js';
 import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { AIRCRAFT_PAGE_SECTIONS } from './aircraft-specific/aircraft-page-sections.js';
 import AircraftIntegrationCheatSheetModal from './AircraftIntegrationCheatSheetModal.vue';
@@ -20,7 +20,7 @@ import AircraftSpecificSection from './aircraft-specific/AircraftSpecificSection
 import AircraftVoiceControlModal from './AircraftVoiceControlModal.vue';
 import AutopilotControlsTab from './AutopilotControlsTab.vue';
 import AutotaxiPanel from './aircraft-specific/AutotaxiPanel.vue';
-import { getFlightFabricAppSettings } from '../../settings/shared-runtime.js';
+import { getFlightFabricAppSettings } from '../../app/shared-globals.js';
 
 const { LIVE_AUTOTAXI_ENABLED } = getFlightFabricAppSettings();
 const aircraftSpecific = useAircraftSpecificStore();

@@ -1,5 +1,5 @@
 import { getEventAttitudeDeg, normalizeTimelineTrackPoints } from './track-points.js';
-import { getTimelineEventMarkerVisual } from './map.js';
+import { getTimelineEventMarkerVisual } from './event-map-presentation.js';
 import { buildPlaneIconHtml, normalizeHeadingDeg } from '../live-map/plane-icon.js';
 import { unwrapLatLngPath, unwrapLongitudeNear } from '../live-map/geo.js';
 import { createMapPathOutline, FLIGHT_TRACK_STYLE } from '../maps/path-style.js';

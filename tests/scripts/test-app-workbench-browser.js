@@ -81,7 +81,7 @@ async function browser() {
         workbenchTest.voice.applyRuntimeInfo({ enabled: true, available: true, mode: 'offline', cloud: { enabled: false } });
         workbenchTest.voice.setState('ready');
         await workbenchTest.open('settings');
-        const {focusVoiceSettings}=await import('/frontend/src/vue/voice-settings-navigation.js');
+        const {focusVoiceSettings}=await import('/frontend/src/vue/settings-navigation.js');
         await focusVoiceSettings(workbenchTest.tabs);
       `);
       assert(await evaluate("return !document.querySelector('[data-cloud-voice-settings]') && !document.getElementById('voice-mode') && !document.getElementById('voice-cloud-key');"), 'release settings hide cloud mode and credentials');
@@ -105,7 +105,7 @@ async function browser() {
           removeCloudKey: async id => { providers.find(p=>p.id===id).keyConfigured=false; publish(); return true; }
         });
         await workbenchTest.open('settings');
-        const {focusVoiceSettings}=await import('/frontend/src/vue/voice-settings-navigation.js');
+        const {focusVoiceSettings}=await import('/frontend/src/vue/settings-navigation.js');
         await focusVoiceSettings(workbenchTest.tabs);
         const mode = document.getElementById('voice-mode'); mode.value = 'cloud'; mode.dispatchEvent(new Event('change', { bubbles: true }));
         await workbenchTest.nextTick();

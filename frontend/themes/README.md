@@ -5,7 +5,7 @@ This folder retains two compatibility stylesheets: `theme-default.css` and
 requests. The current dashboard does not load them or expose a theme picker.
 
 The active app theme is Night Shift (`dark`), defined in
-`frontend/src/theme/definition.js` and applied by
+`frontend/src/theme/runtime.js` and applied by
 `frontend/src/theme/runtime.js`. Older saved names normalize to `dark`.
 Compact widgets use their own stylesheets and `widget-theme-bootstrap.js`
 under `frontend/widgets-compact/`; copying a file here does not switch them
