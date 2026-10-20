@@ -16,7 +16,7 @@
 
 ![FlightFabric tour showing the current flight overview, aircraft presets, Logbook with 3D timeline replay, and landing debrief](readme-assets/flight-fabric-tour.gif)
 
-*Tour and screenshots: the UI included in 0.11.1, with sample data captured 29 September 2026.*
+*Tour and screenshots: FlightFabric 0.12.7, with sample data captured 20 October 2026.*
 
 FlightFabric puts supported aircraft controls where you can reach them. Use
 voice control, open the same controls on a phone or tablet, or keep them beside
@@ -32,11 +32,13 @@ touchdown, and rollout.
 
 ## See it in action
 
-| Live overview | Aircraft controls |
+| **Aircraft presets** | **Cockpit controls** |
 | --- | --- |
-| ![FlightFabric flight overview showing speed, altitude, crosswind, fuel, aircraft configuration, and engine readings](readme-assets/overview-20260929.png) | ![FlightFabric Aircraft page for a PMDG 737-800 with presets, Pushback & taxi navigation, and the Find controls, MCDU / CDU and Voice control tools](readme-assets/aircraft-controls-20260929.png) |
-| **Logbook and timeline** | **Landing debrief** |
-| ![FlightFabric Logbook with recent flights, recorded events, 3D flight-path replay, and the Landing debrief button](readme-assets/logbook-timeline-20260929.png) | ![FlightFabric landing debrief showing the recorded aircraft, wind, touchdown rate and position, approach stability, and bounce results](readme-assets/landing-debrief-20260929.png) |
+| ![Grouped PMDG 737 presets for APU start, course windows, navigation radios and exterior lights](readme-assets/presets-window-20261020.png) | ![FlightFabric PMDG 737 Mode Control Panel with observed values, entered targets and individual control buttons](readme-assets/cockpit-window-20261020.png) |
+| **Voice setup** | **Logbook and replay** |
+| ![FlightFabric voice setup with microphone testing, keyboard and controller push-to-talk choices and spoken feedback](readme-assets/voice-window-20261020.png) | ![FlightFabric Logbook with recent flights, recorded events and 3D flight replay](readme-assets/logbook-window-20261020.png) |
+| **Live overview** | **Landing debrief** |
+| ![FlightFabric live flight overview with airspeed, altitude, crosswind, fuel and aircraft configuration](readme-assets/overview-window-20261020.png) | ![FlightFabric landing debrief with wind, touchdown rate and position, approach and bounce results](readme-assets/debrief-window-20261020.png) |
 
 ## One app for the whole flight
 
