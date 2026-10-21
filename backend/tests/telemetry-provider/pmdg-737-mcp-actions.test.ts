@@ -251,4 +251,81 @@ test('PMDG MCP confirmation rejects aircraft changeover or a retired SDK snapsho
   }
 });
 
+test('PMDG 737 monitoring never writes controls on startup, AP readback changes, reconnect or shutdown', async (t) => {
+  const originalProfileKey = profileLoader.getActiveProfileId();
+  const provider = new SimConnectTelemetryProvider();
+  const writes = [];
+  const subscriptions = [];
+  const connections = [];
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const snapshot: any = {
+    status: 'running', adapterId: 'clientdata-manifest', snapshotSequence: 1,
+    updatedAt: new Date().toISOString(), values: {},
+    normalized: { automation: { ap: { engaged: false, leftEngaged: false, rightEngaged: false } } },
+  };
+  const bridge = () => ({
+    _started: false,
+    _adapter: { id: 'clientdata-manifest' },
+    async start() { this._started = true; },
+    async stop() { this._started = false; },
+    isEnabled: () => true,
+    isDataConnected: () => true,
+    getSnapshot: () => snapshot,
+    setSimVars: items => subscriptions.push(...items),
+    setSubscriptions: items => subscriptions.push(...items),
+    connect: target => connections.push(target),
+    ...Object.fromEntries(['sendEvent', 'sendSdkEvent', 'setNamedVar', 'sendInputEvent', 'executeMobiFlightCode', 'startPushback']
+      .map(method => [method, async (...args) => {
+        writes.push({ method, args });
+        return { ok: true };
+      }])),
+  });
+  provider._rustSimvarBridge = bridge();
+  provider._lvarBridge = bridge();
+  provider._sdkBridge = bridge();
+  try {
+    profileLoader.setActiveProfile(PROFILE_KEY);
+    await provider.start();
+    assert.ok(subscriptions.length > 0, 'real provider startup registers telemetry');
+    assert.equal(connections.length, 1, 'real profile starts its SDK subscription');
+    provider._handleRustSystemState({ name: 'Sim', integer: 1 });
+    provider._handleRustSimvarStatus({ status: 'running' });
+    // Representative independent states, not a replay of the reported flight.
+    // External AP changes must remain observations, including disagreement with
+    // the generic AP SimVar, which PMDG profiles declare unreliable.
+    for (const state of [
+      { wow: 1, ias: 0, ra: 8, vs: 0, ap: false },
+      { wow: 0, ias: 175, ra: 1500, vs: 25, ap: false },
+      { wow: 0, ias: 175, ra: 1500, vs: 25, ap: true },
+      { wow: 0, ias: 175, ra: 1500, vs: 25, ap: false },
+    ]) {
+      snapshot.updatedAt = new Date().toISOString();
+      snapshot.snapshotSequence++;
+      snapshot.normalized.automation.ap.engaged = state.ap;
+      snapshot.normalized.automation.ap.leftEngaged = state.ap;
+      provider._handleRustSimvarSnapshot({ updatedAt: snapshot.updatedAt, values: {
+        wow: state.wow, ias: state.ias, ra: state.ra, vs: state.vs,
+        apMaster: 0, userInput: 1, paused: 0, cameraState: 2,
+      } });
+      const frame = await provider.nextFrame();
+      assert.equal(frame.sdk.normalized.automation.ap.engaged, state.ap);
+    }
+    provider._handleRustSimvarStatus({ status: 'disconnected' });
+    provider._handleRustSimvarStatus({ status: 'running' });
+    await provider._initSdkBridge();
+    await provider._initLvarBridge();
+    t.mock.timers.tick(10000);
+    await new Promise(resolve => setImmediate(resolve));
+    await provider.nextFrame();
+    assert.equal(Boolean(provider._autotaxi?.isActive()), false);
+    assert.equal(Boolean(provider._pushback?.isActive()), false);
+    await provider.stop();
+    assert.deepEqual(writes, [], 'monitoring, reconnection and cleanup never dispatch aircraft controls');
+  } finally {
+    await provider.stop();
+    require('../../landing/airport-geometry-service').resetAirportGeometryProviders();
+    profileLoader.setActiveProfile(originalProfileKey);
+  }
+});
+
 export {};

@@ -742,7 +742,8 @@ function createVoiceRuntime({
       return { cancelled };
     });
     registerTrustedIpcHandler('voice:set-push-to-talk-shortcut', (event, value) => {
-      const accelerator = normalizePushToTalkShortcut(value);
+      // An explicit empty string removes only the keyboard binding.
+      const accelerator = value === '' ? '' : normalizePushToTalkShortcut(value);
       const recording = shortcutRecording;
       invalidatePushToTalkRetry();
       return queueRuntimeTransition(async () => {
@@ -757,7 +758,7 @@ function createVoiceRuntime({
           return runtimeInfo().pushToTalk;
         }
         if (shortcutRecording) throw new Error('Finish shortcut recording first.');
-        if (!hook) throw new Error('Push-to-talk is unavailable');
+        if (!hook && accelerator) throw new Error('Push-to-talk is unavailable');
         const info = await savePushToTalkBinding({ accelerator });
         return info.pushToTalk;
       });

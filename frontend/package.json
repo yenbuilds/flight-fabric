@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric-frontend",
-  "version": "0.12.7",
+  "version": "0.12.8",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.4",
-    "vite": "^6.3.5"
+    "vite": "^6.4.4"
   },
   "dependencies": {
     "@floating-ui/vue": "^2.0.0",

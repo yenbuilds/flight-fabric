@@ -1,6 +1,6 @@
-# FlightFabric 0.12.7 · Public Alpha
+# FlightFabric 0.12.8 · Public Alpha
 
-## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.12.7/FlightFabric.Setup.0.12.7.exe)
+## [Download for Windows (.exe)](https://github.com/yenbuilds/flight-fabric/releases/download/v0.12.8/FlightFabric.Setup.0.12.8.exe)
 
 **Public alpha · Free · Windows 64-bit · Microsoft Flight Simulator 2024**
 
@@ -16,46 +16,38 @@ choose **Update** or **Reinstall**, then restart the simulator.
 
 ## What's new
 
-- **Guided setup:** three focused steps introduce voice, recording and the MSFS
-  toolbar. Reopen the introduction anytime from Setup in the desktop menu.
-- **Aircraft presets:** start with grouped actions in Presets, then switch to
-  Cockpit controls or Find controls when you need an individual setting.
-- **Easier voice access:** Voice commands stays visible beside Find controls.
-  Configure voice in Settings, with recognition and spoken feedback always visible.
-- **Connect your phone:** a permanent menu link opens the QR code and pairing
-  guidance, making it easier to get back to your phone or tablet controls.
+- **Keyboard shortcut removal:** remove keyboard push-to-talk in Voice settings
+  while keeping your controller button and other voice preferences.
+- **Clearer saved bindings:** see your saved keyboard shortcut and controller
+  button together. Switching setup views keeps those bindings configured.
+- **Input-conflict guidance:** keyboard and controller setup explain how to
+  choose inputs that are unassigned in MSFS and other apps.
 
 <details>
 <summary><strong>Full release notes</strong></summary>
 
-### Setup when you need it
+### Remove a keyboard shortcut independently
 
-The introduction uses three focused steps for voice, flight recording and the
-MSFS toolbar. Each step keeps its guidance visible in the setup window. Choose
-**Setup** in the desktop menu whenever you want to revisit it.
+In **Settings > Voice**, open **Keyboard** and choose **Remove shortcut** to
+turn off keyboard push-to-talk. Your controller button and other voice
+preferences are kept. You can also remove a shortcut while voice control is off.
 
-### Presets and cockpit controls
+Settings shows progress and confirms removal. The Keyboard view stays open so
+you can see the result or set another shortcut. If removal fails, the saved
+binding stays in place and you can retry.
 
-The Aircraft page opens in **Presets**, keeping grouped actions together. A
-labelled switch with distinct icons takes you to **Cockpit controls** for
-individual settings. Your entered targets stay in place when you switch views.
-**Find controls** opens the appropriate view and takes you to the matching control.
+### See which inputs are configured
 
-The preset frames retain their green accent with simpler, nearly square corners.
-Flight and Logbook views also use more compact layouts and clearer summaries.
+The saved-bindings summary shows your keyboard shortcut and controller button
+across all three setup views. **On screen**, **Keyboard** and **Yoke or joystick**
+open their respective settings; selecting a view does not disable another input.
+When voice control is off, the summary explains that saved bindings are inactive.
 
-### Voice commands within reach
+### Avoid overlapping controls
 
-**Voice commands** has its own button beside Find controls on the desktop.
-Connected phones and tablets show **Voice phrases** in the same place.
-Microphone, push-to-talk and spoken-feedback configuration live together in
-**Settings > Voice**. Recognition and spoken feedback stay visible while
-configuring voice.
-
-### Phone and tablet setup
-
-Choose **Connect phone** in the desktop menu to open the QR code, connection
-instructions and pairing guidance. Device approval stays on the simulator PC.
+Push-to-talk keys and controller buttons also reach MSFS and other applications.
+The setup guidance now covers both input types, helping you choose an unassigned
+key or button so talking does not trigger another action.
 
 </details>
 
@@ -89,12 +81,12 @@ MSFS 2020 and X-Plane are not currently supported.
 <details>
 <summary><strong>Installation help and optional file verification</strong></summary>
 
-Download `FlightFabric.Setup.0.12.7.exe`. GitHub's **Source code** archives are for
+Download `FlightFabric.Setup.0.12.8.exe`. GitHub's **Source code** archives are for
 developers; the installer is all you need to use FlightFabric.
 
 The current alpha is unsigned, so Windows may show **Windows protected your
 PC** when you open the installer. Select **More info**, check that the app is
-`FlightFabric.Setup.0.12.7.exe` with **Unknown publisher**, and select **Run anyway** if
+`FlightFabric.Setup.0.12.8.exe` with **Unknown publisher**, and select **Run anyway** if
 you downloaded it from the official link above. If that option is unavailable
 or Windows reports a threat, stop and report the warning; do not disable
 Windows security protections.
@@ -105,8 +97,8 @@ you want to verify your download.
 </details>
 
 [Getting started](https://github.com/yenbuilds/flight-fabric#readme) ·
-[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.12.7/LICENSE.md) ·
-[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.12.7/THIRD_PARTY_NOTICES.md)
+[Licence](https://github.com/yenbuilds/flight-fabric/blob/v0.12.8/LICENSE.md) ·
+[Third-party notices](https://github.com/yenbuilds/flight-fabric/blob/v0.12.8/THIRD_PARTY_NOTICES.md)
 
 Thank you to everyone supporting FlightFabric through feedback, testing and
 donations.

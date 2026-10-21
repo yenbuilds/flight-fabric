@@ -420,9 +420,10 @@ async function main() {
       emitWsMessage({ type: 'autotaxiState', status: 'idle', active: false, canStart: true, canGuide: true });
       await nextTick();
       await new Promise(resolve => setTimeout(resolve, 620));
-      assert.equal(sent.at(-1).operation, 'parkings');
-      const originalLookup = sent.at(-1).requestId;
-      emitWsMessage({ type: 'autotaxiState', requestId: sent.at(-1).requestId, ok: false, error: 'Stand lookup failed' });
+      // The independent pushback preview may send after the stand lookup.
+      const originalLookup = sent.findLast(message => message.type === 'autotaxi' && message.operation === 'parkings')?.requestId;
+      assert.ok(originalLookup, 'the airport change requests stand suggestions');
+      emitWsMessage({ type: 'autotaxiState', requestId: originalLookup, ok: false, error: 'Stand lookup failed' });
       await nextTick();
       assert.ok(!visibleText().includes('Stand lookup failed'));
       descendants(root).find(node => node.kind === 'input' && node.props.value === 'stand').props['onUpdate:modelValue']('stand');
@@ -3937,8 +3938,11 @@ async function main() {
       const pushToTalk = { controllerEnabled: true, accelerator: '', registered: Boolean(controller), controller };
       const { html } = await renderComponent(path.join('src', 'vue', 'components', 'VoiceControlSettings.vue'),
         ({ useVoiceControlStore }) => useVoiceControlStore().applyRuntimeInfo({ available: true, enabled: true, pushToTalk }));
-      assert.match(html, /Choose how to talk/);
+      assert.match(html, /Set up push-to-talk/);
       assert.match(html, /data-voice-controller-choose/);
+      assert.match(html, /Existing bindings stay configured until you remove them/);
+      assert.match(html, /aria-describedby="voice-controller-foreground"/);
+      assert.match(html, /controller button also reaches MSFS and other apps/);
       if (controller) {
         assert.match(html, /keyboard shortcut is optional/);
         assert.match(html, /T\.16000M/);
@@ -3990,6 +3994,8 @@ async function main() {
       ];
       const action = label => recorder.parent.children.find(node => node.kind === 'button' && nodeText(node) === label);
       const help = nodes.find(node => node.props.id === 'voice-ptt-shortcut-help');
+      const bindings = nodes.find(node => node.props['data-voice-input-bindings'] !== undefined);
+      assert.match(nodeText(bindings), /Keyboard:Not set/);
       const key = async (key, modifiers = {}) => {
         recorder.props.onKeydown({ key, preventDefault() {}, stopPropagation() {}, ...modifiers });
         await nextTick();
@@ -4115,6 +4121,86 @@ async function main() {
       assert.equal(voice.runtime.shortcut, 'LeftAlt', 'the picker still requires Save');
       await action('Cancel').props.onClick(); await nextTick();
       assert.deepEqual(keyLabels(recorder), ['Left Alt']);
+      const controller = { label: 'Yoke', button: 3 };
+      voice.runtime.controllerEnabled = true;
+      voice.runtime.controller = { binding: controller, state: 'ready', error: '' };
+      await nextTick();
+      const savedCount = saves.length;
+      for (const input of ['screen', 'controller', 'keyboard']) {
+        nodes.find(node => node.props['data-voice-input-choice'] === input).props.onClick(); await nextTick();
+        assert.equal(voice.runtime.shortcut, 'LeftAlt');
+        assert.deepEqual(voice.runtime.controller.binding, controller);
+        assert.equal(saves.length, savedCount, 'view selection never changes a binding');
+        assert.match(nodeText(bindings), /Left Alt/);
+        assert.match(nodeText(bindings), /Controller:Yoke · Button 3/);
+      }
+      const remove = action('Remove shortcut');
+      assert.ok(remove);
+      const failedRemoval = remove.props.onClick(); await nextTick();
+      assert.equal(remove.props.disabled, true);
+      assert.equal(nodeText(remove), 'Removing…');
+      assert.equal(remove.props['aria-busy'], 'true');
+      assert.equal(nodeText(help), 'Removing keyboard shortcut…');
+      assert.match(nodeText(bindings), /Left Alt/, 'the saved summary changes only after confirmation');
+      assert.equal(recorder.props.disabled, true, 'another edit cannot overlap removal');
+      const saveCount = saves.length;
+      await remove.props.onClick();
+      assert.equal(saves.length, saveCount, 'repeated removal is ignored while pending');
+      finishSave(false); await failedRemoval; await nextTick();
+      assert.equal(voice.runtime.shortcut, 'LeftAlt');
+      assert.doesNotMatch(nodeText(help), /removed|Removing/);
+      assert.match(nodeText(recorder.parent.parent), /could not be removed.*Try again/);
+      voice.runtime.enabled = false; await nextTick();
+      assert.match(nodeText(bindings), /Voice control is off\. Saved bindings are inactive\./);
+      assert.equal(action('Remove shortcut').props.disabled, false, 'removal is available with voice off');
+      const removing = action('Remove shortcut').props.onClick();
+      assert.equal(saves.at(-1), '');
+      await nextTick();
+      assert.equal(nodeText(help), 'Removing keyboard shortcut…', 'pending feedback remains visible with voice off');
+      finishSave(true); await removing; await nextTick();
+      assert.equal(voice.runtime.shortcut, '');
+      assert.equal(voice.runtime.enabled, false);
+      assert.deepEqual(voice.runtime.controller.binding, controller);
+      assert.equal(action('Remove shortcut'), undefined);
+      assert.equal(nodeText(recorder), 'Set shortcut');
+      assert.doesNotMatch(nodeText(recorder.parent.parent), /could not be removed/);
+      assert.equal(nodeText(help), 'Keyboard shortcut removed.');
+      assert.equal(help.props.role, 'status', 'removal is announced in the existing live region');
+      assert.match(nodeText(bindings), /Keyboard:Not set/);
+      assert.match(nodeText(bindings), /Controller:Yoke · Button 3/);
+      voice.runtime.enabled = true;
+      await setup.props.onClick(); await nextTick();
+      assert.doesNotMatch(nodeText(help), /shortcut removed/, 'starting another edit clears the previous confirmation');
+      await action('Cancel').props.onClick(); await nextTick();
+      voice.runtime.shortcut = 'Control+F9'; await nextTick();
+      assert.match(nodeText(bindings), /F9/);
+      assert.doesNotMatch(nodeText(help), /shortcut removed/);
+    } finally { app.unmount(); }
+  });
+
+  await test('VoiceControlSettings keeps the initially selected keyboard view after removing its last binding', async () => {
+    const { createRenderer, nextTick } = await import(vueModuleUrl);
+    const component = (await import(pathToFileURL(compileVueComponent(path.join(frontendRoot,
+      'src', 'vue', 'components', 'VoiceControlSettings.vue'))).href)).default;
+    const { nodes, makeNode, renderer } = createMountedTestRenderer(createRenderer);
+    const pinia = createPinia(); setActivePinia(pinia);
+    const voice = useVoiceControlStore(), tabs = useTabsStore();
+    tabs.activeTabId = 'settings';
+    voice.runtime.enabled = true; voice.runtime.shortcut = 'LeftAlt'; voice.setState('ready');
+    voice.bindRuntime({ setShortcut: async value => { voice.runtime.shortcut = value; return true; } });
+    const app = renderer.createApp(component); app.use(pinia);
+    try {
+      app.mount(makeNode('root')); await nextTick();
+      const keyboardChoice = nodes.find(node => node.props['data-voice-input-choice'] === 'keyboard');
+      const recorder = nodes.find(node => node.props.id === 'voice-ptt-shortcut');
+      assert.equal(keyboardChoice.props['aria-pressed'], true, 'the existing shortcut initially opens keyboard settings');
+      // No card click: removing from the automatically selected view is an explicit user action.
+      await nodes.find(node => node.props['data-voice-shortcut-remove'] !== undefined).props.onClick();
+      await nextTick();
+      assert.equal(voice.runtime.shortcut, '');
+      assert.equal(keyboardChoice.props['aria-pressed'], true, 'removal must not switch views and hide its confirmation');
+      assert.notEqual(recorder.parent.parent.style.display, 'none');
+      assert.equal(nodes.find(node => node.props.id === 'voice-ptt-shortcut-help').text, 'Keyboard shortcut removed.');
     } finally { app.unmount(); }
   });
 

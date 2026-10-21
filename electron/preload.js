@@ -201,7 +201,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ),
     setPushToTalkShortcut: (shortcut) => ipcRenderer.invoke(
       'voice:set-push-to-talk-shortcut',
-      typeof shortcut === 'string' ? shortcut.slice(0, 64) : '',
+      typeof shortcut === 'string' ? shortcut.slice(0, 64) : null,
     ),
     speakReadback: (text) => ipcRenderer.invoke(
       'voice:readback-speak',

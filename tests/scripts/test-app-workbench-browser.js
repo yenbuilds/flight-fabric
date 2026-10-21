@@ -319,6 +319,82 @@ async function browser() {
       assert(await evaluate("return workbenchTest.voice.shortcutRecording.active && workbenchTest.voice.runtime.shortcut==='LeftAlt' && document.getElementById('voice-ptt-shortcut').textContent.includes('Right Win');"), 'the selector prepares a Windows binding without firing the OS key');
       await evaluate(`document.querySelector('[data-voice-shortcut-cancel]').click(); await workbenchTest.nextTick();`);
       assert(await evaluate("return !workbenchTest.voice.shortcutRecording.active && workbenchTest.voice.runtime.shortcut==='LeftAlt';"), 'cancel preserves the saved modifier binding');
+      // Removal uses the same saved-binding boundary without a recording lease.
+      await evaluate(`const voice=workbenchTest.voice; window.shortcutRemovals=[];
+        shortcutFixture.pushToTalk.controllerEnabled=true;
+        shortcutFixture.pushToTalk.controller={binding:{label:'Honeycomb Bravo Throttle Quadrant',button:3},state:'ready',error:''};
+        voice.applyRuntimeInfo(shortcutFixture);
+        voice.bindRuntime({setShortcut:async value=>{
+          shortcutRemovals.push(value); await new Promise(resolve=>{window.finishShortcutRemoval=resolve;});
+          shortcutFixture.pushToTalk.accelerator=value; voice.applyRuntimeInfo(shortcutFixture); return true;
+        }}); await workbenchTest.nextTick();`);
+      for (const input of ['screen', 'controller', 'keyboard']) {
+        await evaluate(`document.querySelector('[data-voice-input-choice="${input}"]').click(); await workbenchTest.nextTick();
+          document.querySelector('[data-voice-input-bindings]').scrollIntoView({block:'center'});`);
+        assert(await evaluate(`const summary=document.querySelector('[data-voice-input-bindings]'); const r=summary.getBoundingClientRect();
+          return summary.textContent.includes('Left Alt') && summary.textContent.includes('Honeycomb Bravo Throttle Quadrant')
+            && workbenchTest.voice.runtime.shortcut==='LeftAlt' && workbenchTest.voice.runtime.controller.binding.button===3
+            && shortcutRemovals.length===0 && r.left>=0 && r.right<=innerWidth+1 && document.documentElement.scrollWidth<=innerWidth+1;`), `${width}/${input}: saved bindings remain visible and unchanged when switching views`);
+        if (input === 'screen') await capture(`voice-input-bindings-${width}`);
+        if (input === 'controller') {
+          await evaluate("document.getElementById('voice-controller-foreground').scrollIntoView({block:'center'});");
+          assert(await evaluate(`const note=document.getElementById('voice-controller-foreground'); const r=note.getBoundingClientRect();
+            return note.textContent.includes('unassigned') && r.left>=0 && r.right<=innerWidth+1 && r.top>=0 && r.bottom<=innerHeight+1
+              && document.querySelector('[data-voice-controller-choose]').getAttribute('aria-describedby')===note.id;`), `${width}: controller conflict guidance fits and is associated with setup`);
+          await capture(`voice-controller-foreground-${width}`);
+        }
+      }
+      await evaluate(`
+        document.querySelector('[data-voice-input-choice="keyboard"]').click(); await workbenchTest.nextTick();
+        document.querySelector('[data-voice-shortcut-remove]').scrollIntoView({block:'center'});`);
+      assert(await evaluate(`const r=document.querySelector('[data-voice-shortcut-remove]').getBoundingClientRect();
+        return r.height>=40 && r.left>=0 && r.right<=innerWidth && document.documentElement.scrollWidth<=innerWidth;`), `${width}: remove action fits`);
+      await capture(`voice-shortcut-remove-${width}`);
+      await evaluate("document.querySelector('[data-voice-shortcut-remove]').focus();");
+      for (const type of ['keyDown', 'keyUp']) await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', {
+        type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
+        ...(type === 'keyDown' ? { text: '\r', unmodifiedText: '\r' } : {}),
+      });
+      await wait(50);
+      assert(await evaluate("return shortcutRemovals.length===1 && shortcutRemovals[0]==='' && document.querySelector('[data-voice-shortcut-remove]').disabled;"), 'native keyboard removal submits an empty binding once');
+      assert(await evaluate("return document.querySelector('[data-voice-shortcut-remove]').textContent==='Removing…' && document.getElementById('voice-ptt-shortcut-help').textContent.includes('Removing keyboard shortcut');"), 'pending removal has specific feedback');
+      await evaluate('finishShortcutRemoval(); await workbenchTest.nextTick();'); await wait(30);
+      assert(await evaluate("return workbenchTest.voice.runtime.shortcut==='' && workbenchTest.voice.runtime.enabled && workbenchTest.voice.runtime.controller.binding.button===3 && !document.querySelector('[data-voice-shortcut-remove]');"), 'removal preserves controller and voice settings');
+      assert.equal(await evaluate('return document.activeElement.id;'), 'voice-ptt-shortcut', 'removing the focused button restores keyboard position');
+      assert(await evaluate("return document.getElementById('voice-ptt-shortcut-help').textContent.includes('Keyboard shortcut removed.') && document.querySelector('[data-voice-input-bindings]').textContent.includes('Not set');"), 'completed removal updates the live confirmation and saved summary');
+      await evaluate(`shortcutFixture.enabled=false; shortcutFixture.pushToTalk.accelerator='LeftAlt';
+        workbenchTest.voice.applyRuntimeInfo(shortcutFixture); workbenchTest.voice.setState('disabled');
+        await workbenchTest.nextTick(); document.querySelector('[data-voice-shortcut-remove]').scrollIntoView({block:'center'});`);
+      const removePoint = await evaluate("const r=document.querySelector('[data-voice-shortcut-remove]').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2};");
+      await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', ...removePoint, button: 'left', clickCount: 1 });
+      await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', ...removePoint, button: 'left', clickCount: 1 });
+      assert.equal(await evaluate('return shortcutRemovals.length;'), 2, 'native pointer can remove a shortcut while voice is off');
+      await evaluate('finishShortcutRemoval(); await workbenchTest.nextTick();'); await wait(30);
+      assert(await evaluate("return !workbenchTest.voice.runtime.enabled && workbenchTest.voice.runtime.shortcut==='' && document.activeElement.matches('[data-voice-input-choice=keyboard]');"), 'voice stays off and focus returns to the enabled keyboard choice');
+      assert(await evaluate("return document.querySelector('[data-voice-input-bindings]').textContent.includes('Saved bindings are inactive.') && document.getElementById('voice-ptt-shortcut-help').textContent.includes('Keyboard shortcut removed.');"), 'voice-off state and removal success are both explained');
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false });
+
+      // A fresh Settings session must also preserve the automatically selected keyboard view.
+      await win.loadURL(fixtureUrl.href);
+      for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+      await evaluate(`const voice=workbenchTest.voice; voice.setBridgeAvailable(true);
+        window.lastBindingInfo={enabled:true,available:true,engine:{state:'ready'},pushToTalk:{accelerator:'LeftAlt',registered:true,controllerEnabled:true}};
+        voice.applyRuntimeInfo(lastBindingInfo); voice.setState('ready');
+        voice.bindRuntime({setShortcut:async value=>{lastBindingInfo.pushToTalk.accelerator=value; voice.applyRuntimeInfo(lastBindingInfo); return true;}});
+        await workbenchTest.open('settings');
+        document.getElementById('settings-voice-control').dispatchEvent(new Event('settings-reveal'));
+        await workbenchTest.nextTick(); document.querySelector('[data-voice-shortcut-remove]').scrollIntoView({block:'center'});`);
+      assert(await evaluate("return document.querySelector('[data-voice-input-choice=keyboard]').getAttribute('aria-pressed')==='true';"), 'saved keyboard binding opens its settings without selecting a card');
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      const lastBindingPoint = await evaluate("const r=document.querySelector('[data-voice-shortcut-remove]').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2};");
+      for (const type of ['mousePressed', 'mouseReleased']) await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type, ...lastBindingPoint, button: 'left', clickCount: 1 });
+      await wait(50);
+      assert(await evaluate(`const help=document.getElementById('voice-ptt-shortcut-help');
+        return workbenchTest.voice.runtime.shortcut==='' && help.getClientRects().length>0
+          && help.textContent.includes('Keyboard shortcut removed.') && document.activeElement.id==='voice-ptt-shortcut'
+          && document.querySelector('[data-voice-input-choice=keyboard]').getAttribute('aria-pressed')==='true';`), `${width}: removing the only binding keeps confirmation, keyboard settings and focus visible`);
+      await evaluate("document.getElementById('voice-ptt-shortcut-help').scrollIntoView({block:'center'});");
+      await capture(`voice-last-shortcut-removed-${width}`);
       await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: false });
     }
   }

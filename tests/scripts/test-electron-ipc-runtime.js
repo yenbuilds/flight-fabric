@@ -150,6 +150,14 @@ async function runElectronProbe() {
       });
     }
     const attemptId = '00000000-0000-0000-0000-000000000001';
+    const shortcutRequests = [];
+    ipcMain.handle('voice:set-push-to-talk-shortcut', (event, value) => {
+      if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+        throw new Error('Untrusted Electron IPC sender');
+      }
+      shortcutRequests.push(value);
+      return { checked: true };
+    });
     const retiredAttempts = [];
     ipcMain.handle('voice:retire-push-to-talk-attempt', (event, ...args) => {
       if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
@@ -183,6 +191,7 @@ async function runElectronProbe() {
         await assert.rejects(() => frame.executeJavaScript(`window.electronAPI.voice.${method}()`));
       }
       assert.equal(controllerCalls.length, beforeControllers, 'untrusted pages cannot configure or monitor controllers');
+      await assert.rejects(() => frame.executeJavaScript("window.electronAPI.voice.setPushToTalkShortcut('')"));
       const beforeRetirement = retiredAttempts.length;
       await assert.rejects(() => frame.executeJavaScript(`window.electronAPI.voice.retirePushToTalkAttempt('${attemptId}')`));
       assert.equal(retiredAttempts.length, beforeRetirement, 'untrusted pages cannot retire input attempts');
@@ -204,6 +213,11 @@ async function runElectronProbe() {
           .filter(name => name in voice),
       };
     })()`), { keyboardAvailable: true, retiredMethods: [] });
+    await trustedWindow.webContents.executeJavaScript(`(async()=>{
+      await window.electronAPI.voice.setPushToTalkShortcut('');
+      await window.electronAPI.voice.setPushToTalkShortcut(null);
+    })()`);
+    assert.deepEqual(shortcutRequests, ['', null], 'explicit removal crosses the bridge; invalid input cannot become a removal');
     for (const method of Object.keys(controllerMethods)) {
       assert.deepEqual(await trustedWindow.webContents.executeJavaScript(`window.electronAPI.voice.${method}({devicePath:'untrusted-path'})`), {checked:true});
       assert.deepEqual(controllerCalls.at(-1).args, [], 'controller identities never enter from renderer arguments');

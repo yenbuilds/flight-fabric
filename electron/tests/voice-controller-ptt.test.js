@@ -50,8 +50,8 @@ async function runtimeFixture(t, enabled = true) {
       webContents: { isDestroyed: () => false, send: (channel, data) => sent.push({ channel, data }) } }),
     registerTrustedIpcHandler: (name, fn) => handlers.set(name, fn),
     pushToTalkHookFactory: options => createPushToTalkHook({ ...options, helperPath,
-      spawnProcess: () => {
-        const process = child(); children.push(process);
+      spawnProcess: (_path, args) => {
+        const process = child(); process.args = args; children.push(process);
         if (startup.automaticReady) queueMicrotask(() => process.say({ type: 'ready' }));
         return process;
       } }) });
@@ -63,18 +63,69 @@ async function runtimeFixture(t, enabled = true) {
     invoke: (name, value) => handlers.get(`voice:${name}`)({}, value) };
 }
 
-test('failed shortcut save restores the running keyboard and controller binding', { skip: process.platform !== 'win32' }, async t => {
+test('removing keyboard PTT preserves controller input and voice recognition', { skip: process.platform !== 'win32' }, async t => {
+  const h = await runtimeFixture(t);
+  const previous = h.children.at(-1);
+  const info = await h.invoke('set-push-to-talk-shortcut', '');
+  assert.equal(info.accelerator, '');
+  assert.equal(info.registered, true, 'the controller helper remains registered');
+  assert.equal(h.runtime.runtimeInfo().enabled, true);
+  assert.equal(h.runtime.runtimeInfo().engine.ready, true);
+  assert.equal(previous.kills, 1);
+  assert.equal(h.children.at(-1).args[h.children.at(-1).args.indexOf('--shortcut') + 1], '', 'controller-only launch carries no keyboard shortcut');
+  const saved = JSON.parse(fs.readFileSync(h.settingsPath, 'utf8'));
+  assert.equal(saved.pushToTalkShortcut, '');
+  assert.deepEqual(saved.controllerBindingV1, binding);
+  const delivered = () => h.sent.filter(e => e.channel === 'voice:push-to-talk');
+  const before = delivered().length;
+  previous.say({ type: 'down' }, { type: 'up' });
+  assert.equal(delivered().length, before, 'late events from the retired keyboard helper are ignored');
+  h.children.at(-1).say(event('press'), event('release'));
+  assert.deepEqual(delivered().slice(-2).map(e => e.data.type), ['down', 'up']);
+});
+
+test('removing the last PTT binding stops input while keeping on-screen voice available', { skip: process.platform !== 'win32' }, async t => {
+  const h = await runtimeFixture(t);
+  await h.invoke('controller-binding-clear');
+  const count = h.children.length;
+  const info = await h.invoke('set-push-to-talk-shortcut', '');
+  assert.equal(info.accelerator, '');
+  assert.equal(info.registered, false);
+  assert.equal(h.children.length, count, 'removal starts no replacement helper');
+  assert.ok(h.children.every(process => process.kills));
+  const sender = { id: 7 };
+  h.handlers.get('voice:speech-start')({ sender });
+  assert.equal(h.runtime.isAudioCaptureAuthorized(sender), true, 'on-screen capture remains available');
+});
+
+test('keyboard PTT can be removed while voice is off without starting input', { skip: process.platform !== 'win32' }, async t => {
+  const h = await runtimeFixture(t, false);
+  await h.invoke('set-push-to-talk-shortcut', '');
+  assert.equal(h.children.length, 0);
+  const saved = JSON.parse(fs.readFileSync(h.settingsPath, 'utf8'));
+  assert.equal(saved.pushToTalkShortcut, '');
+  assert.equal(saved.voiceRecognitionEnabled, false);
+  assert.deepEqual(saved.controllerBindingV1, binding);
+  await h.invoke('set-recognition-enabled', true);
+  assert.equal(h.children.at(-1).args[h.children.at(-1).args.indexOf('--shortcut') + 1], '');
+  assert.equal(h.runtime.runtimeInfo().pushToTalk.registered, true);
+  for (const invalid of [null, undefined, false, ' ', 'invalid shortcut']) {
+    assert.throws(() => h.invoke('set-push-to-talk-shortcut', invalid), /Shortcut|shortcut|one key/);
+  }
+});
+
+for (const value of ['Control+F2', '']) test(`failed shortcut save (${value || 'remove'}) restores the running keyboard and controller binding`, { skip: process.platform !== 'win32' }, async t => {
   const h = await runtimeFixture(t);
   const saved = fs.readFileSync(h.settingsPath, 'utf8');
   fs.mkdirSync(`${h.settingsPath}.tmp`);
-  await assert.rejects(h.invoke('set-push-to-talk-shortcut', 'Control+F2'));
+  await assert.rejects(h.invoke('set-push-to-talk-shortcut', value));
   assert.equal(h.runtime.runtimeInfo().pushToTalk.accelerator, 'Control+F1');
   assert.equal(fs.readFileSync(h.settingsPath, 'utf8'), saved);
   h.children.at(-1).say(event('press'), event('release'));
   assert.deepEqual(h.sent.filter(e => e.channel === 'voice:push-to-talk').slice(-2).map(e => e.data.type), ['down', 'up']);
   fs.rmdirSync(`${h.settingsPath}.tmp`);
-  await h.invoke('set-push-to-talk-shortcut', 'Control+F2');
-  assert.equal(JSON.parse(fs.readFileSync(h.settingsPath, 'utf8')).pushToTalkShortcut, 'Control+F2');
+  await h.invoke('set-push-to-talk-shortcut', value);
+  assert.equal(JSON.parse(fs.readFileSync(h.settingsPath, 'utf8')).pushToTalkShortcut, value);
 });
 
 test('failed enable save cannot grant microphone authority or start a helper', { skip: process.platform !== 'win32' }, async t => {
@@ -132,7 +183,7 @@ test('disabling during binding rollback cannot restart input or replace the save
 
 test('disable during pending keyboard or controller changes persists only the committed binding', { skip: process.platform !== 'win32' }, async t => {
   const h = await runtimeFixture(t);
-  for (const [action, value] of [['set-push-to-talk-shortcut', 'Control+F2'], ['controller-binding-clear', undefined]]) {
+  for (const [action, value] of [['set-push-to-talk-shortcut', 'Control+F2'], ['set-push-to-talk-shortcut', ''], ['controller-binding-clear', undefined]]) {
     h.startup.automaticReady = false;
     const changing = assert.rejects(h.invoke(action, value), /disposed/);
     await new Promise(resolve => setImmediate(resolve));

@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.12.7",
+  "version": "0.12.8",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"

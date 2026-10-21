@@ -77,12 +77,13 @@ onBeforeUnmount(stopLearning);
     </div>
     <div class="mt-3 flex flex-wrap gap-2">
       <button v-if="setup.active" ref="saveButton" type="button" class="min-h-10 disabled:opacity-50" :class="readyToSave ? 'ff-button-primary' : 'ff-button-secondary'" data-voice-controller-save :disabled="locked || !readyToSave" @click="perform('saveControllerButton', 'Controller button saved.')">Save button</button>
-      <button ref="chooser" type="button" class="ff-button-secondary min-h-10 disabled:opacity-50" data-voice-controller-choose :disabled="locked" @click="perform('startControllerSetup')">
+      <button ref="chooser" type="button" class="ff-button-secondary min-h-10 disabled:opacity-50" data-voice-controller-choose :disabled="locked" aria-describedby="voice-controller-foreground" @click="perform('startControllerSetup')">
         {{ pending ? 'Updating…' : setup.active ? 'Choose another button' : controller.binding ? 'Change button' : 'Set button' }}
       </button>
       <button v-if="setup.active" type="button" class="ff-button-secondary min-h-10 disabled:opacity-50" data-voice-controller-cancel :disabled="pending" @click="perform('cancelControllerSetup')">Cancel</button>
       <button v-else-if="controller.binding" type="button" class="ff-button-secondary min-h-10 disabled:opacity-50" data-voice-controller-clear :disabled="props.disabled || pending" @click="perform('clearControllerButton', 'Controller button removed.')">Remove button</button>
     </div>
+    <p id="voice-controller-foreground" class="mt-3 text-xs text-muted-fg">The controller button also reaches MSFS and other apps. Choose a button that is unassigned there to avoid triggering another action while you talk.</p>
     <div v-if="controller.binding && !setup.active" class="mt-3 flex items-start gap-2 rounded-lg border border-border bg-bg/50 p-3 text-xs text-muted-fg">
       <svg class="pointer-events-none mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false">
         <circle cx="12" cy="12" r="9" />

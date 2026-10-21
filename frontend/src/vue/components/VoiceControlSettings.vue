@@ -22,6 +22,8 @@ const shortcutLease = ref(false);
 let shortcutEditRevision = 0;
 const shortcutUnchanged = ref(false);
 const shortcutSaving = ref(false);
+const shortcutRemoving = ref(false);
+const shortcutNotice = ref('');
 const shortcutError = ref('');
 const recognitionSaving = computed(() => voice.recognitionChanging);
 const recognitionError = ref('');
@@ -83,6 +85,7 @@ watch(() => voice.runtime.shortcut, (value) => {
   shortcutDraft.value = value;
   shortcutRecording.value = false;
   shortcutUnchanged.value = false;
+  shortcutNotice.value = '';
   shortcutError.value = '';
 });
 watch(() => [voice.runtime.enabled, voice.recognitionChangeId], () => { recognitionError.value = ''; });
@@ -92,6 +95,7 @@ async function beginShortcutRecording() {
   shortcutRecorder.reset();
   const revision = ++shortcutEditRevision;
   shortcutUnchanged.value = false;
+  shortcutNotice.value = '';
   shortcutError.value = '';
   if (shortcutLease.value) { shortcutRecording.value = true; return; }
   shortcutPreparing.value = true;
@@ -108,13 +112,13 @@ async function restoreShortcutFocus(origin) {
   if (!origin) return;
   await nextTick();
   if (tabs.activeTabId !== 'settings') return;
-  // Save/Cancel may disappear. Keep keyboard position without taking focus
+  // Save/Cancel/Remove may disappear. Keep keyboard position without taking focus
   // back from another control or a dialog opened during an asynchronous save.
   if (document.activeElement !== document.body && document.activeElement !== origin) return;
-  const recorder = document.getElementById('voice-ptt-shortcut');
-  if (recorder?.getClientRects().length && !recorder.disabled && !recorder.closest('[inert]')) {
-    recorder.focus({ preventScroll: true });
-  }
+  const target = [document.getElementById('voice-ptt-shortcut'),
+    document.querySelector('[data-voice-input-choice="keyboard"]')]
+    .find(element => element?.getClientRects().length && !element.disabled && !element.closest('[inert]'));
+  target?.focus({ preventScroll: true });
 }
 
 function cancelShortcutEdit(event) {
@@ -177,6 +181,28 @@ async function saveShortcut(event) {
     shortcutSaving.value = false;
   }
   await restoreShortcutFocus(event?.submitter);
+}
+
+async function removeShortcut(event) {
+  if (captureLocked.value || recognitionSaving.value || shortcutSaving.value
+    || shortcutSetupBusy.value || shortcutDirty.value || !voice.runtime.shortcut) return;
+  const origin = event?.currentTarget;
+  // Keep the confirmation visible when removing the last saved binding.
+  inputChoiceTouched = true;
+  shortcutSaving.value = true;
+  shortcutRemoving.value = true;
+  shortcutNotice.value = '';
+  shortcutError.value = '';
+  try {
+    if (!await voice.setShortcut('')) shortcutError.value = 'The keyboard shortcut could not be removed. Try again.';
+    else if (!voice.runtime.shortcut) shortcutNotice.value = 'Keyboard shortcut removed.';
+  } catch {
+    shortcutError.value = 'The keyboard shortcut could not be removed. Try again.';
+  } finally {
+    shortcutRemoving.value = false;
+    shortcutSaving.value = false;
+  }
+  await restoreShortcutFocus(origin);
 }
 
 // Settings stays mounted so an unsaved shortcut survives changing pages.
@@ -322,12 +348,27 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
             </div>
             </VoiceSetupTest>
           <section aria-labelledby="voice-ptt-title" data-voice-ptt-settings>
-            <h4 id="voice-ptt-title" class="mb-3 text-base font-semibold text-fg">2. Choose how to talk</h4>
+            <h4 id="voice-ptt-title" class="mb-3 text-base font-semibold text-fg">2. Set up push-to-talk</h4>
             <p class="mb-3 text-xs text-muted-fg">Hold to speak. Release for a response.</p>
-            <div class="setup-input-choices" :class="{ 'setup-input-choices--two': inputChoices.length === 2 }" role="group" aria-label="How to talk">
+            <p id="voice-input-choices-help" class="mb-3 text-xs text-muted-fg">Select an input to view its settings. Existing bindings stay configured until you remove them.</p>
+            <div class="setup-input-choices" :class="{ 'setup-input-choices--two': inputChoices.length === 2 }" role="group" aria-label="Push-to-talk settings to view" aria-describedby="voice-input-choices-help">
               <button v-for="choice in inputChoices" :key="choice.id" type="button" :data-voice-input-choice="choice.id" :aria-pressed="inputChoice === choice.id" :disabled="captureLocked || shortcutSetupBusy || shortcutDirty || shortcutSaving" @click="chooseInput(choice.id)">
                 <SetupIllustration :kind="choice.kind" /><span>{{ choice.label }}</span>
               </button>
+            </div>
+            <div class="mt-3 min-w-0 text-xs text-muted-fg" data-voice-input-bindings>
+              <p class="font-medium text-fg">Saved bindings</p>
+              <dl class="mt-2 grid min-w-0 gap-2">
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
+                  <dt>Keyboard:</dt>
+                  <dd class="min-w-0"><KeyboardShortcutKeys v-if="voice.runtime.shortcut" :shortcut="voice.runtime.shortcut" /><span v-else>Not set</span></dd>
+                </div>
+                <div v-if="voice.runtime.controllerEnabled" class="flex min-w-0 flex-wrap items-center gap-2">
+                  <dt>Controller:</dt>
+                  <dd class="min-w-0 break-words">{{ voice.runtime.controller?.binding ? `${voice.runtime.controller.binding.label} · Button ${voice.runtime.controller.binding.button}` : 'Not set' }}</dd>
+                </div>
+              </dl>
+              <p v-if="!voice.runtime.enabled" class="mt-2">Voice control is off. Saved bindings are inactive.</p>
             </div>
             <p v-if="inputChoice === 'screen'" class="mt-3 text-sm text-muted-fg" data-voice-screen-choice>Use Hold to talk in Aircraft → Voice commands. No shortcut needed.</p>
             <div class="mt-3 grid min-w-0 gap-3">
@@ -359,6 +400,15 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                     <KeyboardShortcutKeys v-if="!shortcutRecording && !shortcutPreparing && shortcutDraft" :shortcut="shortcutDraft" aria-hidden="true" />
                     <span v-else>{{ shortcutPreparing ? 'Pausing push-to-talk…' : shortcutRecording ? 'Press shortcut…' : 'Set shortcut' }}</span>
                   </button>
+                  <button
+                    v-if="voice.runtime.shortcut && !shortcutDirty && !shortcutSetupBusy"
+                    type="button"
+                    class="ff-button-secondary min-h-10 disabled:opacity-50"
+                    data-voice-shortcut-remove
+                    :disabled="captureLocked || shortcutSaving || recognitionSaving"
+                    :aria-busy="shortcutRemoving ? 'true' : undefined"
+                    @click="removeShortcut"
+                  >{{ shortcutRemoving ? 'Removing…' : 'Remove shortcut' }}</button>
                   <button
                     v-if="shortcutDirty"
                     type="submit"
@@ -393,7 +443,11 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                   </select>
                 </div>
                 <p id="voice-ptt-shortcut-help" class="text-[11px] text-muted-fg" role="status">
-                  {{ recognitionOff
+                  {{ shortcutRemoving
+                    ? 'Removing keyboard shortcut…'
+                    : shortcutNotice
+                    ? shortcutNotice
+                    : recognitionOff
                     ? 'Enable voice control before setting a global shortcut.'
                     : shortcutPreparing
                       ? 'Pausing push-to-talk before recording. You can cancel.'
@@ -416,6 +470,9 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                 <p id="voice-ptt-shortcut-foreground" class="text-[11px] text-muted-fg">
                   The shortcut also reaches the app in front. Choose a key or combination that is unassigned in MSFS and other apps.
                   {{ shortcutDraft.split('+').includes('CapsLock') ? 'Caps Lock also toggles capitalisation.' : '' }}
+                </p>
+                <p v-if="voice.runtime.shortcut" class="text-[11px] text-muted-fg">
+                  Remove the shortcut to turn off keyboard push-to-talk. Your controller button and other voice settings are kept.
                 </p>
                 <p v-if="shortcutError" id="voice-ptt-shortcut-error" class="text-[11px] text-warning" role="alert">
                   {{ shortcutError }}

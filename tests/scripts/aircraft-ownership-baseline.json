@@ -51,10 +51,10 @@
     ]
   },
   "electron/preload.js": {
-    "reason": "Existing validated PMDG setup IPC bridge; freeze these declarations against additional aircraft logic.",
+    "reason": "Existing validated PMDG setup IPC facade; mappings and procedures remain outside preload. Reviewed 2026-10-21: the surrounding bridge changed only generic voice shortcut argument handling (non-string input stays invalid as null instead of becoming removal). PMDG methods and family validation are unchanged; keep both exact declarations frozen against additional aircraft logic. See docs/VOICE-PTT-RELIABILITY-2026-10-09.md.",
     "accepted": [
       "aircraft-source-placement:766dc257e621ddba3915b558b8bfec7583e9da0f54896d02dd8e84d8d9e0ec1c",
-      "aircraft-source-placement:5192d576064c9b0f55a25b40bb67e1ecd4cad5c0ae2b26bcadb380816f00bfdd"
+      "aircraft-source-placement:b3f10986eb35a262e47f9b27d8fd2d7ef09672e75ef5cf99fcf730fc862cf721"
     ]
   },
   "frontend/src/aircraft/cdu-controller.js": {
