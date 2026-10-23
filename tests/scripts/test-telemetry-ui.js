@@ -132,6 +132,54 @@ async function testWidgetClientFetchesBootstrapTokenAndRequestsState() {
   assert.deepEqual(sentMessages, [{ type: 'requestState' }]);
 }
 
+function testBottomWidgetRequestsStateAndRendersRouteUpdates() {
+  const elements = new Map();
+  for (const id of ['dest-strip-wrap', 'dest-strip-label', 'dest-strip-text', 'dest-strip-fill']) {
+    const classes = new Set();
+    elements.set(id, {
+      textContent: '', style: {},
+      classList: { add: name => classes.add(name), remove: name => classes.delete(name), contains: name => classes.has(name) },
+    });
+  }
+  const sent = [];
+  let receive;
+  let connected;
+  const context = {
+    document: { getElementById: id => elements.get(id) || null },
+    TelemetryUI: {
+      isConnected: () => true,
+      send: message => sent.push(message),
+      onMessage: handler => { receive = handler; },
+      onConnectionChange: handler => { connected = handler; },
+      connect: () => connected(),
+    },
+  };
+  vm.createContext(context);
+  for (const script of getClassicInlineScripts(readWidget('widgets-compact/widget-bottom.html'))) {
+    vm.runInContext(script, context, { filename: 'widget-bottom.html' });
+  }
+  assert.deepEqual(sent.map(message => message.type), ['requestState']);
+  const destination = { icao: 'YMML', name: 'Melbourne', lat: -37.6733, lon: 144.8433 };
+  const origin = { icao: 'YSSY', name: 'Sydney', lat: -33.9399, lon: 151.1753 };
+  receive({ type: 'destinationTarget', target: destination });
+  assert.equal(elements.get('dest-strip-text').textContent, 'Awaiting position');
+  receive({ type: 'originTarget', target: origin });
+  receive({ type: 'position', lat: -35.8066, lon: 148.0093 });
+  assert.match(elements.get('dest-strip-label').textContent, /From YSSY.*To YMML/);
+  assert.match(elements.get('dest-strip-text').textContent, /%.*NM/);
+  const progress = parseFloat(elements.get('dest-strip-fill').style.height);
+  assert.ok(progress > 40 && progress < 60, 'a midpoint on Sydney–Melbourne should be about halfway');
+
+  connected();
+  assert.deepEqual(sent.map(message => message.type), ['requestState', 'requestState']);
+  receive({ type: 'destinationTarget', target: null });
+  assert.equal(elements.get('dest-strip-wrap').classList.contains('visible'), false);
+  assert.equal(elements.get('dest-strip-text').textContent, '--');
+  receive({ type: 'destinationTarget', target: destination });
+  assert.equal(elements.get('dest-strip-wrap').classList.contains('visible'), true);
+  assert.match(elements.get('dest-strip-label').textContent, /From YSSY.*To YMML/);
+}
+
 function testWidgetClassicInlineScriptsParse() {
   for (const filename of WIDGET_ENTRYPOINTS) {
     const scripts = getClassicInlineScripts(readWidget(filename));
@@ -351,6 +399,7 @@ function testLandingWidgetsUseSharedPresentationAndRetainLateFacts() {
 
 async function run() {
   await testWidgetClientFetchesBootstrapTokenAndRequestsState();
+  testBottomWidgetRequestsStateAndRendersRouteUpdates();
   testWidgetClassicInlineScriptsParse();
   testStatefulWidgetsRequestReconnectState();
   testHistoryWidgetDoesNotTreatMissingLightKeysAsOff();
@@ -359,7 +408,7 @@ async function run() {
   testHistoryWidgetDoesNotClearBetweenPhaseTransitions();
   testSharedLandingPresentationKeepsVerdictsFactual();
   testLandingWidgetsUseSharedPresentationAndRetainLateFacts();
-  console.log('telemetry-ui widget tests: 9 passed, 0 failed');
+  console.log('telemetry-ui widget tests: 10 passed, 0 failed');
 }
 
 run().catch((error) => {

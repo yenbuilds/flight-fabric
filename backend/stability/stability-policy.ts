@@ -130,11 +130,8 @@ function buildStabilityScoringContext({
 }
 
 module.exports = {
-  TRANSPORT_STABILITY_POLICY,
-  GA_STABILITY_POLICY,
   resolveStabilityPolicy,
   buildStabilityScoringContext,
-  isGeneralAviationProfile,
 };
 
 export {};

@@ -1542,7 +1542,6 @@ function openHistoryIndexStore(options: StoreOptions = {}): OpenStoreResult {
 
 module.exports = {
   assertHistoryIndexIntegrity,
-  createHistoryIndexStore,
   openHistoryIndexStore,
 };
 

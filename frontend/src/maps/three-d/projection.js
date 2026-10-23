@@ -109,9 +109,6 @@ export function createSceneProjection({
     groundScale,
     altitudeUnitsPerFoot,
     altitudeToY,
-    // Convert a real ground distance in metres into scene units at the flight.
-    metersToScene: (meters) => (Number(meters) || 0) * groundScale,
-    sceneToMeters: (units) => (Number(units) || 0) / groundScale,
     toScene,
     toLatLon,
     mercatorToScene,

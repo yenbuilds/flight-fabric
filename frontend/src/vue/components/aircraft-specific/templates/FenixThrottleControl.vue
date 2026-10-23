@@ -7,8 +7,7 @@ export const FENIX_THROTTLE_DETENTS = Object.freeze([
 ]);
 
 // Reverse readback positions reported by the Fenix throttle detent variable.
-// They are drawn in the locked reverse zone of the quadrant but never
-// commanded.
+// They appear in the lever readouts but are never commanded.
 export const FENIX_THROTTLE_REVERSE = Object.freeze({ idle: 1, full: 0 });
 
 export function normalizeFenixThrottlePosition(value) {
@@ -59,7 +58,6 @@ const props = defineProps({
 
 const QUADRANT_ANCHORS = buildThrottleQuadrantAnchors(FENIX_THROTTLE_DETENTS, {
   rawKey: 'value',
-  reverse: FENIX_THROTTLE_REVERSE,
 });
 const LEVER_LABELS = Object.freeze(['L', 'R']);
 
@@ -136,6 +134,7 @@ const footnote = 'Each tap sends one fixed detent command and verifies the left 
     :detents="FENIX_THROTTLE_DETENTS"
     :levers="levers"
     :current-detent-id="currentDetent?.id || null"
+    :readback-fresh="sourceStatus === 'connected'"
     :levers-split="leversSplit"
     :pending="pending"
     :detent-disabled="detentDisabled"

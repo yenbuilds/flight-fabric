@@ -365,7 +365,6 @@ function queryIndexedTimelineFlights(store: AnyRecord, options: TimelineFlightIn
 
 module.exports = {
   normalizeTimelineFlightForIndex,
-  normalizeIndexedLandingEvent,
   queryIndexedTimelineFlights,
   queryTimelineFlightsPage,
   refreshTimelineFlightsIndex,

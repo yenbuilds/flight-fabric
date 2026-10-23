@@ -392,8 +392,6 @@ function createHistoryIndexCoordinator(options: CoordinatorOptions) {
 
 module.exports = {
   createHistoryIndexCoordinator,
-  indexIdentity,
-  normalizeSource,
 };
 
 export {};

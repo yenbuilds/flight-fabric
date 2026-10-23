@@ -115,17 +115,11 @@ function parseProfileLocator(value: unknown, options: ParseProfileOptions = {}):
   return null;
 }
 
-function encodeProfileKeyForFileName(profileKey: unknown): string {
-  if (typeof profileKey !== 'string' || !profileKey.trim()) return '';
-  return profileKey.trim().toLowerCase().replace(/\//g, '__');
-}
-
 const aircraftProfileIdentityApi = {
   PROFILE_ID_RE,
   PROFILE_NAMESPACES,
   PROFILE_SIMULATORS,
   buildProfileKey,
-  encodeProfileKeyForFileName,
   isKnownNamespace,
   isKnownSimulator,
   normalizeNamespace,

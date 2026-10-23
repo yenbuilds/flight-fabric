@@ -15,7 +15,6 @@ const { isPathInside } = require('../utils/path-guard.js') as {
   isPathInside: (_parent: string, _child: string, _options?: { allowEqual?: boolean }) => boolean;
 };
 const recordingBundleLayout = require('../flight-recording/recording-bundle-layout') as {
-  BUNDLE_FILES: { summary: string };
   getArtifactPathForCsv: (_csvPath: unknown, _role: 'summary') => string | null;
   getBundleFromCsvPath: (_csvPath: unknown) => { bundleName: string } | null;
 };
@@ -34,7 +33,6 @@ const HISTORY_SUMMARY_SCHEMA_VERSION = 1;
 // Bump whenever flight-list or debrief extraction semantics change. Old
 // summaries then fall back to their authoritative CSV exactly once.
 const HISTORY_ANALYSIS_VERSION = 12;
-const HISTORY_SUMMARY_SUFFIX = recordingBundleLayout.BUNDLE_FILES.summary;
 const MAX_HISTORY_SUMMARY_BYTES = 8 * 1024 * 1024;
 
 function finiteNumber(value: unknown): number | null {
@@ -240,12 +238,9 @@ function isOwnedHistorySummaryForCsv(summaryPath: unknown, csvPath: unknown): bo
 
 module.exports = {
   HISTORY_ANALYSIS_VERSION,
-  HISTORY_SUMMARY_SCHEMA_VERSION,
-  HISTORY_SUMMARY_SUFFIX,
   getHistorySummaryPath,
   isOwnedHistorySummaryForCsv,
   readHistorySummary,
-  sourceIdentityMatchesSummary,
   writeHistorySummary,
 };
 

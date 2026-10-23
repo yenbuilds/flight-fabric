@@ -156,6 +156,33 @@ function publish() {
     valueUpdatedAt: Object.fromEntries(Object.keys(active.values).map(id => [id, updatedAt])), unavailable: [] });
 }
 window.layoutTest = {
+  throttleState: null,
+  async mountThrottlePanel(family = 'fenix', count = 2) {
+    const { default: Component } = family === 'fenix'
+      ? await import('../../frontend/src/vue/components/aircraft-specific/templates/FenixThrottleControl.vue')
+      : await import('../../frontend/src/vue/components/aircraft-specific/templates/FlyByWireThrottleControl.vue');
+    const state = reactive({ positions: Array(count).fill(family === 'fenix' ? 2 : 0),
+      sourceStatus: 'connected', pending: false, accepted: true, enabled: true, commands: [],
+      capabilities: Object.fromEntries(['toga', 'flexMct', 'climb', 'idle'].map(id => [`propulsion.throttle.${id}`, true])) });
+    numericPanelMounted = true;
+    mountedApp.unmount();
+    this.throttleState = state;
+    mountedApp = createApp({ setup: () => () => h(Component, {
+      ...(family === 'fenix'
+        ? { leftPosition: state.positions[0], rightPosition: state.positions[1] }
+        : { leverPositions: state.positions, aircraftLabel: count === 4 ? 'FlyByWire A380X' : 'FlyByWire A32NX',
+          leverLabels: count === 2 ? ['L', 'R'] : ['ENG 1', 'ENG 2', 'ENG 3', 'ENG 4'] }),
+      sourceStatus: state.sourceStatus, pending: state.pending, controlEnabled: state.enabled,
+      actionCapabilities: state.capabilities,
+      requestAction: id => {
+        state.commands.push(id);
+        if (state.accepted) state.pending = true;
+        return state.accepted;
+      },
+    }) });
+    mountedApp.mount('#app');
+    await nextTick();
+  },
   numericDraftState: null,
   async mountNumericPanel(panel, fieldId) {
     const loaders = {

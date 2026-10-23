@@ -24,10 +24,7 @@ type SimConnectState = {
 
 type MockSimConnectProvider = {
   start: () => Promise<void>;
-  stop: () => void;
   getState: () => SimConnectState;
-  isAvailable: () => boolean;
-  getGps: () => { lat: number | null; lon: number | null };
 };
 
 type EngineSnapshot = {
@@ -120,7 +117,6 @@ function createMockSimConnectProvider(
 
   return {
     async start(): Promise<void> {},
-    stop(): void {},
     getState(): SimConnectState {
       const ts = now();
       return {
@@ -128,12 +124,6 @@ function createMockSimConnectProvider(
         inFlightContextAt: ts,
         lastEventAt: ts,
       };
-    },
-    isAvailable(): boolean {
-      return true;
-    },
-    getGps(): { lat: number | null; lon: number | null } {
-      return { lat: null, lon: null };
     },
   };
 }

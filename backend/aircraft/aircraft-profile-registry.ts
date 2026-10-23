@@ -15,7 +15,6 @@ const Debug = require('../core/debug.js') as {
 };
 const eventBus = require('../core/event-bus.js') as {
   emit: (event: string, payload: Record<string, any>) => void;
-  on: (event: string, handler: (payload: Record<string, any>) => void) => () => void;
 };
 const { MSG } = require('../core/message-types.js') as {
   MSG: Record<string, string>;
@@ -231,20 +230,6 @@ function emitProfileEvent(eventType: string, data: GenericRecord): void {
   }
 }
 
-function onProfileChange(callback: (eventType: string, data: GenericRecord) => void): () => void {
-  const events = ['profile:loaded', 'profile:activated', 'profile:validation-error'];
-  const unsubscribes = events.map((event) => eventBus.on(event, (data) => callback(event.replace('profile:', ''), data)));
-  return () => {
-    for (const unsubscribe of unsubscribes) {
-      try {
-        unsubscribe();
-      } catch {
-        // Ignore.
-      }
-    }
-  };
-}
-
 function validateProfilesWithAjvStrict(): GenericRecord {
   try {
     const strictSchema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
@@ -422,7 +407,6 @@ const aircraftProfileRegistryApi = {
   getStats,
   getValidation,
   initialize,
-  onProfileChange,
   validateExternal,
   validateProfile,
   validateProfilesWithAjvStrict,

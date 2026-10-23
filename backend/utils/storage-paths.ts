@@ -132,11 +132,6 @@ function getThemesDir(env: EnvLike = process.env): string {
   return path.join(getAppDataRoot(env), THEMES_DIR_NAME);
 }
 
-function resolveThemesDir(options: ResolveOptions = {}): string {
-  const env = options.env || process.env;
-  return getThemesDir(env);
-}
-
 function getLogbookFilePath(env: EnvLike = process.env): string {
   return path.join(getAppDataRoot(env), LOGBOOK_FILE_NAME);
 }
@@ -175,11 +170,6 @@ function resolveOriginTargetFilePath(options: ResolveOptions = {}): string {
 
 function getUserIdFilePath(env: EnvLike = process.env): string {
   return path.join(getAppDataRoot(env), USER_ID_FILE_NAME);
-}
-
-function resolveUserIdFilePath(options: ResolveOptions = {}): string {
-  const env = options.env || process.env;
-  return getUserIdFilePath(env);
 }
 
 function expandWindowsEnvTokens(rawPath: unknown, env: EnvLike = process.env): string | null {
@@ -323,8 +313,6 @@ const storagePathsApi = {
   resolveTakeoffLogFilePath,
   resolveOriginTargetFilePath,
   resolveSettingsFilePath,
-  resolveThemesDir,
-  resolveUserIdFilePath,
 };
 
 module.exports = storagePathsApi;

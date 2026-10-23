@@ -1,14 +1,11 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import {
-  THROTTLE_FORWARD_ROW_UNITS,
-  THROTTLE_REVERSE_ROW_UNITS,
-} from '../../../aircraft-specific/throttle-quadrant-geometry.js';
+import { THROTTLE_FORWARD_ROW_UNITS } from '../../../aircraft-specific/throttle-quadrant-geometry.js';
 
 // Presentational Airbus-style thrust-lever quadrant. It draws a pedestal with
-// one gate row per forward detent (TO GA at the top, IDLE at the bottom), a
-// locked reverse zone underneath, and one lever knob per engine placed at its
-// live readback position. Every gate row is a plain one-tap button; there is
+// one gate row per forward detent (TO GA at the top, IDLE at the bottom) and
+// one lever knob per engine placed at its forward readback position. Reverse
+// positions appear only in the readouts. Every gate row is a one-tap button; there is
 // no axis, no pointer tracking and nothing to pull. The aircraft-specific
 // wrappers own the readback maths and the command dispatch.
 
@@ -20,6 +17,7 @@ const props = defineProps({
   detents: { type: Array, required: true },
   levers: { type: Array, default: () => [] },
   currentDetentId: { type: String, default: null },
+  readbackFresh: { type: Boolean, default: false },
   leversSplit: { type: Boolean, default: false },
   pending: { type: Boolean, default: false },
   detentDisabled: { type: Function, default: () => true },
@@ -32,6 +30,29 @@ const sectionAttr = computed(() => `data-${props.vendor}-section`);
 const detentAttr = computed(() => `data-${props.vendor}-throttle-detent`);
 const leverAttr = computed(() => `data-${props.vendor}-throttle-lever`);
 const statusId = computed(() => `${props.vendor}-throttle-status`);
+const styleId = computed(() => `${props.vendor}-throttle-style`);
+const styles = Object.freeze([
+  { id: 'clean', label: 'Clean' },
+  { id: 'cockpit', label: 'Cockpit' },
+  { id: 'compact', label: 'Compact' },
+]);
+const styleStorageKey = 'ff-throttle-style';
+function savedStyle() {
+  try {
+    const saved = globalThis.localStorage?.getItem(styleStorageKey);
+    if (styles.some(style => style.id === saved)) return saved;
+  } catch { /* A local appearance choice also works without browser storage. */ }
+  return 'clean';
+}
+const selectedStyle = ref(savedStyle());
+function selectStyle(value) {
+  if (!styles.some(style => style.id === value)) return;
+  selectedStyle.value = value;
+  try { globalThis.localStorage?.setItem(styleStorageKey, value); } catch {}
+}
+const positionLabel = computed(() => props.readbackFresh ? 'Lever position'
+  : props.levers.some(lever => lever.state && lever.state !== 'missing')
+    ? 'Last known position' : 'Lever position unavailable');
 
 const pendingDetentId = ref(null);
 let pendingClearTimer = null;
@@ -65,17 +86,11 @@ function commit(detent) {
 }
 
 function isLive(detent) {
-  return props.currentDetentId === detent.id;
+  return props.readbackFresh && props.currentDetentId === detent.id;
 }
 
 function isTarget(detent) {
   return props.pending && pendingDetentId.value === detent.id;
-}
-
-function gateTag(detent) {
-  if (isTarget(detent)) return 'Sending';
-  if (isLive(detent)) return 'Live';
-  return `Set ${props.levers.length}`;
 }
 
 function gateClass(detent) {
@@ -86,7 +101,7 @@ function gateClass(detent) {
 }
 
 const trackStyle = computed(() => ({
-  gridTemplateRows: `repeat(${props.detents.length}, var(--ff-throttle-row)) calc(var(--ff-throttle-row) * ${THROTTLE_REVERSE_ROW_UNITS / THROTTLE_FORWARD_ROW_UNITS})`,
+  gridTemplateRows: `repeat(${props.detents.length}, var(--ff-throttle-row))`,
 }));
 
 const quadrantStyle = computed(() => ({
@@ -95,7 +110,7 @@ const quadrantStyle = computed(() => ({
 
 const idleTravelPercent = computed(() => {
   const idleIndex = Math.max(0, props.detents.length - 1);
-  const totalUnits = props.detents.length * THROTTLE_FORWARD_ROW_UNITS + THROTTLE_REVERSE_ROW_UNITS;
+  const totalUnits = props.detents.length * THROTTLE_FORWARD_ROW_UNITS;
   const idleUnits = idleIndex * THROTTLE_FORWARD_ROW_UNITS + THROTTLE_FORWARD_ROW_UNITS / 2;
   return Number(((idleUnits / totalUnits) * 100).toFixed(3));
 });
@@ -108,7 +123,7 @@ function knobStyle(lever) {
 }
 
 function leverState(lever) {
-  return lever.state || 'missing';
+  return props.readbackFresh ? lever.state || 'missing' : 'missing';
 }
 
 function readoutClass(lever) {
@@ -123,18 +138,28 @@ function readoutClass(lever) {
 
 <template>
   <section
-    class="airbus-throttle rounded-xl border border-cyan-500/30 bg-cyan-500/[0.045] p-3 sm:p-4"
+    class="airbus-throttle rounded-lg border border-border bg-panel p-3 sm:p-4"
     :[sectionAttr]="'virtual-throttle'"
     data-aircraft-control-group="propulsion.throttle"
     :data-throttle-lever-count="levers.length"
     :data-throttle-split="leversSplit ? 'true' : 'false'"
+    :data-throttle-style="selectedStyle"
   >
     <div class="mb-3 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
       <div class="min-w-0">
-        <div class="dashboard-section-kicker">Virtual throttle</div>
-        <h4 class="mt-1 text-sm font-semibold text-gray-100">{{ heading }}</h4>
+        <h4 class="text-base font-semibold text-fg">Virtual throttle</h4>
+        <p class="mt-1 text-xs text-muted-fg">{{ heading }}</p>
       </div>
-      <div class="airbus-throttle-readouts flex max-w-full flex-wrap justify-end gap-1.5 font-mono text-[10px] tabular-nums" aria-label="Live lever readback">
+      <label :for="styleId" class="airbus-throttle-style">
+        <span>Style</span>
+        <select :id="styleId" :value="selectedStyle" aria-label="Throttle style" @change="selectStyle($event.target.value)">
+          <option v-for="style in styles" :key="style.id" :value="style.id">{{ style.label }}</option>
+        </select>
+      </label>
+    </div>
+    <div class="airbus-throttle-feedback">
+      <span class="airbus-throttle-position-label">{{ positionLabel }}</span>
+      <div class="airbus-throttle-readouts" :aria-label="positionLabel">
         <span
           v-for="(lever, index) in levers"
           :key="index"
@@ -176,23 +201,17 @@ function readoutClass(lever) {
               @click="commit(detent)"
             >
               <span class="airbus-throttle-plate">
-                <span class="airbus-throttle-engraving">{{ detent.engraving || detent.label }}</span>
-                <span class="airbus-throttle-tag">{{ gateTag(detent) }}</span>
+                <span class="airbus-throttle-engraving">{{ selectedStyle === 'cockpit' ? detent.engraving || detent.label : detent.label }}</span>
+                <svg v-if="isTarget(detent) || isLive(detent)" class="airbus-throttle-marker" viewBox="0 0 20 20" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                  <circle cx="10" cy="10" r="6" :fill="isTarget(detent) ? 'none' : 'currentColor'" />
+                </svg>
+                <span v-else class="airbus-throttle-marker" aria-hidden="true"></span>
               </span>
               <span class="airbus-throttle-gate" aria-hidden="true">
                 <span class="airbus-throttle-gate-line"></span>
               </span>
             </button>
 
-            <div class="airbus-throttle-reverse" aria-hidden="true">
-              <span class="airbus-throttle-plate">
-                <span class="airbus-throttle-engraving is-reverse">REV</span>
-                <span class="airbus-throttle-tag">Locked</span>
-              </span>
-              <span class="airbus-throttle-gate is-reverse">
-                <span class="airbus-throttle-gate-line"></span>
-              </span>
-            </div>
           </div>
 
           <div class="airbus-throttle-levers" aria-hidden="true">
@@ -202,11 +221,13 @@ function readoutClass(lever) {
               class="airbus-throttle-channel"
               :data-lever-state="leverState(lever)"
             >
-              <span class="airbus-throttle-stem" :style="knobStyle(lever)"></span>
-              <span class="airbus-throttle-knob" :style="knobStyle(lever)">
-                <span class="airbus-throttle-knob-grip"></span>
-                <span class="airbus-throttle-knob-glyph">{{ lever.glyph }}</span>
-              </span>
+              <template v-if="lever.state !== 'reverse'">
+                <span class="airbus-throttle-stem" :style="knobStyle(lever)"></span>
+                <span class="airbus-throttle-knob" :style="knobStyle(lever)">
+                  <span class="airbus-throttle-knob-grip"></span>
+                  <span class="airbus-throttle-knob-glyph">{{ lever.glyph }}</span>
+                </span>
+              </template>
             </div>
           </div>
         </div>
@@ -216,11 +237,14 @@ function readoutClass(lever) {
     <p
       :id="statusId"
       class="mt-3 text-[11px] leading-relaxed"
-      :class="leversSplit ? 'text-amber-300' : 'text-gray-400'"
+      :class="leversSplit && readbackFresh ? 'text-warning' : 'text-muted-fg'"
       role="status"
       aria-live="polite"
     >{{ statusText }}</p>
-    <p v-if="footnote" class="mt-1 text-[10px] leading-relaxed text-gray-500">{{ footnote }}</p>
+    <details v-if="footnote" class="airbus-throttle-help">
+      <summary>How it works</summary>
+      <p>{{ footnote }}</p>
+    </details>
   </section>
 </template>
 
@@ -235,10 +259,55 @@ function readoutClass(lever) {
   --ff-throttle-metal-lo: #1a1d22;
   --ff-throttle-slot: #07090c;
   --ff-throttle-engrave: #cfd5dc;
-  --ff-throttle-live: 52 211 153;
-  --ff-throttle-target: 34 211 238;
-  --ff-throttle-split: 251 191 36;
+  --ff-throttle-live: var(--success);
+  --ff-throttle-target: var(--muted-foreground);
+  --ff-throttle-split: var(--warning);
+  max-width: 44rem;
 }
+
+.airbus-throttle-style {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: rgb(var(--muted-foreground));
+}
+.airbus-throttle-style select {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0.5rem;
+  border: 1px solid rgb(var(--border));
+  border-radius: 4px;
+  background: rgb(var(--card));
+  color: rgb(var(--foreground));
+  font: inherit;
+}
+.airbus-throttle-style select:focus-visible,
+.airbus-throttle-help summary:focus-visible {
+  outline: 2px solid rgb(var(--selection));
+  outline-offset: 3px;
+}
+.airbus-throttle-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  margin: 0.25rem 0 1rem;
+}
+.airbus-throttle-position-label {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+.airbus-throttle-readouts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.airbus-throttle-help { margin-top: 0.5rem; color: rgb(var(--muted-foreground)); font-size: 0.75rem; }
+.airbus-throttle-help summary { width: fit-content; padding: 0.65rem 0; cursor: pointer; }
+.airbus-throttle-help p { margin: 0.25rem 0 0; line-height: 1.6; }
 
 .airbus-throttle-quadrant {
   max-width: 42rem;
@@ -301,8 +370,7 @@ function readoutClass(lever) {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 2px 6px rgba(0, 0, 0, 0.45);
 }
 
-.airbus-throttle-detent,
-.airbus-throttle-reverse {
+.airbus-throttle-detent {
   display: grid;
   grid-template-columns: var(--ff-throttle-plate-w) 1fr;
   align-items: stretch;
@@ -334,8 +402,13 @@ function readoutClass(lever) {
   cursor: not-allowed;
   opacity: 0.45;
 }
+.airbus-throttle-detent:disabled.is-live,
+.airbus-throttle-detent:disabled.is-target {
+  /* A disabled action must not dim the observed position or pending target. */
+  opacity: 1;
+}
 .airbus-throttle-detent:focus-visible {
-  outline: 2px solid rgb(var(--ff-throttle-target) / 0.7);
+  outline: 2px solid rgb(var(--selection));
   outline-offset: -3px;
 }
 .airbus-throttle-detent.is-live {
@@ -374,19 +447,16 @@ function readoutClass(lever) {
 .is-target .airbus-throttle-engraving {
   color: rgb(var(--ff-throttle-target));
 }
-.airbus-throttle-engraving.is-reverse {
-  color: #7d8590;
-}
 
-.airbus-throttle-tag {
-  font-size: 0.6rem;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #8a939e;
+.airbus-throttle-marker {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  color: rgb(var(--muted-foreground));
+  pointer-events: none;
 }
-.is-live .airbus-throttle-tag { color: rgb(var(--ff-throttle-live) / 0.9); }
-.is-target .airbus-throttle-tag { color: rgb(var(--ff-throttle-target)); }
+.is-live .airbus-throttle-marker { color: rgb(var(--ff-throttle-live)); }
+.is-target .airbus-throttle-marker { color: rgb(var(--ff-throttle-target)); }
 
 /* Gate notch: a horizontal bar across the lever slot at the detent's centre. */
 .airbus-throttle-gate {
@@ -424,34 +494,10 @@ function readoutClass(lever) {
 .is-target .airbus-throttle-gate-line {
   background: rgb(var(--ff-throttle-target));
   box-shadow: 0 0 10px rgba(var(--ff-throttle-target) / 0.55);
-  animation: airbus-throttle-pulse 900ms ease-in-out infinite;
 }
 .is-target .airbus-throttle-gate-line::before {
   border-left-color: rgb(var(--ff-throttle-target));
 }
-.airbus-throttle-gate.is-reverse .airbus-throttle-gate-line {
-  height: 0;
-  border-top: 2px dashed rgba(125, 133, 144, 0.45);
-  background: none;
-  box-shadow: none;
-}
-.airbus-throttle-gate.is-reverse .airbus-throttle-gate-line::before {
-  display: none;
-}
-
-.airbus-throttle-reverse {
-  border-bottom: 0;
-  background:
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.045) 0 6px, transparent 6px 16px),
-    rgba(0, 0, 0, 0.35);
-}
-.airbus-throttle-reverse .airbus-throttle-plate {
-  gap: 0.1rem;
-}
-.airbus-throttle-reverse .airbus-throttle-engraving {
-  font-size: 0.95rem;
-}
-
 /* Lever overlay: one channel per engine over the slot column. Pointer events
    pass straight through to the gate buttons underneath. */
 .airbus-throttle-levers {
@@ -566,9 +612,6 @@ function readoutClass(lever) {
     0 0 0 1px rgba(var(--ff-throttle-split) / 0.8),
     0 0 12px rgba(var(--ff-throttle-split) / 0.35);
 }
-.airbus-throttle-channel[data-lever-state='reverse'] .airbus-throttle-knob {
-  background: linear-gradient(180deg, #8c8f94 0%, #5c6169 45%, #3f444b 100%);
-}
 
 /* Readout chips: small LCD-style readback per lever. */
 .airbus-throttle-readout {
@@ -585,10 +628,89 @@ function readoutClass(lever) {
 .airbus-throttle-readout.is-between { color: rgb(var(--ff-throttle-split)); }
 .airbus-throttle-readout.is-reverse { color: #c8cfd8; }
 
-@keyframes airbus-throttle-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
+/* Clean and compact share the application's surfaces. The cockpit option
+   retains material shading; all three use the same controls and observations. */
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-pedestal {
+  padding: 0;
+  border: 1px solid rgb(var(--border));
+  border-radius: 6px;
+  background: rgb(var(--card));
+  box-shadow: none;
 }
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-screw { display: none; }
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-rows {
+  border-radius: 5px;
+  background: none;
+  box-shadow: none;
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-detent {
+  border-bottom: 1px solid rgb(var(--border) / 0.65);
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-plate {
+  gap: 0.4rem;
+  border-right: 0;
+  box-shadow: none;
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-engraving {
+  font: 600 1rem/1.25 var(--ff-font-ui);
+  letter-spacing: 0;
+  color: rgb(var(--foreground));
+  text-shadow: none;
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .is-live .airbus-throttle-engraving { color: rgb(var(--success)); }
+.airbus-throttle:not([data-throttle-style='cockpit']) .is-target .airbus-throttle-engraving { color: rgb(var(--ff-throttle-target)); }
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-channel::before {
+  width: 4px;
+  background: rgb(var(--background));
+  box-shadow: none;
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-gate-line {
+  height: 1px;
+  background: rgb(var(--border-strong));
+  box-shadow: none;
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .is-live .airbus-throttle-gate-line {
+  height: 2px;
+  background: rgb(var(--success));
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .is-target .airbus-throttle-gate-line { background: rgb(var(--ff-throttle-target)); }
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-gate-line::before { display: none; }
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-channel .airbus-throttle-knob {
+  border: 1px solid rgb(var(--border-strong));
+  border-radius: 4px;
+  background: rgb(var(--gray-200));
+  box-shadow: 0 2px 3px rgb(var(--background) / 0.5);
+}
+.airbus-throttle:not([data-throttle-style='cockpit'])[data-throttle-split='true'] .airbus-throttle-knob {
+  border-color: rgb(var(--warning));
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-knob-glyph {
+  color: rgb(var(--background));
+  text-shadow: none;
+}
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-knob-grip { opacity: 0.25; }
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-stem { display: none; }
+.airbus-throttle:not([data-throttle-style='cockpit']) .airbus-throttle-readout {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  text-shadow: none;
+  letter-spacing: 0;
+}
+.airbus-throttle[data-throttle-style='compact'] { --ff-throttle-row: 56px; }
+.airbus-throttle[data-throttle-style='compact'] .airbus-throttle-detent {
+  grid-template-columns: 1fr;
+  min-height: 0;
+}
+.airbus-throttle[data-throttle-style='compact'] .airbus-throttle-plate {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+}
+.airbus-throttle[data-throttle-style='compact'] .airbus-throttle-gate,
+.airbus-throttle[data-throttle-style='compact'] .airbus-throttle-levers { display: none; }
 
 @media (min-width: 640px) {
   .airbus-throttle-pedestal {
@@ -596,13 +718,17 @@ function readoutClass(lever) {
   }
 }
 
+@media (max-width: 479px) {
+  .airbus-throttle:not([data-throttle-lever-count='2']) .airbus-throttle-readouts {
+    display: grid;
+    grid-template-columns: repeat(2, max-content);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .airbus-throttle-knob,
   .airbus-throttle-stem {
     transition: none;
-  }
-  .is-target .airbus-throttle-gate-line {
-    animation: none;
   }
 }
 </style>

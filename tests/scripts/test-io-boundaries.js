@@ -72,7 +72,7 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/telemetry-provider/sidecar-process-ownership.ts', 'release-owned-runtime', 'existsSync=1,readFileSync=3,readdirSync=1,unlinkSync=1,writeFileSync=1'],
   ['backend/utils/bounded-utf8-record-reader.ts', 'recording-storage', 'promises.open=1'],
   ['backend/utils/flight-logs-dir.ts', 'recording-storage', 'existsSync=1,lstatSync=1'],
-  ['backend/utils/safe-fs.ts', 'safety-primitive', 'closeSync=2,copyFileSync=1,existsSync=6,fsyncSync=1,lstatSync=5,openSync=1,realpathSync=1,renameSync=1,unlinkSync=1,writeFileSync=2'],
+  ['backend/utils/safe-fs.ts', 'safety-primitive', 'closeSync=2,existsSync=6,fsyncSync=1,lstatSync=4,openSync=1,realpathSync=1,renameSync=1,unlinkSync=1,writeFileSync=1'],
   // Includes the unchanged nearest-existing-directory read used by recording capacity checks.
   ['backend/utils/storage-paths.ts', 'guarded-settings', 'existsSync=1,mkdirSync=1,readdirSync=1,statSync=3'],
   ['backend/utils/user-identity.ts', 'guarded-settings', 'existsSync=1,readFileSync=1'],

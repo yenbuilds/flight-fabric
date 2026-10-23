@@ -1559,14 +1559,6 @@ function getFlapNotch(value: unknown): GenericRecord | null {
   return flaps.notches.find((notch: GenericRecord) => notch.value === value) || null;
 }
 
-function getVisualSupport(): string {
-  return getActiveProfile()?.integration?.presentation?.visualSupport || 'basic';
-}
-
-function hasFullVisualSupport(): boolean {
-  return getVisualSupport() === 'full';
-}
-
 // -----------------------------------------------------------------------------
 // VS0-Based Category Inference
 // -----------------------------------------------------------------------------
@@ -1692,9 +1684,6 @@ const aircraftProfileLoaderApi = {
 
   isLandingFlaps,
   getFlapNotch,
-
-  getVisualSupport,
-  hasFullVisualSupport,
 
   clearCache,
   resolveProfilePath,

@@ -1,18 +1,12 @@
 // Shared geometry for the Airbus-style virtual throttle quadrant.
 //
 // The quadrant is drawn as a vertical stack of rows: one row per forward
-// detent (TOGA at the top, IDLE at the bottom) followed by a shorter, locked
-// reverse zone. Lever knobs are placed by mapping a raw lever readback onto
-// that row stack, so a lever sitting exactly on a detent lands on the centre
-// of that detent's gate and a lever between detents is drawn between gates.
+// detent (TOGA at the top, IDLE at the bottom). Lever knobs are placed by
+// mapping a raw lever readback onto that row stack, so a lever sitting exactly
+// on a detent lands on the centre of its gate and a lever between detents is
+// drawn between gates. Reverse is reported separately in the text readouts.
 
 export const THROTTLE_FORWARD_ROW_UNITS = 1;
-export const THROTTLE_REVERSE_ROW_UNITS = 2 / 3;
-
-// Fractions of the reverse row (0 = top of the row, 1 = bottom) where the two
-// reverse readback positions are drawn.
-const REVERSE_IDLE_ROW_FRACTION = 0.32;
-const FULL_REVERSE_ROW_FRACTION = 0.78;
 
 function finiteOrNull(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
@@ -26,7 +20,7 @@ function finiteOrNull(value) {
  * forward detents.
  */
 function throttleQuadrantTotalUnits(forwardDetentCount) {
-  return forwardDetentCount * THROTTLE_FORWARD_ROW_UNITS + THROTTLE_REVERSE_ROW_UNITS;
+  return forwardDetentCount * THROTTLE_FORWARD_ROW_UNITS;
 }
 
 /**
@@ -34,8 +28,7 @@ function throttleQuadrantTotalUnits(forwardDetentCount) {
  * vertical offset (in row units from the top of the quadrant).
  *
  * `detents` must be ordered from the top gate to the bottom gate (TOGA first,
- * IDLE last). `reverse` gives the raw readback values for reverse idle and
- * full reverse; either may be omitted when the aircraft does not report them.
+ * IDLE last).
  */
 export function buildThrottleQuadrantAnchors(detents, options = {}) {
   const rawKey = options.rawKey || 'angle';
@@ -45,15 +38,6 @@ export function buildThrottleQuadrantAnchors(detents, options = {}) {
     if (raw === null) return;
     anchors.push({ raw, units: index * THROTTLE_FORWARD_ROW_UNITS + THROTTLE_FORWARD_ROW_UNITS / 2 });
   });
-  const reverseTop = detents.length * THROTTLE_FORWARD_ROW_UNITS;
-  const reverseIdle = finiteOrNull(options.reverse?.idle);
-  if (reverseIdle !== null) {
-    anchors.push({ raw: reverseIdle, units: reverseTop + THROTTLE_REVERSE_ROW_UNITS * REVERSE_IDLE_ROW_FRACTION });
-  }
-  const fullReverse = finiteOrNull(options.reverse?.full);
-  if (fullReverse !== null) {
-    anchors.push({ raw: fullReverse, units: reverseTop + THROTTLE_REVERSE_ROW_UNITS * FULL_REVERSE_ROW_FRACTION });
-  }
   // Anchors are interpolated along the raw axis, so keep them sorted by raw
   // value regardless of whether the aircraft reports larger numbers at TOGA
   // (FlyByWire angles, Fenix positions) or the other way round.

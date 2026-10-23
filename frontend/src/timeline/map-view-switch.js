@@ -120,7 +120,6 @@ export function createTimelineMapViewSwitch({
     focusEvent,
     resumeFollow,
     resumeFollowAndCenter,
-    getActiveMode: () => appliedMode,
     hasMap,
     invalidateSizeStaggered,
     render,

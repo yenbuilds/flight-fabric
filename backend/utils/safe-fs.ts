@@ -25,10 +25,6 @@ type WriteTextOptions = GuardOptions & {
   encoding?: BufferEncoding;
 };
 
-type CopyFileOptions = GuardOptions & {
-  sourcePath: string;
-};
-
 function normalizeExtension(value: string): string {
   const trimmed = String(value || '').trim().toLowerCase();
   if (!trimmed) return '';
@@ -169,28 +165,6 @@ function safeUnlinkSync(options: GuardOptions): boolean {
   return true;
 }
 
-function safeWriteTextFileSync(options: WriteTextOptions): string {
-  const resolvedTarget = assertSafeFileTarget(options);
-  ensureDirExists(path.dirname(resolvedTarget));
-  fs.writeFileSync(resolvedTarget, options.data, options.encoding || 'utf8');
-  return resolvedTarget;
-}
-
-function safeCopyFileSync(options: CopyFileOptions): string {
-  const resolvedTarget = assertSafeFileTarget(options);
-  if (!options.sourcePath || typeof options.sourcePath !== 'string') {
-    fail(options.operation, 'missing source path');
-  }
-  const resolvedSource = path.resolve(options.sourcePath);
-  const sourceStat = fs.lstatSync(resolvedSource);
-  if (!sourceStat.isFile() || sourceStat.isSymbolicLink()) {
-    fail(options.operation, 'source is not a regular file');
-  }
-  ensureDirExists(path.dirname(resolvedTarget));
-  fs.copyFileSync(resolvedSource, resolvedTarget);
-  return resolvedTarget;
-}
-
 function safeReplaceTextFileSync(options: WriteTextOptions): string {
   const resolvedTarget = assertSafeFileTarget(options);
   ensureDirExists(path.dirname(resolvedTarget));
@@ -233,10 +207,8 @@ function safeReplaceTextFileSync(options: WriteTextOptions): string {
 
 module.exports = {
   assertSafeFileTarget,
-  safeCopyFileSync,
   safeReplaceTextFileSync,
   safeUnlinkSync,
-  safeWriteTextFileSync,
 };
 
 export {};

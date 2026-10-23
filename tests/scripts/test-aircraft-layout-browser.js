@@ -147,6 +147,167 @@ async function browser() {
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await ready('[data-aircraft-template="pmdg-737"]');
+    async function checkThrottleStyles() {
+      for (const [family, count, climb] of [['fenix', 2, 3], ['fbw', 2, 25], ['fbw', 4, 25]]) {
+        await evaluate(`localStorage.removeItem('ff-throttle-style'); await layoutTest.mountThrottlePanel('${family}', ${count});`);
+        // A trusted, harmless header click enables the browser's haptic API.
+        for (const type of ['mousePressed', 'mouseReleased']) {
+          await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type, x: 40, y: 40, button: 'left', clickCount: 1 });
+        }
+        assert.equal(await evaluate(`return document.querySelector('.airbus-throttle').dataset.throttleStyle;`), 'clean');
+        for (const style of ['clean', 'cockpit', 'compact']) {
+          for (const width of [1440, 390, 320]) {
+            win.setContentSize(width, 1000);
+            const layout = await settled(`
+              const select = document.querySelector('[aria-label="Throttle style"]');
+              select.value = '${style}'; select.dispatchEvent(new Event('change', { bubbles: true }));
+              await layoutTest.settle();
+              const buttons = [...document.querySelectorAll('.airbus-throttle-detent')];
+              const idle = buttons.find(button => button.dataset.aircraftAction === 'propulsion.throttle.idle').getBoundingClientRect();
+              return {
+                overflow: document.documentElement.scrollWidth > innerWidth,
+                minHeight: Math.min(...buttons.map(button => button.getBoundingClientRect().height)),
+                text: buttons.map(button => button.textContent.trim()),
+                current: buttons.filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.dataset.aircraftAction),
+                commands: layoutTest.throttleState.commands.length,
+                knobOffsets: '${style}' === 'compact' ? [] : [...document.querySelectorAll('.airbus-throttle-knob')].map(knob => {
+                  const rect = knob.getBoundingClientRect();
+                  return Math.abs(rect.y + rect.height / 2 - idle.y - idle.height / 2);
+                }),
+              };`, value => !value.overflow && value.minHeight >= 44);
+            assert.equal(layout.overflow, false, `${family}/${count}/${style}/${width}: no horizontal overflow`);
+            assert.ok(layout.minHeight >= 44, `${style}: useful touch targets`);
+            assert.equal(layout.text.length, 4);
+            assert.ok(layout.text.every(text => !/Set|Live|Sending|Requested/.test(text)), 'state motifs do not repeat confusing labels');
+            assert.deepEqual(layout.current, ['propulsion.throttle.idle']);
+            assert.equal(layout.commands, 0, 'appearance selection must not command a throttle');
+            assert.ok(layout.knobOffsets.every(offset => offset <= 1), `${family}/${count}/${style}/${width}: levers stay aligned with the IDLE gate`);
+            await win.webContents.capturePage();
+            fs.writeFileSync(path.join(OUTPUT, `throttle-${family}-${count}-${style}-${width}.png`), (await win.webContents.capturePage()).toPNG());
+          }
+        }
+        const journey = await evaluate(`
+          const state = layoutTest.throttleState;
+          const button = id => document.querySelector('[data-aircraft-action="propulsion.throttle.' + id + '"]');
+          const select = document.querySelector('[aria-label="Throttle style"]');
+          const selectStyle = async value => { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); await layoutTest.settle(); };
+          const snapshot = () => ({ current: [...document.querySelectorAll('.airbus-throttle-detent[aria-pressed="true"]')].map(el => el.dataset.aircraftAction),
+            target: [...document.querySelectorAll('.airbus-throttle-detent.is-target')].map(el => el.dataset.aircraftAction),
+            disabled: [...document.querySelectorAll('.airbus-throttle-detent')].every(el => el.disabled) });
+          button('climb').click(); await layoutTest.settle();
+          const pending = snapshot();
+          select.focus(); await selectStyle('clean');
+          const changedWhilePending = snapshot(), focusRetained = document.activeElement === select;
+          state.positions = Array(${count}).fill(${climb}); state.pending = false; await layoutTest.settle();
+          const confirmed = snapshot();
+          state.sourceStatus = 'stale'; await layoutTest.settle();
+          const stale = snapshot(), staleLabel = document.querySelector('.airbus-throttle-position-label').textContent;
+          state.sourceStatus = 'connected'; state.positions[0] = null; await layoutTest.settle();
+          const missing = snapshot();
+          state.positions[0] = ${family === 'fenix' ? 2 : 0}; await layoutTest.settle();
+          const split = snapshot();
+          state.enabled = false; await layoutTest.settle(); const disabled = snapshot();
+          state.enabled = true; state.accepted = false; await layoutTest.settle();
+          button('idle').click(); await layoutTest.settle(); const rejected = snapshot();
+          state.capabilities['propulsion.throttle.toga'] = false; await layoutTest.settle();
+          const unsupported = button('toga').disabled;
+          await selectStyle('cockpit'); const before = state.commands.length;
+          await layoutTest.mountThrottlePanel('${family}', ${count});
+          return { pending, changedWhilePending, focusRetained, confirmed, stale, staleLabel, missing, split, disabled, rejected, unsupported,
+            commandCount: before, restored: document.querySelector('.airbus-throttle').dataset.throttleStyle };
+        `);
+        assert.deepEqual(journey.pending.current, ['propulsion.throttle.idle'], 'a request cannot move the observed position');
+        assert.deepEqual(journey.pending.target, ['propulsion.throttle.climb']);
+        assert.equal(journey.pending.disabled, true);
+        assert.deepEqual(journey.changedWhilePending, journey.pending, 'changing appearance retains pending and observed state');
+        assert.equal(journey.focusRetained, true);
+        assert.deepEqual(journey.confirmed.current, ['propulsion.throttle.climb']);
+        assert.deepEqual(journey.confirmed.target, []);
+        for (const state of [journey.stale, journey.missing, journey.disabled]) assert.equal(state.disabled, true);
+        assert.deepEqual(journey.stale.current, [], 'stale data is not marked as the current lever position');
+        assert.equal(journey.staleLabel, 'Last known position');
+        assert.deepEqual(journey.missing.current, []);
+        assert.deepEqual(journey.split.current, []);
+        assert.deepEqual(journey.rejected.target, []);
+        assert.equal(journey.unsupported, true);
+        assert.equal(journey.commandCount, 2, 'only deliberate detent actions dispatch');
+        assert.equal(journey.restored, 'cockpit', 'style survives a component remount');
+        const reverse = await evaluate(`
+          layoutTest.throttleState.positions[1] = ${family === 'fenix' ? 1 : -6}; await layoutTest.settle();
+          return {
+            readout: document.querySelectorAll('.airbus-throttle-readout')[1].textContent,
+            knobs: document.querySelectorAll('.airbus-throttle-knob').length,
+            current: document.querySelectorAll('.airbus-throttle-detent[aria-pressed="true"]').length,
+            commands: layoutTest.throttleState.commands.length,
+          };
+        `);
+        assert.match(reverse.readout, /REV IDLE/, 'reverse lever position remains available in its readout');
+        assert.equal(reverse.knobs, count - 1, 'a reverse lever must not be drawn at a forward detent');
+        assert.equal(reverse.current, 0, 'mixed idle/reverse readback must not highlight a common forward detent');
+        assert.equal(reverse.commands, 0, 'receiving reverse readback must not dispatch a throttle command');
+        await win.webContents.capturePage();
+        fs.writeFileSync(path.join(OUTPUT, `throttle-${family}-${count}-reverse-320.png`), (await win.webContents.capturePage()).toPNG());
+      }
+      await evaluate(`localStorage.setItem('ff-throttle-style', 'removed-style'); await layoutTest.mountThrottlePanel();`);
+      assert.equal(await evaluate(`return document.querySelector('.airbus-throttle').dataset.throttleStyle;`), 'clean');
+      await evaluate(`document.querySelector('[aria-label="Throttle style"]').focus();`);
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' });
+      assert.equal(await settled(`return document.querySelector('.airbus-throttle').dataset.throttleStyle;`, value => value === 'cockpit'), 'cockpit', 'native keyboard selection changes style');
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+      await evaluate(`document.querySelector('[data-aircraft-action="propulsion.throttle.climb"]').focus();`);
+      assert.equal(await evaluate(`return document.activeElement?.dataset.aircraftAction;`), 'propulsion.throttle.climb');
+      for (const type of ['keyDown', 'keyUp']) await win.webContents.debugger.sendCommand('Input.dispatchKeyEvent', {
+        type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13,
+        ...(type === 'keyDown' ? { text: '\r', unmodifiedText: '\r' } : {}),
+      });
+      assert.deepEqual(await settled(`return [...layoutTest.throttleState.commands];`, commands => commands.length === 1), ['propulsion.throttle.climb'], 'native keyboard activation dispatches once');
+      await win.webContents.capturePage();
+      fs.writeFileSync(path.join(OUTPUT, 'throttle-pending-320.png'), (await win.webContents.capturePage()).toPNG());
+      const knob = await evaluate(`
+        layoutTest.throttleState.positions = [3, 3]; layoutTest.throttleState.pending = false; await layoutTest.settle();
+        const rect = document.querySelector('.airbus-throttle-knob').getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      `);
+      for (const type of ['mousePressed', 'mouseReleased']) await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type, ...knob, button: 'left', clickCount: 1,
+      });
+      assert.deepEqual(await settled(`return [...layoutTest.throttleState.commands];`, commands => commands.length === 2), ['propulsion.throttle.climb', 'propulsion.throttle.climb'], 'lever artwork passes native taps to its detent');
+      await evaluate(`layoutTest.throttleState.pending = false; layoutTest.throttleState.sourceStatus = 'stale'; await layoutTest.settle();`);
+      await win.webContents.capturePage();
+      fs.writeFileSync(path.join(OUTPUT, 'throttle-stale-320.png'), (await win.webContents.capturePage()).toPNG());
+      const unavailableStorage = await evaluate(`
+        const get = Storage.prototype.getItem, set = Storage.prototype.setItem;
+        try {
+          Storage.prototype.getItem = () => { throw new Error('blocked'); };
+          Storage.prototype.setItem = () => { throw new Error('blocked'); };
+          await layoutTest.mountThrottlePanel();
+          const select = document.querySelector('[aria-label="Throttle style"]');
+          select.value = 'compact'; select.dispatchEvent(new Event('change', { bubbles: true })); await layoutTest.settle();
+          return document.querySelector('.airbus-throttle').dataset.throttleStyle;
+        } finally { Storage.prototype.getItem = get; Storage.prototype.setItem = set; }
+      `);
+      assert.equal(unavailableStorage, 'compact', 'style remains usable when local storage is blocked');
+      await evaluate(`localStorage.removeItem('ff-throttle-style'); await layoutTest.remount();`);
+      for (const id of ['fenix-a320', 'fbw-a380x']) {
+        await evaluate(`await layoutTest.cockpitScenario('${id}');
+          layoutTest.setAircraftValues(${JSON.stringify(Object.fromEntries(Array.from({ length: id === 'fenix-a320' ? 2 : 4 }, (_, i) => [
+            `propulsion.throttleLever${i + 1}${id === 'fenix-a320' ? 'Position' : 'Angle'}`, id === 'fenix-a320' ? 2 : 0,
+          ])))}); await layoutTest.settle();`);
+        for (const width of [1440, 390, 320]) {
+          win.setContentSize(width, 1000);
+          await settled(`document.querySelector('.airbus-throttle').scrollIntoView({ behavior: 'instant', block: 'center' });
+            await layoutTest.settle();
+            const rect = document.querySelector('.airbus-throttle').getBoundingClientRect();
+            return rect.left >= 0 && rect.right <= innerWidth;`, value => value);
+          assert.equal(await evaluate(`return document.documentElement.scrollWidth <= innerWidth;`), true, `${id}/${width}: integrated throttle stays within the page`);
+          await win.webContents.capturePage();
+          fs.writeFileSync(path.join(OUTPUT, `throttle-page-${id}-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        }
+      }
+      console.log('PASS Throttle: three styles at desktop/390px/320px, two/four levers, saved style, native keyboard, pending/readback separation, stale/missing/split states and command guards.');
+    }
     async function checkPresetFirstViews(allFamilies = true) {
       async function capture(name) {
         await win.webContents.capturePage(); await wait(100);
@@ -228,6 +389,11 @@ async function browser() {
       win.destroy();app.exit(0);return;
     }
     await evaluate("document.querySelector('[data-aircraft-view=controls]').click();await layoutTest.settle();");
+    if (process.env.FF_THROTTLE_STYLES_ONLY === '1') {
+      await checkThrottleStyles();
+      assert.deepEqual(errors, [], 'Throttle styles have no browser errors');
+      win.destroy(); app.exit(0); return;
+    }
     if (process.env.FF_NUMERIC_DRAFTS_ONLY === '1') {
       await checkMountedNumericDrafts({ evaluate });
       assert.deepEqual(errors, [], 'Mounted numeric drafts have no browser errors');
@@ -1015,6 +1181,7 @@ async function browser() {
     if (!process.env.FF_CDU_LAYOUT_ONLY && !process.env.FF_AIRCRAFT_TOOLS_ONLY && !process.env.FF_AUTOTAXI_LAYOUT_ONLY) {
       await checkMountedNumericDrafts({ evaluate });
       await checkPresetFirstViews(false);
+      await checkThrottleStyles();
     }
     assert.deepEqual(errors, [], 'no runtime errors');
     console.log(process.env.FF_CDU_LAYOUT_ONLY === '1'

@@ -306,14 +306,8 @@ function assessRecordedBounceEvidence(
 }
 
 module.exports = {
-  LANDING_RATE_CONTEXT_SCHEMA_VERSION,
-  RECORDED_BOUNCE_EVIDENCE_THRESHOLDS,
-  SHALLOW_BOUNCE_EVIDENCE_THRESHOLDS,
-  assessCombinedShallowBounceEvidence,
   assessRecordedBounceEvidence,
   isLegacyRunwayExcursionGrade,
-  hasRecordedLandingRateContext,
-  gradeLandingRateFromRecordedContext,
   parseLandingRateContext,
   resolveLandingRateHeadline,
 };

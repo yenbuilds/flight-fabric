@@ -52,6 +52,7 @@ const TEST_STEPS = [
   ['node', ['dist/backend/tests/core/simbridge-runtime-state.test.js']],
   ['node', ['dist/backend/tests/flight-recording/recording-path-guard.test.js']],
   ['node', ['dist/backend/tests/telemetry-provider/simconnect-frame-builder.test.js']],
+  ['node', ['--test', 'dist/backend/tests/telemetry-provider/mock-provider.test.js']],
   ['node', ['dist/backend/tests/utils/safe-fs.test.js']],
   ['node', ['scripts/validate-frame-contract.js']],
   ['npm', ['run', 'validate:simvar-units']],

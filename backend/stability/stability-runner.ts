@@ -1673,8 +1673,6 @@ module.exports = {
   // reference the same values for violation detection without re-defining them.
   BANK_MAX_DEG,
   VS_MIN_FPM,
-  DEFAULT_GLIDEPATH_ANGLE_DEG,
-  GLIDEPATH_VS_DELTA_MAX_FPM,
   STABILITY_VERDICT_POLICY_ID,
   STABILITY_VERDICT_POLICY_VERSION,
   STABILITY_VERDICT_MIN_OVERALL_SCORE,

@@ -397,12 +397,6 @@ export type ResolveAircraftIntegrationActionContext = Readonly<{
   profileKey?: unknown;
 }>;
 
-export type ResolveAircraftIntegrationFieldContext = Readonly<{
-  adapterId?: unknown;
-  fieldId?: unknown;
-  profileKey?: unknown;
-}>;
-
 export type ResolveAircraftIntegrationRouteContext = ResolveAircraftIntegrationActionContext & Readonly<{
   routeId?: unknown;
 }>;

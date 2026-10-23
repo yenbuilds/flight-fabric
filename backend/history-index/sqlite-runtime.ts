@@ -327,8 +327,6 @@ function runHistoryIndexSqliteSmoke(options: OpenDatabaseOptions = {}): SmokeRes
 module.exports = {
   HISTORY_INDEX_BUSY_TIMEOUT_MS,
   HISTORY_INDEX_DB_FILE_NAME,
-  configureHistoryIndexConnection,
-  createQuarantinePath,
   isHistoryIndexCorruptionError,
   loadNodeSqlite,
   openHistoryIndexDatabase,

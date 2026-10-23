@@ -7,7 +7,7 @@ export const FBW_THROTTLE_DETENTS = Object.freeze([
 ]);
 
 // Reverse readback angles reported by the FlyByWire throttle lever axis. They
-// are drawn in the locked reverse zone of the quadrant but never commanded.
+// appear in the lever readouts but are never commanded.
 export const FBW_THROTTLE_REVERSE = Object.freeze({ idle: -6, full: -20 });
 
 export function normalizeFbwThrottleAngle(value) {
@@ -60,7 +60,6 @@ const props = defineProps({
 
 const QUADRANT_ANCHORS = buildThrottleQuadrantAnchors(FBW_THROTTLE_DETENTS, {
   rawKey: 'angle',
-  reverse: FBW_THROTTLE_REVERSE,
 });
 
 const normalizedPositions = computed(() => (
@@ -149,6 +148,7 @@ const footnote = 'Each tap uses this aircraft’s saved calibration, then verifi
     :detents="FBW_THROTTLE_DETENTS"
     :levers="levers"
     :current-detent-id="currentDetent?.id || null"
+    :readback-fresh="sourceStatus === 'connected'"
     :levers-split="leversSplit"
     :pending="pending"
     :detent-disabled="detentDisabled"

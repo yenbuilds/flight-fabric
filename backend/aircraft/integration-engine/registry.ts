@@ -12,12 +12,10 @@ import type {
   AircraftIntegrationAction,
   AircraftIntegrationActionRoute,
   AircraftIntegrationDefinition,
-  AircraftIntegrationField,
   AircraftIntegrationRouteSelection,
   ConditionalWrites,
   ResolveAircraftIntegrationActionContext,
   ResolveAircraftIntegrationContext,
-  ResolveAircraftIntegrationFieldContext,
   ResolveAircraftIntegrationRouteContext,
 } from './types.js';
 import { isSafeMobiFlightCalculatorCode } from '../../utils/mobiflight-protocol.js';
@@ -826,15 +824,6 @@ function createAircraftIntegrationRegistry(
     return readOwn(definition.actions, actionId);
   }
 
-  function resolveField(
-    context: ResolveAircraftIntegrationFieldContext,
-  ): AircraftIntegrationField | null {
-    const definition = resolveDefinition(context?.adapterId, context?.profileKey);
-    const fieldId = normalizeString(context?.fieldId);
-    if (!definition || !SAFE_LOGICAL_ID_RE.test(fieldId)) return null;
-    return readOwn(definition.fields, fieldId);
-  }
-
   function resolveActionRoute(
     context: ResolveAircraftIntegrationRouteContext,
   ): AircraftIntegrationActionRoute | null {
@@ -889,7 +878,6 @@ function createAircraftIntegrationRegistry(
     register,
     resolveAction,
     resolveActionRoute,
-    resolveField,
     resolveForProfile,
     resolveIntegration,
     selectActionRoute,

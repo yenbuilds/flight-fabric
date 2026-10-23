@@ -955,7 +955,6 @@ module.exports = {
   scoreBounce,
   getAdjustedBands,
   inferSurfaceCondition,
-  TDZ_BANDS,
   TOUCHDOWN_ZONE_MAX_FT,
 };
 

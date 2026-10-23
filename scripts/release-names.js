@@ -39,6 +39,10 @@ function publishedInstallerAssetName(version) {
   return `${publishedProductName(version)} Setup ${version}.exe`.replace(/ /g, '.');
 }
 
+function publishedInstallerArchiveName(version) {
+  return publishedInstallerAssetName(version).replace(/\.exe$/, '.zip');
+}
+
 function publishedInstallerUrl(version) {
   return `${REPO_URL}/releases/download/v${version}/${publishedInstallerAssetName(version)}`;
 }
@@ -85,6 +89,7 @@ module.exports = {
   compareVersions,
   portableFileNames,
   publishedInstallerAssetName,
+  publishedInstallerArchiveName,
   publishedInstallerUrl,
   publishedProductName,
 };

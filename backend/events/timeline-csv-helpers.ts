@@ -731,17 +731,13 @@ function summarizeFuelUsage(firstFuelRow: AnyRecord | null | undefined, lastFuel
 }
 
 module.exports = {
-  coalesceKnown,
   createFuelUsageRowSelector,
-  extractFuelTotalGal,
-  extractFuelTotalWeightLbs,
   extractFuelWeightPerGal,
   hasFuelUsageAnchor,
   mapCsvRow,
   mergeTouchdownDistance,
   parseCSV,
   parseJsonObject,
-  parseValue,
   selectFuelUsageRows,
   summarizeFuelUsage,
   toBooleanOrNull,

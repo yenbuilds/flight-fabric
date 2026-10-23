@@ -417,43 +417,10 @@ const TelemetryUI = {
    * Shared formatting / decoding helpers used by multiple strip files.
    */
   utils: {
-    /** Left-pad a number to 2 digits. */
-    pad2: function(n) { return String(n).padStart(2, '0'); },
-
     /** Build the compact widgets' shared landing verdict presentation. */
     landingPresentation: landingPresentation,
     stabilityBreakdownPresentation: stabilityBreakdownPresentation,
 
-    /**
-     * Decompose milliseconds into hours / minutes / seconds.
-     * @param {number} ms
-     * @returns {{ h:number, m:number, s:number }}
-     */
-    decompose: function(ms) {
-      const totalSec = Math.floor(ms / 1000);
-      return {
-        h: Math.floor(totalSec / 3600),
-        m: Math.floor((totalSec % 3600) / 60),
-        s: totalSec % 60,
-      };
-    },
-
-    /**
-     * Decode a gear telemetry object into a string state.
-     * Uses position thresholds only — the `locked` field is unreliable because
-     * SimConnect sets gearDownLocked to 0|1 (not a bitmask), so
-     * `(gearDownLocked & 0b111) === 0b111` is always false from SimConnect.
-     * Threshold >= 0.99 matches the compact widget and bottom strip.
-     * @param {{ left:number, right:number, nose?:number }} data
-     * @returns {'DOWN'|'UP'|'TRANSIT'}
-     */
-    gearState: function(data) {
-      const allDown = data.left >= 0.99 && data.right >= 0.99 && (data.nose == null || data.nose >= 0.99);
-      const allUp   = data.left <  0.01 && data.right <  0.01 && (data.nose == null || data.nose <  0.01);
-      if (allDown) return 'DOWN';
-      if (allUp)   return 'UP';
-      return 'TRANSIT';
-    },
   },
 };
 

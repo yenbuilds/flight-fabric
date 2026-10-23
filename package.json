@@ -118,6 +118,7 @@
     "electron:build": "node electron/build-electron.js",
     "electron:build:quick": "node electron/build-electron.js",
     "electron:release:summary": "node scripts/electron-release-summary.js",
+    "release:installer-zip": "node scripts/electron-release-summary.js --installer-zip",
     "electron:release": "npm run electron:build -- --profile=user && npm run test:electron:ipc-runtime && npm run test:electron:packaged && npm run test:electron:backend-launch && npm run test:electron:lifecycle && npm run electron:release:summary",
     "electron:install": "cd electron && npm install",
     "frontend:install": "npm --prefix frontend install",

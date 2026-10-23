@@ -4,12 +4,14 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const {
   buildExecutableFileName,
   buildInstallerFileName,
   buildPortableFileName,
   publishedInstallerAssetName,
+  publishedInstallerArchiveName,
 } = require('./release-names.js');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -87,11 +89,6 @@ function getFileInfo(filePath) {
     sizeBytes: stat.size,
     mtime: stat.mtime,
   };
-}
-
-function findTopLevelExeArtifacts(distPath) {
-  return findTopLevelPublishableArtifacts(distPath)
-    .filter((artifact) => artifact.name.toLowerCase().endsWith('.exe'));
 }
 
 function isPublishableArtifactName(name) {
@@ -224,7 +221,120 @@ function parseDistArgument(argv) {
     : path.resolve(ROOT, distValue);
 }
 
+function parseInstallerZipArguments(argv) {
+  const options = {};
+  const flags = new Set(['--version', '--installer', '--sha256', '--out-dir']);
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index];
+    if (!flags.has(flag)) throw new Error(`Unknown installer-ZIP argument: ${flag}`);
+    if (Object.hasOwn(options, flag)) throw new Error(`Duplicate ${flag} argument`);
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) throw new Error(`${flag} requires a value`);
+    options[flag] = value;
+  }
+  for (const flag of flags) {
+    if (!options[flag]) throw new Error(`Installer ZIP requires ${flag}`);
+  }
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(options['--version'])) {
+    throw new Error('--version must be a plain x.y.z version');
+  }
+  if (!/^[a-fA-F0-9]{64}$/.test(options['--sha256'])) {
+    throw new Error('--sha256 must be the recorded installer SHA-256');
+  }
+  return {
+    version: options['--version'],
+    installer: path.resolve(ROOT, options['--installer']),
+    sha256: options['--sha256'].toLowerCase(),
+    outDir: path.resolve(ROOT, options['--out-dir']),
+  };
+}
+
+// Optional archive preparation belongs with artifact identity/checksum handling.
+// It never runs as part of the default summary or changes release qualification.
+async function packageInstallerZip({ version, installer, sha256, outDir }) {
+  if (process.platform !== 'win32') throw new Error('Installer ZIP preparation requires Windows.');
+  const installerName = publishedInstallerAssetName(version);
+  if (![buildInstallerFileName(version), installerName].includes(path.basename(installer))) {
+    throw new Error('Select the version-matching NSIS installer, using its build or published name.');
+  }
+  const installerStat = assertSafeRegularFile(installer, 'Installer');
+  if (installerStat.size <= 0) throw new Error('Installer is empty');
+  if (await sha256File(installer) !== sha256) throw new Error('Installer SHA-256 does not match the recorded hash');
+  assertSafeDirectory(path.dirname(outDir), 'ZIP output parent');
+  for (const protectedDir of [path.dirname(installer), path.join(ROOT, 'dist', 'electron')]) {
+    const relative = path.relative(protectedDir, outDir);
+    if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))) {
+      throw new Error('ZIP output must be outside the installer directory and dist/electron');
+    }
+  }
+  // Exclusive directory creation protects previous packages, including linked paths.
+  fs.mkdirSync(outDir);
+  const archiveName = publishedInstallerArchiveName(version);
+  const archivePath = path.join(outDir, archiveName);
+  const partialPath = `${archivePath}.partial`;
+  const reportPath = path.join(outDir, 'PACKAGE-VERIFICATION.json');
+  try {
+    // Paths go through environment variables, never interpolated PowerShell code.
+    // Windows' built-in ZIP API avoids adding a build dependency or running an EXE.
+    const result = spawnSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::Open($env:FF_ZIP_OUTPUT, [IO.Compression.ZipArchiveMode]::Create)
+try {
+  $null = [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $env:FF_ZIP_INSTALLER, $env:FF_ZIP_ENTRY, [IO.Compression.CompressionLevel]::Optimal)
+} finally { $archive.Dispose() }
+$archive = [IO.Compression.ZipFile]::OpenRead($env:FF_ZIP_OUTPUT)
+try {
+  if ($archive.Entries.Count -ne 1) { throw 'ZIP must contain exactly one entry' }
+  $entry = $archive.Entries[0]
+  if ($entry.FullName -cne $env:FF_ZIP_ENTRY -or $entry.Length -ne [long]$env:FF_ZIP_BYTES) { throw 'ZIP installer identity mismatch' }
+  $stream = $entry.Open()
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+    if ($hash -cne $env:FF_ZIP_SHA256) { throw 'Archived installer SHA-256 mismatch' }
+  } finally { $stream.Dispose(); $hasher.Dispose() }
+} finally { $archive.Dispose() }
+`,
+    ], {
+      encoding: 'utf8', windowsHide: true, timeout: 10 * 60 * 1000,
+      env: { ...process.env, FF_ZIP_OUTPUT: partialPath, FF_ZIP_INSTALLER: installer,
+        FF_ZIP_ENTRY: installerName, FF_ZIP_BYTES: String(installerStat.size), FF_ZIP_SHA256: sha256 },
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`ZIP creation/readback failed (exit ${result.status}): ${result.stderr.trim()}`);
+    if (await sha256File(installer) !== sha256) throw new Error('Installer changed during ZIP preparation');
+    const report = {
+      version,
+      verification: 'Installer hash and archive contents only; release gates and malware scan remain separate.',
+      installer: { name: installerName, bytes: installerStat.size, sha256 },
+      archive: { name: archiveName, bytes: assertSafeRegularFile(partialPath, 'ZIP').size, sha256: await sha256File(partialPath) },
+      entries: [installerName],
+    };
+    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
+    // Expose the final filename only after content readback and report creation.
+    fs.renameSync(partialPath, archivePath);
+    console.log(`Installer-only ZIP verified: ${archivePath}\nLocal verification record: ${reportPath}`);
+  } catch (error) {
+    // Remove only this invocation's known temporary files, never an existing tree.
+    assertSafeDirectory(outDir, 'ZIP output directory');
+    for (const file of [partialPath, reportPath]) {
+      if (fs.existsSync(file)) {
+        assertSafeRegularFile(file, 'Incomplete ZIP output');
+        fs.unlinkSync(file);
+      }
+    }
+    fs.rmdirSync(outDir);
+    throw error;
+  }
+}
+
 async function main(argv = process.argv.slice(2)) {
+  if (argv[0] === '--installer-zip') {
+    await packageInstallerZip(parseInstallerZipArguments(argv.slice(1)));
+    return;
+  }
   console.log('=== Electron Release Summary ===');
 
   const distPath = parseDistArgument(argv);
@@ -340,11 +450,11 @@ if (require.main === module) {
 }
 
 module.exports = {
-  findTopLevelExeArtifacts,
   findTopLevelPublishableArtifacts,
   findWinUnpackedExecutable,
   isPublishableArtifactName,
   parseDistArgument,
+  parseInstallerZipArguments,
   sha256File,
   verifyChecksumFile,
   writeChecksums,

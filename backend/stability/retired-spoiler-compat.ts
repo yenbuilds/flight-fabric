@@ -101,7 +101,6 @@ function normalizeRetiredSpoilerStability(value: unknown): AnyRecord | null {
 }
 
 module.exports = {
-  RETIRED_SPOILER_FAILURE,
   normalizeRetiredSpoilerStability,
 };
 

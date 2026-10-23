@@ -942,9 +942,9 @@ async function main() {
       { id: 'climb', angle: 25 },
       { id: 'idle', angle: 0 },
     ];
-    const anchors = buildThrottleQuadrantAnchors(detents, { rawKey: 'angle', reverse: { idle: -6, full: -20 } });
-    assert.deepEqual(anchors.map((anchor) => anchor.raw), [-20, -6, 0, 25, 35, 45], 'anchors should be sorted along the raw axis');
-    const total = 4 + 2 / 3;
+    const anchors = buildThrottleQuadrantAnchors(detents, { rawKey: 'angle' });
+    assert.deepEqual(anchors.map((anchor) => anchor.raw), [0, 25, 35, 45], 'anchors should be sorted along the raw axis');
+    const total = 4;
     const rowCentre = (index) => Number(((index + 0.5) / total * 100).toFixed(3));
     assert.equal(throttleQuadrantTravelPercent(45, anchors, 4), rowCentre(0), 'TOGA should sit on the top gate');
     assert.equal(throttleQuadrantTravelPercent(35, anchors, 4), rowCentre(1), 'FLX/MCT should sit on the second gate');
@@ -953,11 +953,8 @@ async function main() {
     const between = throttleQuadrantTravelPercent(30, anchors, 4);
     assert.ok(between > rowCentre(1) && between < rowCentre(2), 'an off-detent reading should be drawn between its neighbouring gates');
     assert.equal(throttleQuadrantTravelPercent(30, anchors, 4), Number(((rowCentre(1) + rowCentre(2)) / 2).toFixed(3)), 'interpolation between gates should be linear');
-    const reverseIdle = throttleQuadrantTravelPercent(-6, anchors, 4);
-    const fullReverse = throttleQuadrantTravelPercent(-20, anchors, 4);
-    assert.ok(reverseIdle > rowCentre(3) && fullReverse > reverseIdle && fullReverse < 100, 'reverse readings should be drawn in the locked zone below IDLE');
     assert.equal(throttleQuadrantTravelPercent(90, anchors, 4), rowCentre(0), 'readings beyond TOGA should clamp to the top gate');
-    assert.equal(throttleQuadrantTravelPercent(-40, anchors, 4), fullReverse, 'readings beyond full reverse should clamp to the bottom of the reverse zone');
+    assert.equal(throttleQuadrantTravelPercent(-20, anchors, 4), rowCentre(3), 'geometry stays inside the forward track; reverse knobs are hidden by the component');
     assert.equal(throttleQuadrantTravelPercent(null, anchors, 4), null, 'a missing readback should not place a lever');
     assert.equal(throttleQuadrantTravelPercent('abc', anchors, 4), null, 'a garbage readback should not place a lever');
 
@@ -966,7 +963,7 @@ async function main() {
       { id: 'flexMct', value: 4 },
       { id: 'climb', value: 3 },
       { id: 'idle', value: 2 },
-    ], { rawKey: 'value', reverse: { idle: 1, full: 0 } });
+    ], { rawKey: 'value' });
     assert.equal(throttleQuadrantTravelPercent(3, fenixAnchors, 4), rowCentre(2), 'Fenix detent positions should map onto the same gate rows');
     assert.equal(throttleQuadrantTravelPercent('2', fenixAnchors, 4), rowCentre(3), 'string readbacks should be accepted');
 
@@ -8243,8 +8240,6 @@ async function main() {
     assert.doesNotMatch(throttleHtml, /reverse[^<]*data-aircraft-action/i, 'reverse thrust must not be actionable');
     assert.equal((throttleHtml.match(/class="airbus-throttle-knob"/g) || []).length, 2, 'the quadrant should draw one lever knob per engine');
     assert.match(throttleHtml, /data-fenix-throttle-lever="1"[^>]*data-lever-state="detent"/, 'a lever on a gate should report the detent state');
-    assert.match(throttleHtml, /class="airbus-throttle-reverse"[^>]*aria-hidden="true"/, 'the reverse zone should be decorative only');
-    assert.doesNotMatch(throttleHtml, /<button[^>]*airbus-throttle-reverse/, 'the reverse zone must never be a button');
     const throttleComponentSource = fs.readFileSync(path.join(
       frontendRoot,
       'src',
