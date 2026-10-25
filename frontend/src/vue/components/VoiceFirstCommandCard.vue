@@ -152,10 +152,10 @@ async function enableVoice() {
             with the simulator in front and FlightFabric listens the same way.
           </template>
           <template v-else-if="voice.runtime.controllerEnabled">
-            Choose a keyboard shortcut or controller button under Settings › Voice control to talk with the simulator in front.
+            Set a keyboard shortcut or controller button in Settings › Voice control to talk while MSFS is in front.
           </template>
           <template v-else>
-            Set a push-to-talk shortcut under Settings › Voice control to use it with the simulator in front.
+            Set a push-to-talk shortcut under Settings › Voice control to talk while MSFS is in front.
           </template>
         </div>
       </div>

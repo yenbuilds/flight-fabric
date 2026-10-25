@@ -166,6 +166,7 @@ function page({ storage = new Map(), takeoffScoringEnabled } = {}) {
   }
   const context = { document, window, WebSocket, XMLHttpRequest, setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout };
   vm.runInNewContext(read('shared/app-settings-shared.js'), context);
+  vm.runInNewContext(read('shared/aircraft-search.js'), context);
   window.FlightFabricAppSettings = takeoffScoringEnabled === undefined
     ? context.FlightFabricAppSettings
     : { ...context.FlightFabricAppSettings, TAKEOFF_SCORING_ENABLED: takeoffScoringEnabled };
@@ -207,9 +208,9 @@ function taxiFixture() {
 
 test('manual Taxi planning stays read-only and expires live guidance while preserving a labelled reference', () => {
   const f = taxiFixture();
-  assert.match(f.get('taxi-intro').textContent, /automatically pushes your aircraft back/);
-  assert.match(f.get('taxi-pushback-help').textContent, /Start pushback to move the aircraft/);
-  assert.match(f.get('taxi-guidance-help').textContent, /taxiing manually/);
+  assert.match(f.get('taxi-intro').textContent, /Automatic pushback, then manual taxi/);
+  assert.match(f.get('taxi-pushback-help').textContent, /release the parking brake before starting/);
+  assert.match(f.get('taxi-guidance-help').textContent, /taxi route manually/);
   assert.equal(f.get('taxi-pushback-action').textContent, 'Start pushback');
   assert.equal(f.get('taxi-show-route').textContent, 'Show taxi route');
   f.preview();
@@ -556,13 +557,14 @@ test('toolbar loader waits for parsed children and starts when the panel opens',
 test('toolbar scripts parse as ES2017 and the loader is deferred until the document is parsed', () => {
   const { Linter } = require('eslint');
   const parser = new Linter();
-  for (const file of ['shared/app-settings-shared.js', 'shared/aircraft-presets.js', 'frontend/toolbar/presets.js', 'frontend/toolbar/taxi.js', 'frontend/toolbar/toolbar.js', 'msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.js']) {
+  for (const file of ['shared/app-settings-shared.js', 'shared/aircraft-search.js', 'shared/aircraft-presets.js', 'frontend/toolbar/presets.js', 'frontend/toolbar/taxi.js', 'frontend/toolbar/toolbar.js', 'msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.js']) {
     const errors = parser.verify(read(file), { parserOptions: { ecmaVersion: 2017, sourceType: 'script' } }).filter(message => message.fatal);
     assert.deepEqual(errors, [], file);
   }
   const html = read('msfs-toolbar-panel/package/html_ui/InGamePanels/FlightFabric/FlightFabric.html');
   assert.match(html, /<script\b[^>]*\bdefer\b[^>]*src="FlightFabric\.js"/);
   assert.match(read('frontend/toolbar/index.html'), /src="\/shared\/app-settings-shared\.js"[\s\S]*src="\/toolbar\/toolbar\.js"/, 'toolbar loads the shared gate before its consumer');
+  assert.match(read('frontend/toolbar/index.html'), /src="\/shared\/aircraft-search\.js"[\s\S]*src="\/toolbar\/toolbar\.js"/, 'toolbar loads search normalization before its consumer');
 });
 
 test('recording byte updates retain the flight view while status transitions remain immediate', () => {
@@ -586,6 +588,40 @@ test('recording byte updates retain the flight view while status transitions rem
     assert.notEqual(summary.firstChild, previous, `${status} renders immediately`);
     assert.match(summary.text(), new RegExp(label));
   }
+});
+
+test('toolbar search accepts app abbreviations and punctuation without changing focus or sending commands', () => {
+  const runtime = page(); runtime.api.boot();
+  runtime.requests.find(request => request.url.startsWith('/api/toolbar/bootstrap')).succeed();
+  runtime.sockets[0].onopen();
+  const profile = aircraftProfile();
+  profile.controlCapabilities = { aircraftCommands: { commands: [
+    { id: 'flightGuidance.heading.set', label: 'Selected heading', group: 'flightGuidance', input: { kind: 'number' }, speech: { patterns: ['set heading {value}'] } },
+    { id: 'flightGuidance.altitude.set', label: 'Selected altitude', group: 'flightGuidance', input: { kind: 'number' }, speech: { patterns: ['set altitude {value}'] } },
+    { id: 'flightGuidance.verticalSpeed.set', label: 'Vertical speed', group: 'flightGuidance', input: { kind: 'number' }, speech: { patterns: ['set vertical speed {value}'] } },
+    { id: 'lights.landing.set', label: 'Landing lights', group: 'lights', input: { kind: 'boolean' }, speech: { patterns: ['landing lights on'] } },
+    { id: 'lights.runwayTurnoff.set', label: 'Runway turnoff lights', group: 'lights', input: { kind: 'boolean' }, speech: { patterns: ['runway turnoff lights on'] } },
+  ] } };
+  runtime.api.receive(profile); runtime.api.selectTab('voice');
+  const search = runtime.document.getElementById('voice-search'); search.focus();
+  const sent = JSON.stringify(runtime.sockets[0].sent);
+  for (const [query, expected] of [
+    ['HDG', ['Selected heading']], ['alt', ['Selected altitude']],
+    ['V / S', ['Vertical speed']], ['landing-lights', ['Landing lights']],
+    ['RWY turn off', ['Runway turnoff lights']], ['"SET—HEADING"', ['Selected heading']],
+    ['not a control', []], ['', []], // Empty search restores collapsed system groups.
+  ]) {
+    search.value = query; search.fire('input');
+    const labels = [];
+    const visit = node => { if (node.classList.contains('command-label')) labels.push(node.children[0].textContent); node.children.forEach(visit); };
+    visit(runtime.document.getElementById('tab-voice'));
+    assert.deepEqual(labels.sort(), expected.slice().sort(), query);
+    assert.equal(runtime.document.activeElement, search, 'filtering retains query focus');
+    assert.equal(search.value, query, 'normalization does not rewrite the entered query');
+  }
+  assert.match(runtime.document.getElementById('tab-voice').text(), /Flight guidance \| 3 commands \| Exterior lights \| 2 commands/,
+    'clearing the query restores all system groups');
+  assert.equal(JSON.stringify(runtime.sockets[0].sent), sent, 'search never sends aircraft commands');
 });
 
 test('toolbar voice examples and alternatives use punctuation available in the simulator font', () => {

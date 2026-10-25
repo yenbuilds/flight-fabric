@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { createVoiceReadback } from '../../../electron/voice-readback.js';
 import { createVoiceControlController } from '../../src/voice/voice-controller.js';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAircraftControlsStore } from '../../src/vue/stores/aircraft-controls.js';
@@ -458,6 +460,80 @@ test('cloud settings actions keep the selected provider attached to key writes a
   assert.deepEqual(calls, [['provider', { providerId: 'gemini' }], ['key', 'gemini', 9], ['remove', 'gemini']]);
   assert.equal(h.voiceStore.voiceTest.phase, 'idle');
   assert.deepEqual(h.sentCommands, []);
+});
+
+test('spoken engine selection ignores a retired response after a newer choice', async t => {
+  setActivePinia(createPinia());
+  const store = useVoiceControlStore();
+  const requests = [];
+  const h = createHarness({ voiceStore: store, controllerApi: {
+    setReadbackEngine: () => new Promise((resolve, reject) => requests.push({ resolve, reject })),
+  } });
+  await h.controller.initialize(); t.after(() => h.controller.dispose());
+  const old = store.setReadbackEngine('windows-sapi');
+  const latest = store.setReadbackEngine('kokoro');
+  store.applyRuntimeInfo({ enabled: false });
+  requests[1].resolve({ enabled: true, readback: { selectedEngine: 'kokoro', engines: [] } });
+  assert.equal(await latest, true);
+  requests[0].resolve({ readback: { selectedEngine: 'windows-sapi', engines: [] } });
+  assert.equal(await old, false);
+  assert.equal(store.runtime.readback.selectedEngine, 'kokoro');
+  assert.equal(store.runtime.enabled, false, 'speech selection cannot restore an obsolete recognition preference');
+});
+
+test('push-to-talk updates preserve speech selection, available engines and fallback feedback', async t => {
+  for (const selectedEngine of ['windows-sapi', 'kokoro']) {
+    setActivePinia(createPinia());
+    const store = useVoiceControlStore();
+    const readback = { selectedEngine,
+      selectedVoice: selectedEngine === 'kokoro' ? 'am_michael' : '',
+      voices: selectedEngine === 'kokoro' ? [{ id: 'am_michael', label: 'Michael' }] : [],
+      engines: [{ id: 'kokoro', label: 'Kokoro' }, { id: 'windows-sapi', label: 'Windows TTS' }],
+      fallbackReason: selectedEngine === 'kokoro' ? 'Kokoro stopped. Using Windows TTS.' : '',
+      lastError: 'Local speech audio could not be played.' };
+    const runtimeInfo = { available: true, enabled: true, engine: { modelId: 'zipformer' },
+      pushToTalk: { accelerator: 'Control+Alt+Space', registered: true }, readback };
+    const h = createHarness({ voiceStore: store, runtimeInfo, controllerApi: {
+      setPushToTalkShortcut: async accelerator => {
+        const pushToTalk = { accelerator, registered: true };
+        // Native emits full state before returning its shortcut-only IPC reply.
+        h.emitRuntime({ ...runtimeInfo, pushToTalk });
+        return pushToTalk;
+      },
+    } });
+    t.after(() => h.controller.dispose());
+    await h.controller.initialize();
+    const expected = { ...store.runtime.readback };
+    assert.equal(await store.setShortcut('Control+Alt+V'), true);
+    assert.equal(store.runtime.shortcut, 'Control+Alt+V');
+    assert.deepEqual(store.runtime.readback, expected);
+    assert.equal(store.runtime.readbackError, readback.lastError);
+    h.emitPtt({ type: 'error', error: 'Global push-to-talk stopped.' });
+    assert.deepEqual(store.runtime.readback, expected, 'helper failure owns no speech preferences');
+    assert.equal(store.runtime.readbackError, readback.lastError);
+  }
+});
+
+test('voice and engine choices share ownership so a late voice reply cannot restore an older engine', async t => {
+  setActivePinia(createPinia());
+  const store = useVoiceControlStore();
+  let finishVoice, finishEngine;
+  const h = createHarness({ voiceStore: store, controllerApi: {
+    setReadbackVoice: (engine, voice) => {
+      assert.deepEqual([engine, voice], ['kokoro', 'af_bella']);
+      return new Promise(resolve => { finishVoice = resolve; });
+    },
+    setReadbackEngine: () => new Promise(resolve => { finishEngine = resolve; }),
+  } });
+  t.after(() => h.controller.dispose()); await h.controller.initialize();
+  const voice = store.setReadbackVoice('kokoro', 'af_bella');
+  const engine = store.setReadbackEngine('windows-sapi');
+  finishEngine({ readback: { selectedEngine: 'windows-sapi', selectedVoice: '', voices: [] } });
+  assert.equal(await engine, true);
+  finishVoice({ readback: { selectedEngine: 'kokoro', selectedVoice: 'af_bella', voices: [{ id: 'af_bella', label: 'Bella' }] } });
+  assert.equal(await voice, false);
+  assert.equal(store.runtime.readback.selectedEngine, 'windows-sapi');
+  assert.equal(store.runtime.readback.selectedVoice, '');
 });
 
 test('Settings voice test works in a release without an aircraft and cannot dispatch after reconnect', async () => {
@@ -1089,16 +1165,37 @@ test('failed or invalidated shortcut recording cannot capture or publish a late 
 });
 
 test('spoken-feedback diagnostics remain usable while recognition is off across runtime updates', async () => {
-  const h = createHarness({ runtimeInfo: { enabled: false, available: false } });
+  const activity = [];
+  const h = createHarness({ runtimeInfo: { enabled: false, available: false },
+    readback: { prepare() {}, cancel() {}, setActive(value) { activity.push(value); } } });
   await h.controller.initialize();
   assert.equal(await h.voiceStore.actions.testSpokenFeedback(), true);
   const cancellations = h.readbackCancellations.length;
   h.emitRuntime({ enabled: false, available: false });
   assert.equal(h.readbackCancellations.length, cancellations, 'readback runtime updates must not cancel their own test');
-  assert.match(h.voiceStore.voiceTest.feedbackMessage, /Playing/);
+  assert.deepEqual(activity, [false], 'preview status updates do not release its worker');
+  assert.match(h.voiceStore.voiceTest.feedbackMessage, /Test phrase requested/);
   assert.deepEqual(h.spokenReadbacks, ['Spoken feedback is working.']);
   assert.equal(h.voiceStore.runtime.enabled, false);
   await h.controller.dispose();
+});
+
+test('spoken feedback prepares on enable and releases on preference changes without repeated runtime work', async t => {
+  const activity = [];
+  let releases = 0;
+  const h = createHarness({ runtimeInfo: { enabled: false, available: false },
+    readback: { prepare() {}, cancel() {}, release() { releases++; },
+      setActive(value) { activity.push(value); } },
+    controllerApi: { setRecognitionEnabled: async enabled => ({ enabled, available: enabled }) } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize();
+  await h.controller.setRecognitionEnabled(true, { requestMicrophoneAccess: false });
+  h.emitRuntime({ enabled: true, available: true });
+  h.controller.setSpokenReadbacks(false);
+  h.controller.setSpokenReadbacks(true);
+  await h.controller.setRecognitionEnabled(false);
+  assert.deepEqual(activity, [false, true, false, true, false]);
+  assert.equal(releases, 1);
 });
 
 test('ordinary PTT retires test output ownership before its own command readback', async () => {
@@ -3136,6 +3233,59 @@ test('aircraft context changes retire pending voice result ownership', async () 
   assert.equal(harness.voiceStore.status, 'ready');
   harness.completeLastCommand({ ok: true, requestId: 'ctrl-stale' });
   assert.equal(harness.voiceStore.status, 'ready', 'a stale old-profile result must not overwrite the new context');
+});
+
+test('aircraft changes and disconnects retire queued speech without disturbing recovery or routine refreshes', async t => {
+  for (const context of ['aircraft-change', 'disconnect', 'refresh']) {
+    const children = [], played = [], fallback = [];
+    const speech = createVoiceReadback({
+      player: { getInfo: () => ({ available: true }), cancel: () => false,
+        speak: text => { fallback.push(text); return true; },
+        playAudio: wav => { played.push(wav); return true; } },
+      spawnWorker: () => {
+        const child = new EventEmitter();
+        child.requests = []; child.postMessage = value => child.requests.push(value);
+        child.kill = () => { child.killed = true; return true; };
+        children.push(child); return child;
+      },
+    });
+    const h = createHarness({ readback: speech });
+    t.after(async () => { await h.controller.dispose(); speech.dispose(); });
+    await h.controller.initialize();
+    await h.controller.begin(); await h.controller.finish();
+    await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading 270' });
+    h.completeLastCommand({ ok: true });
+    const old = children[0];
+    old.emit('message', { type: 'ready' });
+    assert.equal(old.requests.length, 1);
+    if (context === 'aircraft-change') h.aircraftControlsStore.aircraftCommandCatalogue.profileRevision++;
+    if (context === 'disconnect') h.aircraftControlsStore.availability = { enabled: false, reason: 'Backend connection lost.' };
+    // Both actual aircraft changes and backend connection loss use this owner.
+    h.controller.handleAircraftContextChange({ preserveResult: context === 'refresh' });
+    // Playback is stubbed; this envelope exercises the production IPC owner.
+    const wav = Buffer.alloc(100); wav.write('RIFF');
+    old.emit('message', { type: 'audio', id: old.requests[0].id, wav });
+    if (context === 'refresh') {
+      assert.notEqual(old.killed, true, 'same-profile refresh preserves pending synthesis');
+      assert.equal(played.length, 1);
+      continue;
+    }
+    assert.equal(old.killed, true, context);
+    old.emit('message', { type: 'error', id: old.requests[0].id });
+    old.emit('exit', 1);
+    assert.equal(played.length, 0, 'retired aircraft audio never starts');
+    assert.deepEqual(fallback, [], 'retired errors cannot trigger Windows fallback');
+    h.aircraftControlsStore.availability = { enabled: true, reason: 'Ready.' };
+    assert.equal(await h.controller.begin(), true);
+    await h.controller.finish();
+    await h.emitRecognition({ type: 'final', sessionId: 'session_next_2', text: 'set heading 180' });
+    h.completeLastCommand({ ok: true });
+    const fresh = children.at(-1);
+    assert.notEqual(fresh, old);
+    fresh.emit('message', { type: 'ready' });
+    fresh.emit('message', { type: 'audio', id: fresh.requests[0].id, wav });
+    assert.equal(played.length, 1, 'fresh context can speak again');
+  }
 });
 
 test('routine same-profile replay preserves the active utterance and pending result', async () => {

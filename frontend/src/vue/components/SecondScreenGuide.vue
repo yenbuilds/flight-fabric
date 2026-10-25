@@ -91,7 +91,7 @@ function dismissGuide() {
           <button id="second-screen-guide-dismiss" type="button" class="ff-button-secondary text-xs"
             aria-label="Dismiss second-screen guidance" @click="dismissGuide">Got it</button>
         </div>
-        <details v-if="controlsPaired" class="setup-details mt-2"><summary>About pairing</summary><p class="text-xs text-muted-fg">Access lasts until the FlightFabric service restarts. If it expires, request a new code here or scan the current QR in Settings → Devices on your PC.</p></details>
+        <details v-if="controlsPaired" class="setup-details mt-2"><summary>About pairing</summary><p class="text-xs text-muted-fg">Access lasts until the FlightFabric service restarts. Then request a new code here or scan the current QR in Settings → Devices on your PC.</p></details>
       </div>
     </div>
   </aside>

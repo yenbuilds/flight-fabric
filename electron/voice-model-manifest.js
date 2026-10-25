@@ -37,4 +37,32 @@ const ZIPFORMER_MODEL = Object.freeze({
   ]),
 });
 
-module.exports = { VOICE_HOTWORDS, ZIPFORMER_MODEL };
+const KOKORO_MODEL = Object.freeze({
+  id: 'kokoro-multi-lang-v1_0',
+  archiveUrl: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2',
+  archiveBytes: 349906910,
+  archiveSha256: 'C5F7E2D2CAF082BC1D20FB70334A61D99D20B484500AAD32E7CF84C128EA3298',
+  sampleRate: 24000,
+  defaultVoice: 'af_heart',
+  // IDs match the hash-pinned voice table. Keep earlier US choices valid for
+  // saved preferences while presenting a shorter US/UK list to new selections.
+  voices: Object.freeze([
+    ['af_alloy', 'Alloy', 0], ['af_aoede', 'Aoede', 1], ['af_bella', 'Bella', 2],
+    ['af_heart', 'Heart', 3], ['af_jessica', 'Jessica', 4], ['af_kore', 'Kore', 5],
+    ['af_nicole', 'Nicole', 6], ['af_nova', 'Nova', 7], ['af_river', 'River', 8],
+    ['af_sarah', 'Sarah', 9], ['af_sky', 'Sky', 10], ['am_adam', 'Adam', 11],
+    ['am_echo', 'Echo', 12], ['am_eric', 'Eric', 13], ['am_fenrir', 'Fenrir', 14],
+    ['am_liam', 'Liam', 15], ['am_michael', 'Michael', 16], ['am_onyx', 'Onyx', 17],
+    ['am_puck', 'Puck', 18], ['am_santa', 'Santa', 19],
+    ['bf_emma', 'Emma', 21], ['bf_isabella', 'Isabella', 22],
+    ['bm_fable', 'Fable', 25], ['bm_george', 'George', 26],
+  ].map(([id, name, speakerId]) => Object.freeze({ id, speakerId,
+    // The bundled eSpeak runtime selects British English by its voice file
+    // name "en"; the BCP-47 alias "en-gb" fails in the pinned native build.
+    language: id.startsWith('b') ? 'en' : 'en-us',
+    listed: id.startsWith('b') || ['af_heart', 'af_bella', 'am_michael', 'am_puck'].includes(id),
+    label: `${name} — ${id.startsWith('b') ? 'UK' : 'US'}, ${id[1] === 'f' ? 'female' : 'male'}` }))),
+  files: Object.freeze(require('./kokoro-model-files.json')),
+});
+
+module.exports = { KOKORO_MODEL, VOICE_HOTWORDS, ZIPFORMER_MODEL };

@@ -5,6 +5,19 @@ import { initialVoiceTestState } from '../../voice/voice-setup-test.js';
 
 const SETUP_DISMISSED_KEY = 'ff_voice_setup_dismissed_v1';
 
+function readbackInfo(info) {
+  return {
+    selectedEngine: String(info.selectedEngine || 'kokoro').slice(0, 40),
+    selectedVoice: String(info.selectedVoice || '').slice(0, 40),
+    preparing: info.preparing === true,
+    voices: (Array.isArray(info.voices) ? info.voices : []).slice(0, 64)
+      .map(voice => ({ id: String(voice.id || '').slice(0, 40), label: String(voice.label || '').slice(0, 120) })),
+    fallbackReason: String(info.fallbackReason || '').slice(0, 240),
+    engines: (Array.isArray(info.engines) ? info.engines : []).slice(0, 16)
+      .map(engine => ({ id: String(engine.id || '').slice(0, 40), label: String(engine.label || '').slice(0, 120) })),
+  };
+}
+
 const DEFAULT_RUNTIME = Object.freeze({
   available: false,
   development: false,
@@ -17,6 +30,7 @@ const DEFAULT_RUNTIME = Object.freeze({
   modelBundled: true,
   modelId: '',
   readbackError: '',
+  readback: { selectedEngine: 'kokoro', engines: [], selectedVoice: '', voices: [], preparing: false, fallbackReason: '' },
   shortcut: '',
   shortcutError: '',
   shortcutRegistered: false,
@@ -160,6 +174,7 @@ export const useVoiceControlStore = defineStore('voiceControl', {
         modelBundled: info.modelBundled !== false,
         modelId: typeof engine.modelId === 'string' ? engine.modelId : '',
         readbackError: typeof info.readback?.lastError === 'string' ? info.readback.lastError : '',
+        readback: info.readback ? readbackInfo(info.readback) : this.runtime.readback,
         shortcut: typeof ptt.accelerator === 'string'
           ? ptt.accelerator
           : DEFAULT_RUNTIME.shortcut,
@@ -172,6 +187,10 @@ export const useVoiceControlStore = defineStore('voiceControl', {
         controllerEnabled,
         controller: controllerEnabled && ptt.controller ? ptt.controller : DEFAULT_RUNTIME.controller,
       };
+    },
+    applyReadbackInfo(info = {}) {
+      this.runtime = { ...this.runtime, readback: readbackInfo(info),
+        readbackError: typeof info.lastError === 'string' ? info.lastError : '' };
     },
     setState(status, text = '') {
       this.status = status;
@@ -216,6 +235,8 @@ export const useVoiceControlStore = defineStore('voiceControl', {
     retryPushToTalk() { return this._runtimeActions?.retryPushToTalk?.() || false; },
     setRecognitionEnabled(value, options) { return this._runtimeActions?.setRecognitionEnabled?.(value, options) || false; },
     setMode(value) { return this._runtimeActions?.setMode?.(value) || false; },
+    setReadbackEngine(value) { return this._runtimeActions?.setReadbackEngine?.(value) || false; },
+    setReadbackVoice(engineId, voiceId) { return this._runtimeActions?.setReadbackVoice?.(engineId, voiceId) || false; },
     setCloudProvider(value) { return this._runtimeActions?.setCloudProvider?.(value) || false; },
     saveCloudKey(providerId, value) { return this._runtimeActions?.saveCloudKey?.(providerId, value) || false; },
     removeCloudKey(providerId) { return this._runtimeActions?.removeCloudKey?.(providerId) || false; },

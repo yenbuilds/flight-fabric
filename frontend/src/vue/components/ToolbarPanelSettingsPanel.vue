@@ -47,16 +47,16 @@ async function remove(row) {
     <div class="settings-panel-header">
       <div class="settings-panel-title-row">
         <div id="settings-toolbar-panel-title" class="settings-panel-title">MSFS 2024 toolbar panel</div>
-        <HelpTooltip label="MSFS toolbar panel help">Adds a FlightFabric button to the MSFS 2024 in-flight toolbar. The panel shows your SimBrief plan, aircraft presets, voice command reference, last landing and push-to-talk status. You can apply supported presets and use taxi guidance and experimental pushback. It connects to FlightFabric on this PC only and cannot change app settings or access your recordings or logbook.</HelpTooltip>
+        <HelpTooltip label="MSFS toolbar panel help">Adds FlightFabric to the MSFS 2024 toolbar, including taxi guidance and experimental pushback. Connects to this PC only, with no settings, recording or logbook access.</HelpTooltip>
       </div>
     </div>
 
     <p class="text-xs leading-relaxed text-muted-fg">
-      Your SimBrief plan, aircraft presets, voice command reference, last landing and push-to-talk status, without leaving the simulator. Apply the same presets as the Aircraft page, with live availability checks. The panel connects to FlightFabric on this PC and has no settings, recording or logbook access.
+      View your SimBrief plan, voice commands, last landing and push-to-talk status in MSFS. Apply the same presets as the Aircraft page.
     </p>
 
     <div v-if="!toolbarPanel.available" id="toolbar-panel-desktop-only" class="mt-4 rounded-lg border border-border/60 bg-panel-subtle/60 px-4 py-3 text-xs leading-relaxed text-muted-fg">
-      Install the toolbar package from the FlightFabric desktop app on your simulator PC. This browser view cannot write to the MSFS Community folder.
+      Install from FlightFabric on your simulator PC. Installation is unavailable in a browser.
     </div>
 
     <template v-else>
@@ -69,7 +69,7 @@ async function remove(row) {
       <div id="toolbar-panel-installs" class="mt-4 divide-y divide-border/50 rounded-lg border border-border/60 bg-panel-subtle/40">
         <div v-if="toolbarPanel.loading && !toolbarPanel.hasLoaded" class="px-4 py-3 text-xs text-muted-fg">Checking your MSFS 2024 installations...</div>
         <div v-else-if="toolbarPanel.hasLoaded && !toolbarPanel.hasFoundInstall" id="toolbar-panel-no-installs" class="px-4 py-3 text-xs leading-relaxed text-muted-fg">
-          No MSFS 2024 installation was found on this PC. FlightFabric checks the Microsoft Store and Steam locations only.
+          No MSFS 2024 installation was found in the Microsoft Store or Steam locations.
         </div>
         <div
           v-for="row in toolbarPanel.rows"
@@ -123,7 +123,7 @@ async function remove(row) {
           <h3 class="font-semibold text-fg">Get started in three steps</h3>
           <ol class="mt-2 list-decimal space-y-1 pl-5 text-muted-fg">
             <li>Close Microsoft Flight Simulator 2024 before installing or updating.</li>
-            <li>Choose Install for your simulator. If it is already installed, use the Update or Repair action shown when needed.</li>
+            <li>Choose Install, Update or Repair as shown.</li>
             <li>Start MSFS again, load a flight and open <strong class="text-fg">FlightFabric</strong> from the in-flight toolbar. Keep the FlightFabric desktop app running.</li>
           </ol>
         </div>
@@ -131,11 +131,11 @@ async function remove(row) {
         <div class="mt-4 grid gap-2 text-xs leading-relaxed text-muted-fg sm:grid-cols-2">
           <div class="rounded-lg border border-border/50 bg-panel/40 px-3 py-2.5">
             <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg">Updates and reinstalls</div>
-            <p class="mt-1">After each FlightFabric version update, return here and choose Update when shown. Same-version package fixes, such as a new toolbar icon, need Reinstall. Panel page content updates automatically and does not require reinstalling on its own.</p>
+            <p class="mt-1">Choose Update when offered. Same-version package fixes need Reinstall; panel content updates automatically.</p>
           </div>
           <div class="rounded-lg border border-border/50 bg-panel/40 px-3 py-2.5">
             <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg">Installing safely</div>
-            <p class="mt-1">Close MSFS before installing, updating or removing the package, then restart it. If FlightFabric's network ports change, choose Update ports. Removal is limited to the flightfabric-toolbar package folders and their contents; other Community packages are left untouched.</p>
+            <p class="mt-1">Close MSFS before package changes, then restart it. Choose Update ports after changing network ports. Removal affects only the FlightFabric toolbar package.</p>
           </div>
         </div>
 

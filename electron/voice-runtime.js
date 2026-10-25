@@ -15,7 +15,7 @@ const {
   DEFAULT_PUSH_TO_TALK_SHORTCUT,
   normalizePushToTalkShortcut,
 } = require('./voice-push-to-talk');
-const { createWindowsLocalTts } = require('./windows-local-tts');
+const { createVoiceReadback, READBACK_ENGINES, validateReadbackEngine, validateReadbackVoice } = require('./voice-readback');
 
 const { normalizeControllerBinding, controllerSummary } = require('./voice-controller-button');
 const { createControllerSetup } = require('./voice-controller-setup');
@@ -68,7 +68,8 @@ function createVoiceRuntime({
   // A failed readback, and its later recovery, are reported through the same
   // runtime-state channel the renderer already watches, so the voice panel can
   // show why nothing was heard and clear the notice once readbacks work again.
-  const readback = readbackEngine || createWindowsLocalTts({
+  const readback = readbackEngine || createVoiceReadback({
+    appDir, isPackaged: app.isPackaged, resourcesPath,
     debugLog,
     onErrorChange: () => send('voice:runtime-state', runtimeInfo()),
   });
@@ -83,6 +84,9 @@ function createVoiceRuntime({
   let shortcutError = '';
   let shortcut = DEFAULT_PUSH_TO_TALK_SHORTCUT;
   let storedSettings = {};
+  let readbackSelection = 'kokoro';
+  let readbackVoices = {};
+  let readbackOwner = null;
   let recognitionEnabled = false;
   let needsInitialPreference = false;
   let hook = null;
@@ -131,6 +135,31 @@ function createVoiceRuntime({
     return Number.isSafeInteger(value) && value >= 0 ? value : null;
   }
 
+  function releaseReadback() {
+    const owner = readbackOwner;
+    readbackOwner = null;
+    if (owner) {
+      for (const event of ['destroyed', 'render-process-gone', 'did-start-navigation']) {
+        owner.sender.removeListener(event, owner.abandon);
+      }
+    }
+    readback.release?.();
+  }
+
+  function ownReadback(sender) {
+    if (!sender?.on || readbackOwner?.sender === sender) return;
+    if (readbackOwner) releaseReadback();
+    const owner = { sender, abandon: null };
+    owner.abandon = (_event, _url, isInPlace, isMainFrame) => {
+      if (isInPlace === true || isMainFrame === false || readbackOwner !== owner) return;
+      releaseReadback();
+    };
+    readbackOwner = owner;
+    for (const event of ['destroyed', 'render-process-gone', 'did-start-navigation']) {
+      sender.on(event, owner.abandon);
+    }
+  }
+
   function revokeCaptureAuthorization(sessionId = null) {
     if (!captureAuthorization) return false;
     if (sessionId && captureAuthorization.sessionId !== sessionId) return false;
@@ -177,6 +206,16 @@ function createVoiceRuntime({
     }
     // Retain unknown preferences as inert data across saves, including retired settings.
     storedSettings = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    try { readbackSelection = validateReadbackEngine(storedSettings.readbackEngine || 'kokoro'); }
+    catch { readbackSelection = 'kokoro'; }
+    readback.select?.(readbackSelection);
+    readbackVoices = {};
+    for (const definition of READBACK_ENGINES.filter(engine => engine.defaultVoice)) {
+      let voiceId = definition.defaultVoice;
+      try { voiceId = validateReadbackVoice(definition.id, storedSettings.readbackVoices?.[definition.id]); } catch {}
+      readbackVoices[definition.id] = voiceId;
+      readback.selectVoice?.(definition.id, voiceId);
+    }
     recognitionEnabled = parsed?.voiceRecognitionEnabled === true;
     preferredMode = parsed?.voiceMode === 'cloud' ? 'cloud' : 'offline';
     mode = cloudVoiceEnabled ? preferredMode : 'offline';
@@ -196,7 +235,8 @@ function createVoiceRuntime({
   }
 
   function saveSettings({ enabled = recognitionEnabled, accelerator = shortcut, controller = controllerBinding, voiceMode = preferredMode,
-    voiceCloud = !cloudVoiceEnabled || cloudSelectionError ? storedSettings.voiceCloud : cloudSelection } = {}) {
+    voiceCloud = !cloudVoiceEnabled || cloudSelectionError ? storedSettings.voiceCloud : cloudSelection,
+    readbackEngine: chosenReadback = readbackSelection, spokenVoices = readbackVoices } = {}) {
     fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
     const temporary = `${settingsFile}.tmp`;
     fs.writeFileSync(temporary, `${JSON.stringify({
@@ -206,6 +246,8 @@ function createVoiceRuntime({
       voiceRecognitionEnabled: enabled,
       voiceMode,
       voiceCloud,
+      readbackEngine: chosenReadback,
+      readbackVoices: spokenVoices,
     }, null, 2)}\n`, {
       encoding: 'utf8',
       mode: 0o600,
@@ -490,6 +532,7 @@ function createVoiceRuntime({
     let persistenceError = null;
     if (!value) {
       recognitionEnabled = false;
+      releaseReadback();
       endControllerSetup();
       cancelActiveSession();
       send('voice:push-to-talk', { type: 'cancel', reason: 'voice-disabled' });
@@ -690,6 +733,33 @@ function createVoiceRuntime({
       setRecognitionEnabled(value)
     ));
     registerTrustedIpcHandler('voice:get-readback-info', () => readback.getInfo());
+    registerTrustedIpcHandler('voice:set-readback-engine', (_event, value) => {
+      if (shuttingDown) throw new Error('Voice runtime is shutting down');
+      validateReadbackEngine(value);
+      saveSettings({ readbackEngine: value });
+      readbackSelection = value;
+      readback.select?.(value);
+      send('voice:runtime-state', runtimeInfo());
+      return runtimeInfo();
+    });
+    registerTrustedIpcHandler('voice:readback-release', () => { releaseReadback(); return true; });
+    registerTrustedIpcHandler('voice:set-readback-active', (event, value) => {
+      if (typeof value !== 'boolean') throw new TypeError('Invalid speech activity');
+      if (shuttingDown || !recognitionEnabled || !value) releaseReadback();
+      else { ownReadback(event?.sender); readback.setActive?.(true); }
+      return true;
+    });
+    registerTrustedIpcHandler('voice:set-readback-voice', (_event, selection) => {
+      if (shuttingDown) throw new Error('Voice runtime is shutting down');
+      const { engineId, voiceId } = selection || {};
+      validateReadbackVoice(engineId, voiceId);
+      const next = { ...readbackVoices, [engineId]: voiceId };
+      saveSettings({ spokenVoices: next });
+      readbackVoices = next;
+      readback.selectVoice?.(engineId, voiceId);
+      send('voice:runtime-state', runtimeInfo());
+      return runtimeInfo();
+    });
     registerTrustedIpcHandler('voice:readback-speak', (_event, text) => ({
       started: readback.speak(text),
     }));
@@ -823,6 +893,8 @@ function createVoiceRuntime({
     endControllerSetup();
     cancelActiveSession();
     readback.cancel();
+    releaseReadback();
+    readback.dispose?.();
     hook?.dispose();
     hook = null;
     ipcMain.removeAllListeners(AUDIO_CHANNEL);

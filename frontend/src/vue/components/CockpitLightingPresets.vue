@@ -66,7 +66,7 @@ const voice = target => target === 'cockpit' ? 'set cockpit lighting fifty perce
     </p>
     <div class="grid gap-3" :class="{ 'lg:grid-cols-2': targets.length > 1 }">
       <form v-for="target in targets" :key="target" class="min-w-0 rounded border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
-        :data-lighting-preset="target" @submit.prevent="apply(target)">
+        :data-lighting-preset="target" :data-aircraft-preset="id(target)" tabindex="-1" @submit.prevent="apply(target)">
         <div class="flex items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-gray-100">{{ label(target) }}</h3>
           <span class="font-mono text-xs text-gray-300" :data-lighting-current="target">{{ current(target) }}</span>

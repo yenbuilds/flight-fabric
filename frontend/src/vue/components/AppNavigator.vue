@@ -193,7 +193,7 @@ useDocumentEvent('keydown', event => {
         <div v-else class="app-help-content">
           <p>Keep your flight in view. Use the navigation to move between tasks, or search for a view with <kbd>Ctrl K</kbd> (<kbd>⌘ K</kbd> on Mac).</p>
           <dl class="app-shortcuts"><div><dt>Switch views</dt><dd><kbd>1</kbd> - <kbd>{{ tabs.desktopPrimaryTabs.length + tabs.desktopSecondaryTabs.length }}</kbd></dd></div><div><dt>Find aircraft controls</dt><dd><kbd>Ctrl F</kbd> in Aircraft</dd></div><div><dt>Close a dialog</dt><dd><kbd>Esc</kbd></dd></div></dl>
-          <p class="text-muted-fg">View shortcuts pause while you type or use a dialog. Your voice shortcut is configured separately in Voice settings.</p>
+          <p class="text-muted-fg">View shortcuts pause while typing or in dialogs. Set your voice shortcut in Voice settings.</p>
           <div class="app-help-actions"><button type="button" class="ff-button-secondary" @click="navigate(destinations.find(tab => tab.id === 'settings'))">Open settings</button><button type="button" class="ff-button-secondary" @click="navigate(destinations.find(tab => tab.id === 'system'))">Connection &amp; devices</button></div>
           <div class="app-help-links"><a id="footer-source-link" href="https://github.com/yenbuilds/flight-fabric/releases" target="_blank" rel="noopener noreferrer">Releases & source (AGPL)</a><a id="footer-support-link" :href="supportHref" target="_blank" rel="noopener noreferrer">Support FlightFabric</a></div>
         </div>

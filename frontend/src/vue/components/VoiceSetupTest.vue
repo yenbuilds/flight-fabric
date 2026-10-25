@@ -29,7 +29,7 @@ onBeforeUnmount(() => { void voice.cancelVoiceTest(); });
     <div class="setup-test-heading"><SetupIllustration kind="headset" /><div><h4 id="voice-test-title" tabindex="-1" class="text-base font-semibold text-fg">1. Try your microphone</h4><p class="mt-1 text-xs text-muted-fg">No simulator needed. This test cannot control the aircraft.</p></div></div>
     <slot />
     <p class="mt-3 text-sm text-fg">Say: <strong>“{{ VOICE_TEST_PHRASE }}”</strong></p>
-    <p class="mt-1 text-xs text-muted-fg">Speak after pressing Start. Recording stops after five seconds.</p>
+    <p class="mt-1 text-xs text-muted-fg">Press Start, then speak. Records for five seconds.</p>
     <p v-if="voice.runtime.mode === 'cloud'" class="mt-1 text-xs text-muted-fg">Cloud mode sends this recording to {{ voice.runtime.cloud.providerLabel }} when recording finishes and uses your provider API account.</p>
     <p v-if="!voice.runtime.enabled" id="voice-test-unavailable" class="mt-2 text-xs text-muted-fg">Enable voice control above to run the test.</p>
     <p v-else-if="!voice.runtime.available" id="voice-test-unavailable" class="mt-2 text-xs text-warning">{{ voice.runtime.error || 'Speech recognition is unavailable. Try turning voice control off and on again.' }}</p>
@@ -51,6 +51,6 @@ onBeforeUnmount(() => { void voice.cancelVoiceTest(); });
     <p class="mt-2 text-xs" :class="state.phase === 'error' ? 'text-warning' : state.recognized ? 'text-success' : 'text-muted-fg'" role="status" aria-live="polite" data-voice-test-status>{{ state.phase === 'playing' ? 'Playing your recording…' : state.message }}</p>
     <p v-if="state.recognized" class="mt-3 text-sm text-success" data-voice-microphone-passed>✓ Microphone and recognition checked</p>
     <p v-if="state.transcript" class="mt-2 break-words text-sm text-fg" data-voice-test-transcript><span class="text-muted-fg">{{ state.interpreted ? 'Interpreted:' : 'Heard:' }}</span> {{ state.transcript }}</p>
-    <details class="setup-details mt-3"><summary>About this test</summary><p class="text-xs text-muted-fg">Your temporary recording is available for playback until you leave Settings. A successful test checks recognition; aircraft availability is checked separately on Aircraft.</p></details>
+    <details class="setup-details mt-3"><summary>About this test</summary><p class="text-xs text-muted-fg">Replay your recording until you leave Settings. This checks recognition; check command availability on Aircraft.</p></details>
   </section>
 </template>

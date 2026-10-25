@@ -233,7 +233,7 @@ function createFakeHelperChild() {
   return child;
 }
 
-async function createRetryFixture(t, { startupFailure = false, cloudEngine = null, initialize = true } = {}) {
+async function createRetryFixture(t, { startupFailure = false, cloudEngine = null, initialize = true, readbackEngine = null } = {}) {
   const base = path.resolve(ORIGINAL_SOURCE_DIR, '../.tmp'); fs.mkdirSync(base, { recursive: true });
   const directory = fs.mkdtempSync(path.join(base, 'voice-retry-'));
   const helperPath = path.join(directory, 'helper.exe'); fs.writeFileSync(helperPath, 'fixture');
@@ -265,7 +265,7 @@ async function createRetryFixture(t, { startupFailure = false, cloudEngine = nul
   const runtime = createVoiceRuntime({ app: { isPackaged: false, getPath: () => directory }, appDir: directory,
     ipcMain: new EventEmitter(), speechEngine, debugLog: (...args) => logs.push(args),
     cloudEngine, cloudVoiceEnabled: Boolean(cloudEngine), credentialStore: { info: () => ({ keyConfigured: true }) },
-    readbackEngine: { getInfo: () => ({}), cancel() {} },
+    readbackEngine: readbackEngine || { getInfo: () => ({}), cancel() {} },
     getMainWindow: () => ({ isDestroyed: () => false, webContents: { isDestroyed: () => false,
       send: (channel, payload) => sent.push({ channel, payload }) } }),
     registerTrustedIpcHandler: (name, fn) => handlers.set(name, fn),
@@ -1011,6 +1011,8 @@ test('voice recognition is default-off and starts local resources only after exp
       pushToTalkShortcut: '',
       voiceRecognitionEnabled: true,
       voiceMode: 'offline',
+      readbackEngine: 'kokoro',
+      readbackVoices: { kokoro: 'af_heart' },
       // The disabled preview does not add cloud preferences for a new offline user.
     });
 
@@ -1068,9 +1070,42 @@ test('voice recognition is default-off and starts local resources only after exp
   }
 });
 
+test('preloaded speech belongs to its renderer and releases on navigation, crash, disable and shutdown', async t => {
+  for (const terminal of ['did-start-navigation', 'render-process-gone', 'destroyed', 'disable', 'shutdown', 'release']) {
+    const activity = [];
+    let releases = 0;
+    const h = await createRetryFixture(t, { readbackEngine: { getInfo: () => ({}), cancel() {},
+      release() { releases++; }, setActive(value) { activity.push(value); } } });
+    h.invoke('set-readback-active', true);
+    h.invoke('set-readback-active', true);
+    assert.equal(h.owner.listenerCount('render-process-gone'), 1, terminal);
+    h.owner.emit('did-start-navigation', {}, 'https://subframe.invalid', false, false);
+    h.owner.emit('did-start-navigation', {}, 'file://app#settings', true, true);
+    assert.equal(releases, 0);
+    const stale = h.owner.listeners('render-process-gone')[0];
+    if (terminal === 'disable') await h.invoke('set-recognition-enabled', false);
+    else if (terminal === 'shutdown') await h.runtime.shutdown();
+    else if (terminal === 'release') h.invoke('set-readback-active', false);
+    else h.owner.emit(terminal, {}, 'file://app', false, true);
+    assert.equal(releases, 1, terminal);
+    assert.equal(h.owner.listenerCount('render-process-gone'), 0);
+    if (terminal === 'disable' || terminal === 'shutdown') {
+      h.invoke('set-readback-active', true);
+      assert.deepEqual(activity, [true, true], 'late enable cannot reload disabled speech');
+    } else {
+      h.invoke('set-readback-active', true);
+      const before = releases;
+      stale();
+      assert.equal(releases, before, 'retired renderer callback cannot release its replacement');
+      assert.equal(h.owner.listenerCount('render-process-gone'), 1);
+    }
+  }
+});
+
 test('voice runtime exposes only its bounded local readback engine through trusted IPC', async () => {
   const handlers = new Map();
   const spoken = [];
+  const activity = [];
   let cancellations = 0;
   const speechEngine = {
     cancel: () => false,
@@ -1083,6 +1118,7 @@ test('voice runtime exposes only its bounded local readback engine through trust
     start: () => ({ sessionId: 'session_12345678', sampleRate: 16000, timeoutMs: 10000 }),
   };
   const readbackEngine = {
+    setActive(value) { activity.push(value); },
     cancel() { cancellations += 1; return true; },
     getInfo: () => ({ available: true, engine: 'windows-sapi', local: true }),
     speak(text) { spoken.push(text); return true; },
@@ -1104,6 +1140,9 @@ test('voice runtime exposes only its bounded local readback engine through trust
   assert.deepEqual(handlers.get('voice:get-readback-info')(), {
     available: true, engine: 'windows-sapi', local: true,
   });
+  assert.throws(() => handlers.get('voice:set-readback-active')({}, 'true'), /Invalid/);
+  handlers.get('voice:set-readback-active')({}, true);
+  assert.deepEqual(activity, [], 'disabled recognition cannot acquire a background model');
   assert.deepEqual(handlers.get('voice:readback-speak')({}, 'Heading two seven zero set.'), {
     started: true,
   });
@@ -1114,6 +1153,56 @@ test('voice runtime exposes only its bounded local readback engine through trust
   await runtime.shutdown();
   assert.equal(cancellations, 2, 'runtime shutdown should stop any remaining readback');
 });
+
+test('spoken voice defaults to Kokoro, persists Windows selection, and rejects unknown engines', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-readback-choice-'));
+  const handlers = new Map();
+  const make = () => createVoiceRuntime({ app: { isPackaged: false, getPath: () => directory },
+    appDir: ORIGINAL_SOURCE_DIR, ipcMain: new EventEmitter(), getMainWindow: () => null,
+    registerTrustedIpcHandler: (channel, handler) => handlers.set(channel, handler) });
+  let runtime = make();
+  t.after(async () => { await runtime.shutdown(); fs.rmSync(directory, { recursive: true, force: true }); });
+  assert.equal(runtime.runtimeInfo().readback.selectedEngine, 'kokoro');
+  assert.equal(runtime.runtimeInfo().readback.selectedVoice, 'af_heart');
+  assert.equal(runtime.runtimeInfo().readback.voices.length, 8);
+  handlers.get('voice:set-readback-voice')({}, { engineId: 'kokoro', voiceId: 'bf_emma' });
+  assert.equal(runtime.runtimeInfo().readback.selectedVoice, 'bf_emma');
+  assert.throws(() => handlers.get('voice:set-readback-voice')({}, { engineId: 'kokoro', voiceId: '../voice' }), /Unsupported/);
+  assert.throws(() => handlers.get('voice:set-readback-voice')({}, { engineId: 'windows-sapi', voiceId: 'am_michael' }), /Unsupported/);
+  handlers.get('voice:set-readback-engine')({}, 'windows-sapi');
+  assert.equal(runtime.runtimeInfo().readback.selectedEngine, 'windows-sapi');
+  assert.deepEqual(runtime.runtimeInfo().readback.voices, []);
+  handlers.get('voice:set-readback-engine')({}, 'kokoro');
+  assert.equal(runtime.runtimeInfo().readback.selectedVoice, 'bf_emma', 'British voice survives engine switches');
+  handlers.get('voice:set-readback-engine')({}, 'windows-sapi');
+  assert.throws(() => handlers.get('voice:set-readback-engine')({}, 'cloud'), /Unsupported/);
+  await runtime.shutdown(); runtime = make();
+  assert.equal(runtime.runtimeInfo().readback.selectedEngine, 'windows-sapi');
+  handlers.get('voice:set-readback-engine')({}, 'kokoro');
+  assert.equal(runtime.runtimeInfo().readback.selectedVoice, 'bf_emma', 'British voice survives restart');
+  handlers.get('voice:set-readback-engine')({}, 'windows-sapi');
+  fs.mkdirSync(path.join(directory, 'voice-control.json.tmp'));
+  assert.throws(() => handlers.get('voice:set-readback-engine')({}, 'kokoro'));
+  assert.equal(runtime.runtimeInfo().readback.selectedEngine, 'windows-sapi', 'failed save must preserve active selection');
+  assert.throws(() => handlers.get('voice:set-readback-voice')({}, { engineId: 'kokoro', voiceId: 'af_bella' }));
+  await runtime.shutdown(); runtime = make();
+  // Inspect the retained Kokoro choice without writing the deliberately blocked settings file.
+  assert.equal(JSON.parse(fs.readFileSync(path.join(directory, 'voice-control.json'), 'utf8')).readbackVoices.kokoro, 'bf_emma');
+});
+
+for (const [savedVoice, expectedVoice, count] of [['af_alloy', 'af_alloy', 9], ['retired-voice', 'af_heart', 8]]) {
+test(`saved spoken voice ${savedVoice} remains usable or recovers to the bundled default`, async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-readback-migration-'));
+  fs.writeFileSync(path.join(directory, 'voice-control.json'), JSON.stringify({ readbackVoices: { kokoro: savedVoice } }));
+  const runtime = createVoiceRuntime({ app: { isPackaged: false, getPath: () => directory },
+    appDir: ORIGINAL_SOURCE_DIR, ipcMain: new EventEmitter(), getMainWindow: () => null,
+    registerTrustedIpcHandler: () => {} });
+  t.after(async () => { await runtime.shutdown(); fs.rmSync(directory, { recursive: true, force: true }); });
+  assert.equal(runtime.runtimeInfo().readback.selectedVoice, expectedVoice);
+  assert.equal(runtime.runtimeInfo().readback.voices.length, count);
+  assert(runtime.runtimeInfo().readback.voices.some(voice => voice.id === expectedVoice), 'saved voice remains selectable');
+});
+}
 
 test('voice runtime authorizes microphone access only for its active renderer session', async () => {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-voice-session-'));

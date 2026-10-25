@@ -171,7 +171,7 @@ function hasValues(object) {
       </div>
     </header>
     <p v-if="remoteView" class="simbrief-device-note">
-      Plans fetched here are saved on this device. Fetch or clear the plan on the simulator PC to update the shared flight plan.
+      Plans stay on this device. Fetch or clear on your simulator PC to update the shared plan.
     </p>
 
     <div v-if="!simbrief.plan" class="ff-empty-state simbrief-empty-state" :aria-busy="simbrief.fetchInProgress">

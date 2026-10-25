@@ -73,7 +73,7 @@ onBeforeUnmount(stopLearning);
       <p v-if="setup.selection" class="mt-1 break-words text-xs text-fg">{{ setup.selection.label }} · Button {{ setup.selection.button }}</p>
       <p class="mt-1 text-xs text-muted-fg">{{ setup.message }}</p>
       <p v-if="setup.phase === 'listening'" class="mt-2 text-xs text-muted-fg">The first press may only get the controller ready.</p>
-      <p class="mt-2 text-xs text-muted-fg">Voice is paused. This check won't use your microphone or send commands.</p>
+      <p class="mt-2 text-xs text-muted-fg">Voice paused. No microphone use or aircraft commands.</p>
     </div>
     <div class="mt-3 flex flex-wrap gap-2">
       <button v-if="setup.active" ref="saveButton" type="button" class="min-h-10 disabled:opacity-50" :class="readyToSave ? 'ff-button-primary' : 'ff-button-secondary'" data-voice-controller-save :disabled="locked || !readyToSave" @click="perform('saveControllerButton', 'Controller button saved.')">Save button</button>
@@ -83,7 +83,7 @@ onBeforeUnmount(stopLearning);
       <button v-if="setup.active" type="button" class="ff-button-secondary min-h-10 disabled:opacity-50" data-voice-controller-cancel :disabled="pending" @click="perform('cancelControllerSetup')">Cancel</button>
       <button v-else-if="controller.binding" type="button" class="ff-button-secondary min-h-10 disabled:opacity-50" data-voice-controller-clear :disabled="props.disabled || pending" @click="perform('clearControllerButton', 'Controller button removed.')">Remove button</button>
     </div>
-    <p id="voice-controller-foreground" class="mt-3 text-xs text-muted-fg">The controller button also reaches MSFS and other apps. Choose a button that is unassigned there to avoid triggering another action while you talk.</p>
+    <p id="voice-controller-foreground" class="mt-3 text-xs text-muted-fg">The controller button also reaches MSFS and other apps. Choose an unassigned button.</p>
     <div v-if="controller.binding && !setup.active" class="mt-3 flex items-start gap-2 rounded-lg border border-border bg-bg/50 p-3 text-xs text-muted-fg">
       <svg class="pointer-events-none mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" focusable="false">
         <circle cx="12" cy="12" r="9" />

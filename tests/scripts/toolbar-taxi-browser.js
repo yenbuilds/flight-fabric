@@ -94,8 +94,8 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   await page(`await fetch('/fixture/taxi?pushback=true');`);
   await click('#taxi-mode'); press('Home'); press('Enter');
   await until(page, `return !!document.querySelector('[data-pushback-path]');`);
-  assert.match(await page(`return document.querySelector('#taxi-intro').textContent;`), /automatically pushes.*turns.*stops/);
-  assert.match(await page(`return document.querySelector('#taxi-pushback-help').textContent;`), /Start pushback to move the aircraft/);
+  assert.match(await page(`return document.querySelector('#taxi-intro').textContent;`), /Automatic pushback, then manual taxi/);
+  assert.match(await page(`return document.querySelector('#taxi-pushback-help').textContent;`), /release the parking brake before starting/);
   await page(`document.querySelector('#toolbar-taxi').scrollIntoView({block:'start'});`); await wait(100);
   fs.writeFileSync(path.join(output, 'pushback-setup-' + width + '.png'), (await win.webContents.capturePage()).toPNG());
   assert.equal(await page(`return document.querySelectorAll('.taxi-figure').length;`), 1);

@@ -175,6 +175,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
       requireVoiceSessionId(sessionId),
     ),
     getReadbackInfo: () => ipcRenderer.invoke('voice:get-readback-info'),
+    setReadbackEngine: (engine) => {
+      if (typeof engine !== 'string' || !/^[a-z][a-z0-9-]{0,39}$/.test(engine)) throw new TypeError('Invalid spoken voice engine');
+      return ipcRenderer.invoke('voice:set-readback-engine', engine);
+    },
+    setReadbackVoice: (engineId, voiceId) => {
+      if (typeof engineId !== 'string' || !/^[a-z][a-z0-9-]{0,39}$/.test(engineId)
+          || typeof voiceId !== 'string' || !/^[a-z][a-z0-9_-]{0,39}$/.test(voiceId)) throw new TypeError('Invalid spoken voice');
+      return ipcRenderer.invoke('voice:set-readback-voice', { engineId, voiceId });
+    },
+    releaseReadback: () => ipcRenderer.invoke('voice:readback-release'),
+    setReadbackActive: (value) => {
+      if (typeof value !== 'boolean') throw new TypeError('Invalid speech activity');
+      return ipcRenderer.invoke('voice:set-readback-active', value);
+    },
     getRuntimeInfo: () => ipcRenderer.invoke('voice:get-runtime-info'),
     retryPushToTalk: () => ipcRenderer.invoke('voice:retry-push-to-talk'),
     beginShortcutRecording: () => ipcRenderer.invoke('voice:shortcut-recording-begin'),

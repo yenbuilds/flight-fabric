@@ -148,8 +148,8 @@ onBeforeUnmount(() => { clearInterval(timer); controller.dispose(); unsubscribe.
               <h3 class="font-semibold text-fg">Connection setup</h3>
               <p>{{ state.setup || 'Waiting for aircraft connection details.' }}</p>
               <h3 class="font-semibold text-fg">Keyboard</h3>
-              <p v-if="touchOnly">Close help to use the on-screen keys. Taps made while a key is still being sent queue up in order. Keyboard on only works with a physical keyboard, such as one connected to a tablet. The phone's own keyboard is not used here.</p>
-              <p v-else>Turn Keyboard on to enter letters, numbers, punctuation and arrow keys from a physical keyboard. Backspace clears one character. Escape closes this panel. Keys typed while one is still being sent queue up in order.</p>
+              <p v-if="touchOnly">Close help to use on-screen keys. Taps queue in order. Keyboard on requires a physical keyboard. The phone's own keyboard is not used here.</p>
+              <p v-else>Keyboard on accepts letters, numbers, punctuation and arrows from a physical keyboard. Backspace clears one character; Escape closes the panel. Keys queue in order.</p>
               <p>Check entries on the aircraft display.</p>
             </div>
           </template>

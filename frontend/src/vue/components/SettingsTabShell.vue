@@ -99,7 +99,7 @@ onUnmounted(() => {
 
     <section v-else-if="!canManageSettings" id="settings-pc-managed-note" class="settings-panel" aria-labelledby="settings-pc-managed-title">
       <h3 id="settings-pc-managed-title" class="settings-panel-title">App settings are managed on your PC</h3>
-      <p class="mt-2 text-sm text-muted-fg">Open Settings in FlightFabric on the simulator PC to change simulator, recording, network, and app preferences.</p>
+      <p class="mt-2 text-sm text-muted-fg">Change preferences in FlightFabric’s Settings on your simulator PC.</p>
     </section>
 
     <!-- Keep the form mounted: the settings runtime binds its fields before the connection grants access. -->

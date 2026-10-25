@@ -159,9 +159,9 @@ onBeforeUnmount(() => {
       <p v-else-if="state === 'setup'">Enable aircraft data once so FlightFabric can read this PMDG aircraft and use its controls.</p>
       <p v-else-if="state === 'unknown'">We couldn’t confirm this file’s settings. Check its <code>[SDK]</code> section using the steps below.</p>
       <p v-else-if="state === 'checking'" class="text-muted-fg">Looking for this aircraft’s options file…</p>
-      <p v-if="!local" class="text-muted-fg">On the simulator PC, open FlightFabric’s Windows desktop app and go to Aircraft → PMDG connection to find the file automatically.</p>
-      <p v-else-if="result && !files.length && sdkConnected" class="text-muted-fg">The options file wasn’t found in the known folders. Use the manual locations below if you want to change its settings.</p>
-      <p v-else-if="result && !files.length" class="text-muted-fg">No options file found for this aircraft. Load it once, close MSFS, then check again. Use “Find the file manually” below for other locations.</p>
+      <p v-if="!local" class="text-muted-fg">Use FlightFabric’s Windows desktop app on your simulator PC: Aircraft → PMDG connection.</p>
+      <p v-else-if="result && !files.length && sdkConnected" class="text-muted-fg">No options file found for this aircraft. Check the manual locations below to change its settings.</p>
+      <p v-else-if="result && !files.length" class="text-muted-fg">No options file found for this aircraft. Load it once, close MSFS and check again, or use “Find the file manually”.</p>
       <label v-if="files.length > 1" class="pmdg-sdk-choice">
         <span>Choose the file for the simulator you use</span>
         <select v-model="selectedId" class="ff-touch-target" :disabled="busy" @change="feedback = ''" data-pmdg-file-choice>
@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
           <button v-if="selected.canReveal" type="button" class="ff-button-primary ff-touch-target" :aria-disabled="busy" @click="reveal" data-pmdg-open>{{ opening ? 'Opening…' : 'Open folder' }}</button>
         </div>
         <p>Data broadcast: <strong>{{ labels[selected.settings.data] || labels.unknown }}</strong></p>
-        <p v-if="!selected.canReveal" class="text-muted-fg">This location couldn’t be verified automatically. Use “Choose options file” to locate it, or follow the manual steps below.</p>
+        <p v-if="!selected.canReveal" class="text-muted-fg">Location unverified. Use “Choose options file” or the manual steps below.</p>
         <details class="text-muted-fg">
           <summary class="ff-touch-target">File location</summary>
           <code class="pmdg-sdk-path">{{ selected.path }}</code>

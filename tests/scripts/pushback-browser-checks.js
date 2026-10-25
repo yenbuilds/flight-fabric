@@ -7,8 +7,8 @@ module.exports = async function checkPushback({ win, evaluate, ready, settled, w
     document.querySelector('#aircraft-page-autotaxi > summary').click(); await layoutTest.settle();`);
   assert.equal(await settled(`return document.querySelector('[data-pushback-start]')?.disabled;`, v => v === false), false);
   assert.match(await evaluate(`return document.querySelector('#aircraft-page-autotaxi > summary').textContent;`), /Pushback & taxi/);
-  assert.match(await evaluate(`return document.querySelector('[data-taxi-intro]').textContent;`), /automatically pushes.*turns.*stops/);
-  assert.match(await evaluate(`return document.querySelector('[data-taxi-departure-help]').textContent;`), /taxiways and departure runway.*pushback direction/);
+  assert.match(await evaluate(`return document.querySelector('[data-taxi-intro]').textContent;`), /Automatic pushback, then manual taxi/);
+  assert.match(await evaluate(`return document.querySelector('[data-taxi-departure-help]').textContent;`), /runway determines your pushback direction/);
   assert.equal(await evaluate(`return document.querySelector('[data-pushback-start]').textContent;`), 'Start pushback');
   assert.equal(await evaluate(`return layoutTest.pushbackSent.some(m => m.operation === 'start');`), false, 'the explained automatic pushback still requires explicit Start');
   assert.equal(await evaluate(`return document.querySelectorAll('#aircraft-page-autotaxi figure').length;`), 1, 'one shared guidance map');

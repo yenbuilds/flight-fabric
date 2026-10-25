@@ -166,7 +166,7 @@ onUnmounted(() => {
         id="system-browser-mode-note"
         class="mt-5 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning"
       >
-        Service controls are available in the FlightFabric desktop app on your simulator PC. This browser can connect to FlightFabric while it is running.
+        Service controls are available in the FlightFabric desktop app on your simulator PC.
       </div>
 
       <div
@@ -305,7 +305,7 @@ onUnmounted(() => {
         <h3 id="system-connection-title" class="settings-panel-title">This device</h3>
         <p id="system-connection-status" class="mt-3 text-sm text-gray-100" role="status">{{ connectionLabel }}</p>
         <p class="mt-2 text-sm text-muted-fg">{{ profiles.authorizationScope === 'aircraft-control' ? 'Aircraft controls are paired on this device.' : 'This device has viewer access. To pair aircraft controls, use Request aircraft controls on this device and approve the code on your PC.' }}</p>
-        <p class="mt-4 text-sm text-muted-fg">Services, recordings, and flight-history maintenance are managed in FlightFabric on your simulator PC. Keep FlightFabric running there to use this device as a second screen.</p>
+        <p class="mt-4 text-sm text-muted-fg">Services, recordings, and flight-history maintenance are managed in FlightFabric on your simulator PC.</p>
       </section>
 
       <div class="space-y-5">
@@ -330,7 +330,7 @@ onUnmounted(() => {
         <section v-if="canManageHost" id="system-history-index" class="settings-panel">
           <h3 class="text-lg font-semibold text-fg">Flight history</h3>
           <p class="mt-1 text-sm text-muted-fg">
-            Keep your saved flights searchable in Logbook. Check for new or updated recordings, or rebuild the flight list.
+            Refresh or rebuild Logbook’s searchable flight list.
           </p>
           <div class="mt-4 border-t border-border pt-4">
             <div class="flex items-start gap-3">
@@ -349,7 +349,7 @@ onUnmounted(() => {
                   ></div>
                 </div>
                 <div class="mt-2 text-xs text-muted-fg">
-                  Rebuilding updates the searchable flight list. Your recordings and saved flight summaries stay unchanged.
+          Your recordings and saved flight summaries stay unchanged.
                 </div>
               </div>
             </div>

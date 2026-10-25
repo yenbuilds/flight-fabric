@@ -147,6 +147,169 @@ async function browser() {
     await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
     await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await ready('[data-aircraft-template="pmdg-737"]');
+    async function checkAircraftDiscovery() {
+      async function click(selector) {
+        const point = await evaluate(`const element=document.querySelector(${JSON.stringify(selector)});
+          element.scrollIntoView({block:'nearest',behavior:'instant'});const r=element.getBoundingClientRect();
+          return {x:r.left+r.width/2,y:r.top+r.height/2};`);
+        assert(await evaluate(`return document.querySelector(${JSON.stringify(selector)}).contains(document.elementFromPoint(${point.x},${point.y}));`), `native discovery hit target: ${selector}`);
+        if (await evaluate('return innerWidth < 760;')) {
+          for (const type of ['touchStart','touchEnd']) await Promise.all([
+            win.webContents.debugger.sendCommand('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchStart' ? [point] : [] }),
+            win.webContents.capturePage(),
+          ]);
+        } else {
+          for (const type of ['mouseDown','mouseUp']) win.webContents.sendInputEvent({ type, x:Math.round(point.x), y:Math.round(point.y), button:'left', clickCount:1 });
+        }
+        await wait(70);
+      }
+      async function query(value) {
+        await evaluate(`const input=document.getElementById('aircraft-find-input');input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));await layoutTest.settle();`);
+      }
+      async function key(keyCode) {
+        win.webContents.sendInputEvent({ type:'keyDown', keyCode });
+        // Native Enter includes a character event. Keydown alone exercises our
+        // query handler but does not activate a focused HTML button in Electron.
+        if (keyCode === 'Enter') win.webContents.sendInputEvent({ type:'char', keyCode:'\r' });
+        win.webContents.sendInputEvent({ type:'keyUp', keyCode });
+        await wait(70);
+      }
+      const resultSelector = id => `[data-aircraft-search-result="${id}"] button`;
+      await evaluate(`if(!document.getElementById('vue-main-root')) { const main=document.createElement('main');main.id='vue-main-root';main.style.cssText='height:calc(100vh - 32px);overflow:auto;position:relative';const app=document.getElementById('app');app.parentNode.insertBefore(main,app);main.appendChild(app); }`);
+      for (const id of ['pmdg-737','pmdg-777','fenix-a320','fbw-a32nx','inibuilds-a350-900']) {
+        for (const width of [1440,390,320]) {
+          win.setContentSize(width,900);
+          await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled:width<760,maxTouchPoints:5 });
+          await evaluate(`await layoutTest.scenario(${JSON.stringify(id)});await layoutTest.remount();document.getElementById('vue-main-root').scrollTop=0;`);
+          const before = await evaluate('return layoutTest.sent.length;');
+          await click('[aria-label="Find controls"]');
+          assert.equal(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace;"),'presets','catalogue discovery preserves the view');
+          assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','opening focuses the query');
+          assert.equal(await evaluate("return document.querySelectorAll('[data-aircraft-search-result]').length;"),0,'empty query does not duplicate the catalogue');
+          assert.equal(await evaluate("return document.querySelector('[data-aircraft-search-mode]').textContent;"),'Find cockpit values','empty search offers the secondary cockpit destination');
+          const heading = await evaluate("return layoutTest.controls.getAircraftCommand('flightGuidance.heading.set');");
+          assert(heading, `${id}: fixture advertises heading`);
+          await query('HDG');
+          assert(await evaluate(`return !!document.querySelector(${JSON.stringify(resultSelector(heading.id))});`),'abbreviation finds heading');
+          await query(heading.speech.patterns[0]);
+          assert(await evaluate(`return !!document.querySelector(${JSON.stringify(resultSelector(heading.id))});`),'declared voice wording finds heading');
+          await query(heading.label);
+          await evaluate("document.getElementById('aircraft-find-input').focus();");
+          await key('Enter');
+          assert.equal(await evaluate('return layoutTest.sent.length;'),before,'Enter in search cannot execute');
+          await click(resultSelector(heading.id));
+          assert.deepEqual(await evaluate("return {tag:document.activeElement.tagName,id:document.activeElement.closest('[data-command-editor]')?.dataset.commandEditor};"),{tag:'H3',id:heading.id},'library focuses the exact editor heading');
+          assert.equal(await evaluate(`return document.querySelector('[data-command-editor="${heading.id}"] input').value;`),'','navigation never prefills a target');
+          await key('Enter');
+          assert.equal(await evaluate('return layoutTest.sent.length;'),before,'Enter on the heading cannot execute');
+          const shortcut = await evaluate("const event=new KeyboardEvent('keydown',{key:'f',ctrlKey:true,bubbles:true,cancelable:true});document.dispatchEvent(event);return {prevented:event.defaultPrevented,focus:document.activeElement.tagName};");
+          assert.deepEqual(shortcut,{prevented:false,focus:'H3'},'page shortcut yields to the open library');
+          await click('[aria-label="Close aircraft controls"]');
+          assert.equal(await evaluate("return document.activeElement.closest('[data-aircraft-search-result]')?.dataset.aircraftSearchResult;"),heading.id,'close returns to the result');
+          assert.equal(await evaluate("return document.getElementById('aircraft-find-input').value;"),heading.label,'library preserves search');
+          if (id === 'pmdg-737' && width === 1440) {
+            const types = await evaluate("return ['boolean','enum','none'].map(kind=>Object.values(layoutTest.controls.aircraftCommandCatalogue.commands).find(c=>c.kind!=='preset'&&c.input.kind===kind));");
+            for (const command of types) {
+              assert(command,'a realistic catalogue covers every editor input kind');
+              await query(command.label); await click(resultSelector(command.id));
+              assert.equal(await evaluate("return document.activeElement.closest('[data-command-editor]')?.dataset.commandEditor;"),command.id,'every input kind has exact navigation');
+              await click('[aria-label="Close aircraft controls"]');
+            }
+          }
+          await query('lights');
+          const geometry = await evaluate(`const panel=document.querySelector('.aircraft-find__panel').getBoundingClientRect(), tools=document.querySelector('[data-aircraft-voice-control-trigger]').getBoundingClientRect(), main=document.getElementById('vue-main-root');return {fits:panel.left>=0&&panel.right<=innerWidth+1,below:panel.top>=tools.bottom,overflow:main.scrollWidth>main.clientWidth+1};`);
+          assert.deepEqual(geometry,{fits:true,below:true,overflow:false},`${id}/${width}: search sits below the toolbar within the page`);
+          await win.webContents.capturePage();
+          fs.writeFileSync(path.join(OUTPUT,`discovery-${id}-${width}.png`),(await win.webContents.capturePage()).toPNG());
+          const presets = await evaluate("return Object.values(layoutTest.controls.aircraftCommandCatalogue.commands).filter(c=>c.kind==='preset').map(c=>({id:c.id,label:c.label}));");
+          for (const preset of presets) {
+            await query(preset.label); await click(resultSelector(preset.id));
+            assert.equal(await evaluate("return document.activeElement.dataset.aircraftPreset;"),preset.id,'preset destination is its existing card/row');
+            assert.equal(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace;"),'presets');
+            await click('[aria-label="Find controls"]');
+          }
+          await query('there is no such aircraft control');
+          assert(await evaluate("return document.getElementById('aircraft-find-status').textContent.includes('No matching commands for this aircraft');"),'empty results are aircraft-scoped');
+          await query('heading');
+          await click('[data-aircraft-search-mode="page"]');
+          assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','cockpit link restores query focus');
+          assert.equal(await evaluate("return document.querySelector('[data-aircraft-search-mode]').textContent;"),'Back to controls and presets','cockpit search offers a clear return destination');
+          assert.equal(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace;"),'controls','page mode reveals cockpit');
+          assert(await evaluate("return !!document.querySelector('[data-aircraft-find-current]')?.getClientRects().length;"),'existing page matching still reveals cockpit content');
+          await click('[data-aircraft-search-mode="commands"]');
+          assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','return link restores query focus');
+          assert.equal(await evaluate("return document.getElementById('aircraft-find-input').value;"),'heading','modes retain the query');
+          assert.equal(await evaluate("return document.querySelectorAll('[data-aircraft-find-match]').length;"),0,'catalogue mode clears page markers');
+          await evaluate("layoutTest.controls.setAvailability({enabled:false,reason:'Pair this device to enable aircraft controls.'});await layoutTest.settle();");
+          assert(await evaluate("return document.querySelector('.aircraft-find__reason').textContent.includes('Pair this device');"),'existing permission reason is visible');
+          await click(resultSelector(heading.id));
+          assert.equal(await evaluate(`return document.querySelector('[data-command-editor="${heading.id}"] button[type=submit]').disabled;`),true,'read-only users may inspect but cannot execute');
+          await key('Escape');
+          await evaluate("layoutTest.controls.setAvailability({enabled:true});await layoutTest.settle();");
+          assert.equal(await evaluate('return layoutTest.sent.length;'),before,'all discovery journeys send zero aircraft commands');
+        }
+      }
+      // Same-profile removal retires a selected command and restores query focus.
+      await evaluate("await layoutTest.scenario('pmdg-737');await layoutTest.remount();");
+      await click('[aria-label="Find controls"]'); await query('heading');
+      await evaluate(`document.querySelector('${resultSelector('flightGuidance.heading.set')}').focus();
+        const catalogue=layoutTest.controls.aircraftCommandCatalogue;
+        layoutTest.controls.applyControlCapabilities({aircraftCommands:{...catalogue,commands:Object.values(catalogue.commands).filter(c=>c.id!=='flightGuidance.heading.set')}});await layoutTest.settle();`);
+      assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','a removed focused result returns to the query');
+      await evaluate("await layoutTest.scenario('pmdg-737');await layoutTest.remount();");
+      await click('[aria-label="Find controls"]'); await query('heading');
+      await click(resultSelector('flightGuidance.heading.set'));
+      await evaluate(`const catalogue=layoutTest.controls.aircraftCommandCatalogue;
+        layoutTest.controls.applyControlCapabilities({aircraftCommands:{...catalogue,commands:Object.values(catalogue.commands)}});await layoutTest.settle();
+        if(!document.activeElement.closest('[data-command-editor]'))throw new Error('A benign catalogue refresh stole editor focus');
+        layoutTest.controls.applyControlCapabilities({aircraftCommands:{...catalogue,commands:Object.values(catalogue.commands).filter(c=>c.id!=='flightGuidance.heading.set')}});await layoutTest.settle();`);
+      assert.equal(await evaluate("return !!document.querySelector('[data-aircraft-controls-modal]');"),false,'removed selection closes its editor');
+      assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','removed result returns to the query');
+      // After arrival the library is ordinary browsing: retiring the original
+      // search result must not dismiss a different, still-supported editor.
+      await evaluate("await layoutTest.scenario('pmdg-737');await layoutTest.remount();");
+      await click('[aria-label="Find controls"]'); await query('heading');
+      await click(resultSelector('flightGuidance.heading.set'));
+      await click('[data-command-editor="flightGuidance.altitude.set"] input');
+      const continuedEditing = await evaluate(`const input=document.activeElement;input.value='15000';input.dispatchEvent(new Event('input',{bubbles:true}));
+        const catalogue=layoutTest.controls.aircraftCommandCatalogue;
+        layoutTest.controls.applyControlCapabilities({aircraftCommands:{...catalogue,commands:Object.values(catalogue.commands).filter(c=>c.id!=='flightGuidance.heading.set')}});await layoutTest.settle();
+        return {open:!!document.querySelector('[data-aircraft-controls-modal]'),editor:document.activeElement.closest('[data-command-editor]')?.dataset.commandEditor||'',value:document.querySelector('[data-command-editor="flightGuidance.altitude.set"] input')?.value||''};`);
+      assert.deepEqual(continuedEditing,{open:true,editor:'flightGuidance.altitude.set',value:'15000'},'removing the original search result preserves a different editor and its draft');
+      await evaluate("await layoutTest.scenario('pmdg-737');await layoutTest.remount();");
+      await click('[aria-label="Find controls"]'); await query('heading');
+      await evaluate(`document.querySelector('${resultSelector('flightGuidance.heading.set')}').click();await layoutTest.scenario('pmdg-777');`);
+      assert.equal(await evaluate("return !!document.querySelector('[data-aircraft-controls-modal]');"),false,'aircraft replacement cancels a deferred reveal');
+      assert.equal(await evaluate("return document.getElementById('aircraft-find-input').value;"),'','aircraft change clears old search');
+      await click('[aria-label="Find controls"]'); await query('lights');
+      await evaluate("document.querySelector('[data-aircraft-search-result] button').focus();");
+      await key('Escape');
+      const escapeResult = await evaluate("return {query:document.getElementById('aircraft-find-input').value,focus:document.activeElement.id};");
+      await query('there is no such aircraft control');
+      await click('[data-aircraft-search-mode="page"]');
+      const fallbackFocus = await evaluate("return document.activeElement.id;");
+      assert.deepEqual({escapeResult,fallbackFocus},{escapeResult:{query:'',focus:'aircraft-find-input'},fallbackFocus:'aircraft-find-input'},'Escape and fallback preserve usable search focus');
+      await query('heading');
+      const pageIndex = await evaluate("return document.getElementById('aircraft-find-status').textContent;");
+      await key('Enter');
+      assert.notEqual(await evaluate("return document.getElementById('aircraft-find-status').textContent;"),pageIndex,'Enter cycles page matches after fallback');
+      await evaluate("document.querySelector('[data-aircraft-search-mode=\"commands\"]').focus();");
+      await key('Enter');
+      assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','keyboard activation of the return link restores query focus');
+      assert.equal(await evaluate("return document.getElementById('aircraft-find-input').value;"),'heading','keyboard return retains the query');
+      await query('lights');
+      await evaluate("document.getElementById('aircraft-find-input').focus();");
+      await key('Escape');
+      assert.equal(await evaluate("return document.getElementById('aircraft-find-input').value;"),'','first Escape clears');
+      await key('Escape');
+      assert.equal(await evaluate("return document.activeElement.getAttribute('aria-label');"),'Find controls','second Escape closes and restores launcher');
+      assert.deepEqual(errors,[],'discovery has no browser errors');
+      console.log('PASS Aircraft discovery: five families at desktop/390px/320px, all preset destinations, editor kinds, native mouse/touch/keyboard, page search, permission reasons, stale catalogue/aircraft handoffs and zero navigation dispatch.');
+    }
+    if (process.env.FF_AIRCRAFT_DISCOVERY_ONLY === '1') {
+      await checkAircraftDiscovery();
+      win.destroy();app.exit(0);return;
+    }
     async function checkThrottleStyles() {
       for (const [family, count, climb] of [['fenix', 2, 3], ['fbw', 2, 25], ['fbw', 4, 25]]) {
         await evaluate(`localStorage.removeItem('ff-throttle-style'); await layoutTest.mountThrottlePanel('${family}', ${count});`);
@@ -355,6 +518,8 @@ async function browser() {
           }
           await click('[data-aircraft-view="presets"]');
           await click('[aria-label="Find controls"]');
+          assert.equal((await state()).view,'presets','catalogue discovery leaves the current view unchanged');
+          await click('[data-aircraft-search-mode="page"]');
           assert.equal((await state()).view,'controls','Find controls reveals the cockpit surface');
           await evaluate(`const input=document.getElementById('aircraft-find-input');input.value='altitude';input.dispatchEvent(new Event('input',{bubbles:true}));await layoutTest.settle();`);
           assert(await evaluate("return !!document.querySelector('[data-aircraft-find-current]')?.getClientRects().length;"),'search selects a visible cockpit result');
@@ -702,10 +867,12 @@ async function browser() {
           // Measure in the same turn as expansion, before a paint can hide it.
           const searchLayout = await evaluate(`document.querySelector('.aircraft-find').getBoundingClientRect();
             document.querySelector('.aircraft-find__launcher').click(); await layoutTest.settle();
+            document.querySelector('[data-aircraft-search-mode="page"]').click(); await layoutTest.settle();
             const input = document.getElementById('aircraft-find-input'); input.value = 'heading'; input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();
+            input.focus({preventScroll:true});
             const panel = document.querySelector('.aircraft-find__panel').getBoundingClientRect();
             const current = document.querySelector('[data-aircraft-find-current]').getBoundingClientRect();
-            const tools = document.querySelector('.aircraft-page-tool-actions').getBoundingClientRect();
+            const tools = document.querySelector('.aircraft-page-tools').getBoundingClientRect();
             return { left: panel.left, right: panel.right, width: panel.width, toolsWidth: tools.width,
               top: panel.top, bottom: panel.bottom, matchTop: current.top, viewport: innerWidth };`);
           assert.equal(await evaluate(`return document.activeElement.id;`), 'aircraft-find-input', `${id}: phone search focuses input`);
@@ -971,7 +1138,7 @@ async function browser() {
         assert(await evaluate(`return document.activeElement.classList.contains('aircraft-tools-toggle')
           && document.activeElement.getBoundingClientRect().height > 0;`), 'Tools keeps focus across desktop and phone sizes');
       }
-      await evaluate(`document.querySelector('.aircraft-find__launcher').click(); await layoutTest.settle(); const input = document.getElementById('aircraft-find-input'); input.value = 'heading'; input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();`);
+      await evaluate(`document.querySelector('.aircraft-find__launcher').click(); await layoutTest.settle(); document.querySelector('[data-aircraft-search-mode="page"]').click(); await layoutTest.settle(); const input = document.getElementById('aircraft-find-input'); input.focus(); input.value = 'heading'; input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();`);
       for (const [width, height] of [[1440, 1000], [700, 390], [320, 700]]) {
         await resizeTools(width, height);
         assert.equal(await evaluate(`return document.activeElement.id === 'aircraft-find-input' && document.getElementById('aircraft-find-input').value === 'heading' && Boolean(document.querySelector('[data-aircraft-find-current]'));`), true, 'resizing preserves the visible search input, query and matches');
@@ -1182,6 +1349,7 @@ async function browser() {
       await checkMountedNumericDrafts({ evaluate });
       await checkPresetFirstViews(false);
       await checkThrottleStyles();
+      await checkAircraftDiscovery();
     }
     assert.deepEqual(errors, [], 'no runtime errors');
     console.log(process.env.FF_CDU_LAYOUT_ONLY === '1'

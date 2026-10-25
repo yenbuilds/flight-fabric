@@ -8,9 +8,9 @@ const radians = (degrees: number) => degrees * Math.PI / 180;
 const unit = (heading: number) => ({ x: Math.sin(radians(heading)), z: Math.cos(radians(heading)) });
 const cross = (a: Point, b: Point) => a.x * b.z - a.z * b.x;
 
-/** Back straight, then one reversing arc and a short alignment on the taxiway. Choose the
- * onward direction by routing to the selected runway, never its compass number.
- * This bounded manoeuvre deliberately rejects complex/ambiguous apron layouts.
+/** Back clear, turn in reverse and align on the taxiway. Prefer one arc; a bounded
+ * opposite turn first can leave room to face out of a dead-end apron.
+ * Choose direction by routing to the selected runway, never its compass number.
  */
 export function planPushback(airport: TaxiAirport, start: Point, headingDeg: number, runway: string,
   dimensions: { wheelbaseM: number; lengthM: number }): PushbackPlan {
@@ -37,55 +37,70 @@ export function planPushback(airport: TaxiAirport, start: Point, headingDeg: num
     .map(link => ({ ...link, distance: project(start, link.a, link.b).distance }))
     .filter(link => link.distance < 250)
     .sort((a, b) => a.distance - b.distance).slice(0, 24);
-  for (const { a, b } of links) for (const [from, to] of [[a, b], [b, a]]) {
-    const targetHeading = bearing(from, to), turn = angle(targetHeading - headingDeg);
-    if (Math.abs(turn) < 25 || Math.abs(turn) > 110) continue;
-    const along = unit(targetHeading), length = distance(from, to);
-    const denominator = cross(back, along);
-    if (Math.abs(denominator) < 0.1 || length < 15) continue;
-    for (const radius of [minRadius, minRadius * 1.4, minRadius * 2]) {
-      const sign = Math.sign(turn), h0 = radians(headingDeg), h1 = radians(headingDeg + turn);
-      const arc = { x: sign * radius * (Math.cos(h1) - Math.cos(h0)), z: -sign * radius * (Math.sin(h1) - Math.sin(h0)) };
-      const offset = { x: from.x - start.x - arc.x, z: from.z - start.z - arc.z };
-      const straight = cross(offset, along) / denominator;
-      if (straight < clearance || straight > 120) continue;
-      const arcEnd = { x: start.x + back.x * straight + arc.x, z: start.z + back.z * straight + arc.z };
-      const end = { x: arcEnd.x - along.x * alignmentM, z: arcEnd.z - along.z * alignmentM };
-      const fractions = [arcEnd, end].map(p => ((p.x - from.x) * along.x + (p.z - from.z) * along.z) / length);
-      if (fractions.some(fraction => fraction < 0.02 || fraction > 0.95)) continue;
-      const arcLength = radius * Math.abs(radians(turn)), total = straight + arcLength + alignmentM;
-      if (total > 180) continue;
-      const points: PushbackPoint[] = [];
-      for (let d = 0; d < straight; d += 2) points.push({ x: start.x + back.x * d, z: start.z + back.z * d, headingDeg, distanceM: d });
-      const steps = Math.ceil(arcLength / 2);
-      for (let i = 0; i <= steps; i++) {
-        const h = radians(headingDeg + turn * i / steps);
-        points.push({ x: start.x + back.x * straight + sign * radius * (Math.cos(h) - Math.cos(h0)),
-          z: start.z + back.z * straight - sign * radius * (Math.sin(h) - Math.sin(h0)),
-          headingDeg: (headingDeg + turn * i / steps + 360) % 360, distanceM: straight + arcLength * i / steps });
+  // Keep every existing single-arc choice. Only try a reverse S-turn when no
+  // single arc can reach the onward route, preferring the smallest extra turn.
+  for (const swing of [0, 15, 30, 45]) {
+    if (candidates.length) break;
+    for (const { a, b } of links) for (const [from, to] of [[a, b], [b, a]]) {
+      const targetHeading = bearing(from, to), turn = angle(targetHeading - headingDeg);
+      if (Math.abs(turn) < 25 || Math.abs(turn) > 110) continue;
+      const along = unit(targetHeading), length = distance(from, to);
+      const denominator = cross(back, along);
+      if (Math.abs(denominator) < 0.1 || length < 15) continue;
+      for (const radius of [minRadius, minRadius * 1.4, minRadius * 2]) {
+        const turns = swing ? [-Math.sign(turn) * swing, turn + Math.sign(turn) * swing] : [turn];
+        let arc = { x: 0, z: 0 }, arcLength = 0, arcHeading = headingDeg;
+        const arcs = turns.map(change => {
+          const sign = Math.sign(change), h0 = radians(arcHeading), h1 = radians(arcHeading + change);
+          const segment = { start: arc, heading: arcHeading, change, sign, h0, at: arcLength, length: radius * Math.abs(radians(change)) };
+          arc = { x: arc.x + sign * radius * (Math.cos(h1) - Math.cos(h0)),
+            z: arc.z - sign * radius * (Math.sin(h1) - Math.sin(h0)) };
+          arcLength += segment.length; arcHeading += change;
+          return segment;
+        });
+        const offset = { x: from.x - start.x - arc.x, z: from.z - start.z - arc.z };
+        const straight = cross(offset, along) / denominator;
+        if (straight < clearance || straight > 120) continue;
+        const arcEnd = { x: start.x + back.x * straight + arc.x, z: start.z + back.z * straight + arc.z };
+        const end = { x: arcEnd.x - along.x * alignmentM, z: arcEnd.z - along.z * alignmentM };
+        const fractions = [arcEnd, end].map(p => ((p.x - from.x) * along.x + (p.z - from.z) * along.z) / length);
+        if (fractions.some(fraction => fraction < 0.02 || fraction > 0.95)) continue;
+        const total = straight + arcLength + alignmentM;
+        if (total > 180) continue;
+        const points: PushbackPoint[] = [];
+        for (let d = 0; d < straight; d += 2) points.push({ x: start.x + back.x * d, z: start.z + back.z * d, headingDeg, distanceM: d });
+        for (const segment of arcs) {
+          const steps = Math.ceil(segment.length / 2);
+          for (let i = segment.at ? 1 : 0; i <= steps; i++) {
+            const heading = segment.heading + segment.change * i / steps, h = radians(heading);
+            points.push({ x: start.x + back.x * straight + segment.start.x + segment.sign * radius * (Math.cos(h) - Math.cos(segment.h0)),
+              z: start.z + back.z * straight + segment.start.z - segment.sign * radius * (Math.sin(h) - Math.sin(segment.h0)),
+              headingDeg: (heading + 360) % 360, distanceM: straight + segment.at + segment.length * i / steps });
+          }
+        }
+        const alignmentSteps = Math.ceil(alignmentM / 2);
+        for (let i = 1; i <= alignmentSteps; i++) {
+          const d = alignmentM * i / alignmentSteps;
+          points.push({ x: arcEnd.x - along.x * d, z: arcEnd.z - along.z * d,
+            headingDeg: (targetHeading + 360) % 360, distanceM: straight + arcLength + d });
+        }
+        // Never reverse over any authored runway, including a crossing runway.
+        const runwayLinks = graph.paths.filter(p => p.type === 2).map(p => ({ a: nodes.get(p.start), b: nodes.get(p.end), width: p.widthM }));
+        const blocked = points.some(p => runwayLinks.some(l => {
+          if (!l.a || !l.b || !Number.isFinite(l.width)) return true;
+          const dx = l.b.x - l.a.x, dz = l.b.z - l.a.z, l2 = dx * dx + dz * dz;
+          const t = l2 ? Math.max(0, Math.min(1, ((p.x - l.a.x) * dx + (p.z - l.a.z) * dz) / l2)) : 0;
+          return Math.hypot(p.x - l.a.x - t * dx, p.z - l.a.z - t * dz) < l.width / 2 + dimensions.lengthM / 2;
+        }));
+        if (blocked) continue;
+        try {
+          const threshold = localPosition(airport.threshold.lat, airport.threshold.lon, airport.origin);
+          const taxiRoute = planTaxiRoute(graph, end, targetHeading, runway, airport.reciprocal, threshold, handling);
+          if (taxiRoute.joinM > 1) continue;
+          candidates.push({ points, lengthM: total, headingDeg: (targetHeading + 360) % 360, taxiRoute,
+            score: taxiRoute.lengthM + total * 2 + taxiRoute.runwayTravelM * 5 });
+        } catch { /* This direction cannot reach the requested departure end. */ }
       }
-      const alignmentSteps = Math.ceil(alignmentM / 2);
-      for (let i = 1; i <= alignmentSteps; i++) {
-        const d = alignmentM * i / alignmentSteps;
-        points.push({ x: arcEnd.x - along.x * d, z: arcEnd.z - along.z * d,
-          headingDeg: (targetHeading + 360) % 360, distanceM: straight + arcLength + d });
-      }
-      // Never reverse over any authored runway, including a crossing runway.
-      const runwayLinks = graph.paths.filter(p => p.type === 2).map(p => ({ a: nodes.get(p.start), b: nodes.get(p.end), width: p.widthM }));
-      const blocked = points.some(p => runwayLinks.some(l => {
-        if (!l.a || !l.b || !Number.isFinite(l.width)) return true;
-        const dx = l.b.x - l.a.x, dz = l.b.z - l.a.z, l2 = dx * dx + dz * dz;
-        const t = l2 ? Math.max(0, Math.min(1, ((p.x - l.a.x) * dx + (p.z - l.a.z) * dz) / l2)) : 0;
-        return Math.hypot(p.x - l.a.x - t * dx, p.z - l.a.z - t * dz) < l.width / 2 + dimensions.lengthM / 2;
-      }));
-      if (blocked) continue;
-      try {
-        const threshold = localPosition(airport.threshold.lat, airport.threshold.lon, airport.origin);
-        const taxiRoute = planTaxiRoute(graph, end, targetHeading, runway, airport.reciprocal, threshold, handling);
-        if (taxiRoute.joinM > 1) continue;
-        candidates.push({ points, lengthM: total, headingDeg: (targetHeading + 360) % 360, taxiRoute,
-          score: taxiRoute.lengthM + total * 2 + taxiRoute.runwayTravelM * 5 });
-      } catch { /* This direction cannot reach the requested departure end. */ }
     }
   }
   candidates.sort((a, b) => a.score - b.score);

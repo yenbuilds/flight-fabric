@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { planPushback } from '../../autotaxi/pushback-route.js';
 import { createPushbackSession } from '../../autotaxi/pushback-session.js';
 import { createPushbackPreviews } from '../../autotaxi/pushback-preview.js';
-import { angle, distance, type Point } from '../../autotaxi/route.js';
+import { angle, bearing, distance, localPosition, project, type Point } from '../../autotaxi/route.js';
 import type { TaxiAirport } from '../../autotaxi/session.js';
 import type { PushbackCommand } from '../../autotaxi/pushback-session.js';
 import { createAircraftPushback, tugHeading, writeSimulatorTug } from '../../telemetry-provider/aircraft-pushback.js';
@@ -12,6 +14,24 @@ import { createAutotaxi } from '../../telemetry-provider/aircraft-autotaxi.js';
 const { createMsfsFacilitiesGeometryProvider } = require('../../landing/msfs-facilities-geometry-provider.js');
 
 const dim = { wheelbaseM: 15, lengthM: 40 };
+const recorded = JSON.parse(readFileSync(join(process.cwd(), 'tests/fixtures/pushback-ymml-g41a.json'), 'utf8'));
+// Translate the actual capture to the existing motion fixture's origin. Mirrors
+// and rotations below are explicitly transformed coverage, not other live stands.
+function ymml(mirror = false, rotation = 0) {
+  const original: TaxiAirport = recorded.airport;
+  const start = localPosition(recorded.observation.lat, recorded.observation.lon, original.origin);
+  const transform = (p: Point) => {
+    const x = (p.x - start.x) * (mirror ? -1 : 1), z = p.z - start.z, r = rotation * Math.PI / 180;
+    return { x: x * Math.cos(r) + z * Math.sin(r), z: -x * Math.sin(r) + z * Math.cos(r) };
+  };
+  const threshold = transform(localPosition(original.threshold!.lat, original.threshold!.lon, original.origin));
+  const heading = ((mirror ? -recorded.observation.hdg : recorded.observation.hdg) + rotation + 360) % 360;
+  const data: TaxiAirport = { ...original, origin: { lat: 0, lon: 0 }, runways: undefined,
+    threshold: { lat: threshold.z / 6371000 * 180 / Math.PI, lon: threshold.x / 6371000 * 180 / Math.PI },
+    graph: { ...original.graph, points: original.graph.points.map(p => ({ ...p, ...transform(p) })),
+      paths: original.graph.paths.map(p => ({ ...p })) } };
+  return { airport: data, heading };
+}
 function airport(east = true, rotation = 0): TaxiAirport {
   const turn = (p: Point) => ({ x: p.x * Math.cos(rotation * Math.PI / 180) + p.z * Math.sin(rotation * Math.PI / 180),
     z: -p.x * Math.sin(rotation * Math.PI / 180) + p.z * Math.cos(rotation * Math.PI / 180) });
@@ -33,7 +53,41 @@ test('pushback chooses the onward taxi direction for the requested departure end
     assert.ok(distance(plan.points.at(-1)!, plan.taxiRoute.points[0]) < 0.01);
     assert.ok(plan.taxiRoute.lengthM > 1000);
     assert.ok(plan.points.every(p => p.distanceM >= 0));
+    assert.ok(plan.points.every(p => angle(p.headingDeg - rotate) * (east ? 1 : -1) >= -0.01),
+      'a working single-arc route must not acquire an opposite turn');
   }
+});
+
+test('recorded YMML dead-end stand uses a bounded reverse S-turn onto the onward taxiway', () => {
+  for (const mirror of [false, true]) for (const rotation of [0, 97, 210]) {
+    const capture = ymml(mirror, rotation), graph = capture.airport.graph;
+    const plan = planPushback(capture.airport, { x: 0, z: 0 }, capture.heading, recorded.runway, recorded.dimensions);
+    const finalTurn = angle(plan.headingDeg - capture.heading);
+    assert.ok(plan.points.some(p => angle(p.headingDeg - capture.heading) * Math.sign(finalTurn) < -40));
+    assert.ok(plan.lengthM > 120 && plan.lengthM < 180);
+    assert.equal(plan.taxiRoute.joinM, 0);
+    assert.ok(plan.taxiRoute.lengthM > 1900);
+    assert.ok(distance(plan.points.at(-1)!, plan.taxiRoute.points[0]) < 0.001);
+    const nodes = new Map(graph.points.map(p => [p.id, p]));
+    for (let i = 1; i < plan.points.length; i++) {
+      const a = plan.points[i - 1], b = plan.points[i], step = b.distanceM - a.distanceM;
+      assert.ok(step > 0 && step <= 2.01);
+      assert.ok(Math.abs(angle(bearing(a, b) + 180 - a.headingDeg)) < 3, 'every segment moves backwards');
+      const turn = Math.abs(angle(b.headingDeg - a.headingDeg)) * Math.PI / 180;
+      assert.ok(!turn || step / turn >= 24.999, 'same minimum tug turning radius');
+      assert.ok(graph.paths.filter(p => p.type === 2).every(p =>
+        project(b, nodes.get(p.start)!, nodes.get(p.end)!).distance >= p.widthM / 2 + recorded.dimensions.lengthM / 2));
+    }
+    assert.ok(plan.points.filter(p => p.distanceM < recorded.dimensions.lengthM * 0.25)
+      .every(p => Math.abs(angle(p.headingDeg - capture.heading)) < 0.001), 'back clear before turning');
+  }
+  // Deliberately obstruct the recorded manoeuvre with a synthetic crossing
+  // runway: the fallback must retain the runway exclusion, not bypass it.
+  const blocked = ymml();
+  blocked.airport.graph.points.push({ id: 20000, type: 1, orientation: 0, x: -500, z: 30 },
+    { id: 20001, type: 1, orientation: 0, x: 500, z: 30 });
+  blocked.airport.graph.paths.push({ id: 40000, start: 20000, end: 20001, type: 2, widthM: 45, runway: '09' });
+  assert.throws(() => planPushback(blocked.airport, { x: 0, z: 0 }, blocked.heading, recorded.runway, recorded.dimensions), /No simple/);
 });
 
 test('missing, distant and runway-crossing pushback geometry never produces a guessed direction', () => {
@@ -69,18 +123,27 @@ function fixture() {
 test('heading-servo pushback finishes aligned in both directions across slow responses and rotated scenery', async () => {
   // Finite heading response and command latency reproduce the live PMDG
   // failure hidden by the previous fixture's instantaneous heading changes.
-  for (const response of [0.07, 0.1, 0.2]) for (const east of [true, false]) for (const rotation of [0, 37, 179, 270]) {
+  const cases = [true, false].flatMap(east => [0, 37, 179, 270].map(rotation => ({
+    name: `single arc ${east} ${rotation}`, airport: airport(east, rotation), heading: rotation,
+    runway: east ? '09' : '27', dimensions: dim,
+  })));
+  for (const mirror of [false, true]) for (const rotation of [0, 97]) {
+    cases.push({ name: `YMML S-turn ${mirror} ${rotation}`, ...ymml(mirror, rotation), runway: recorded.runway, dimensions: recorded.dimensions });
+  }
+  for (const response of [0.07, 0.1, 0.2]) for (const scenario of cases) {
     const f = fixture();
-    f.deps.airport = async () => airport(east, rotation);
-    let pose = { x: 0, z: 0, headingDeg: rotation, speedKts: 0 };
+    f.deps.airport = async () => scenario.airport;
+    f.deps.dimensions = () => scenario.dimensions;
+    const plan = planPushback(scenario.airport, { x: 0, z: 0 }, scenario.heading, scenario.runway, scenario.dimensions);
+    let pose = { x: 0, z: 0, headingDeg: scenario.heading, speedKts: 0 };
     let yawRate = 0, speed = 0;
     const queue: {heading:number|null;speed:number}[] = [];
     f.step(pose);
     try {
-      await f.session.request({ ...f.request, runway: east ? '09' : '27' }, f.owner);
+      await f.session.request({ ...f.request, runway: scenario.runway }, f.owner);
       for (let i = 0; i < 600 && f.session.isActive(); i++) {
         queue.push(f.writes.at(-1)!);
-        const command = queue.length > 2 ? queue.shift()! : {heading:rotation,speed:0};
+        const command = queue.length > 2 ? queue.shift()! : {heading:scenario.heading,speed:0};
         const stopped=f.writes.at(-1)!.speed===0;
         const targetRate=stopped?0:Math.max(-8,Math.min(8,response*angle((command.heading??pose.headingDeg)-pose.headingDeg)));
         yawRate+=(targetRate-yawRate)*0.5;
@@ -94,8 +157,9 @@ test('heading-servo pushback finishes aligned in both directions across slow res
         await f.session.request({ operation: 'status' }, f.owner);
         await f.session.tick();
       }
-      assert.equal(f.session.state().status, 'complete', JSON.stringify({ response, east, rotation, pose, state: f.session.state() }));
-      assert.ok(Math.abs(angle(pose.headingDeg - rotation - (east ? 90 : 270))) <= 12);
+      assert.equal(f.session.state().status, 'complete', JSON.stringify({ response, scenario: scenario.name, pose, state: f.session.state() }));
+      assert.ok(Math.abs(angle(pose.headingDeg - plan.headingDeg)) <= 12);
+      assert.ok(distance(pose, plan.points.at(-1)!) <= 6);
     } finally { await f.session.dispose(); }
   }
 });

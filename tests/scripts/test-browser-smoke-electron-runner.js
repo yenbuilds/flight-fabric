@@ -975,6 +975,7 @@ async function assertAircraftSearchSmoke(windowRef) {
     "document.activeElement?.id === 'aircraft-find-input'",
     'Ctrl+F Aircraft search focus after the collapsed panel renders',
   );
+  await click(windowRef, 'document.querySelector("[data-aircraft-search-mode=page]")', 'cockpit page search mode');
 
   await waitFor(
     windowRef,
@@ -1008,7 +1009,7 @@ async function assertAircraftSearchSmoke(windowRef) {
     const tools = document.querySelector('.aircraft-page-tools');
     const actions = document.querySelector('.aircraft-page-tool-actions');
     const presetsSection = document.querySelector('[data-aircraft-presets-section]');
-    const cards = [...document.querySelectorAll('[data-aircraft-preset]')];
+    const cards = [...document.querySelectorAll('[data-aircraft-quick-actions] [data-aircraft-preset]')];
     if (!tools || !actions || !presetsSection || cards.length === 0) return { missing: true };
     const rect = (element) => {
       const value = element.getBoundingClientRect();
@@ -1034,7 +1035,7 @@ async function assertAircraftSearchSmoke(windowRef) {
         const style = getComputedStyle(container);
         return container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       })(),
-      parameterizedPresetVisible: Boolean(document.querySelector('[data-aircraft-preset="configuration.lighting.cockpit"]')),
+      parameterizedPresetVisible: Boolean(document.querySelector('[data-aircraft-quick-actions] [data-aircraft-preset="configuration.lighting.cockpit"]')),
       cards: cards.map((card) => ({
         card: rect(card),
         copy: rect(card.firstElementChild),
@@ -1070,6 +1071,9 @@ async function assertAircraftSearchSmoke(windowRef) {
   );
 
   await click(windowRef, 'document.querySelector(".aircraft-find__launcher")', 'Find controls from Presets');
+  await waitFor(windowRef, "document.activeElement?.id === 'aircraft-find-input'", 'catalogue search input focus');
+  await click(windowRef, 'document.querySelector("[data-aircraft-search-mode=page]")', 'Find on this page');
+  await evaluate(windowRef, "document.getElementById('aircraft-find-input').focus();");
   await waitFor(windowRef, "document.activeElement?.id === 'aircraft-find-input' && document.getElementById('aircraft-cockpit-view').checkVisibility()", 'search opens Cockpit controls and restores input focus');
 
   await setInputValue(windowRef, 'aircraft-find-input', 'light');
@@ -1422,7 +1426,7 @@ async function assertAircraftSearchSmoke(windowRef) {
     const secondary = document.querySelector('.aircraft-tools-toggle');
     const launcher = document.querySelector('.aircraft-find__launcher');
     const preset = document.querySelector('[data-aircraft-presets-section]');
-    const cards = [...document.querySelectorAll('[data-aircraft-preset]')];
+    const cards = [...document.querySelectorAll('[data-aircraft-quick-actions] [data-aircraft-preset]')];
     if (!tools || !guide || !voice || !launcher || !preset || cards.length === 0) return { missing: true };
     const rect = (element) => {
       const value = element.getBoundingClientRect();
@@ -1497,9 +1501,16 @@ async function assertAircraftSearchSmoke(windowRef) {
   assert.ok(mobileToolsExpanded.voiceHeight >= 44, 'expanded mobile search should keep the direct Voice launcher available');
   assert.ok(mobileToolsExpanded.search.width >= mobileToolsExpanded.tools.width - 6, 'expanded mobile search should use the full tools width');
   assert.ok(mobileToolsExpanded.panel.width >= mobileToolsExpanded.search.width - 2, 'expanded mobile search panel should fill its search region');
-  assert.equal(mobileToolsExpanded.preset.height, 0, 'mobile search should show Cockpit controls with Presets hidden');
-  assert.equal(await evaluate(windowRef, "document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace"), 'controls', 'mobile search should select Cockpit controls');
+  assert.ok(mobileToolsExpanded.preset.height > 0, 'catalogue discovery keeps the Presets view visible');
+  assert.equal(await evaluate(windowRef, "document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace"), 'presets', 'catalogue discovery preserves the current view');
   assert.ok(mobileToolsExpanded.pageWidth <= mobileToolsExpanded.viewportWidth + 2, 'expanded mobile Aircraft tools should not overflow horizontally');
+  await setInputValue(windowRef, 'aircraft-find-input', 'set lights for cruise');
+  await waitFor(windowRef, "document.querySelector('[data-aircraft-search-result=\"configuration.lights.cruise\"]')", 'production catalogue search matches voice wording');
+  await click(windowRef, "document.querySelector('[data-aircraft-search-result=\"configuration.lights.cruise\"] button')", 'reveal an existing preset from catalogue search');
+  await waitFor(windowRef, "document.activeElement?.getAttribute('data-aircraft-preset') === 'configuration.lights.cruise'", 'production preset destination focus');
+  await click(windowRef, 'document.querySelector(".aircraft-find__launcher")', 'reopen catalogue search');
+  await click(windowRef, 'document.querySelector("[data-aircraft-search-mode=page]")', 'generic mobile cockpit page search');
+  assert.equal(await evaluate(windowRef, "document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace"), 'controls', 'On this page opens Cockpit controls');
   await setInputValue(windowRef, 'aircraft-find-input', 'light');
   await waitFor(windowRef, "document.querySelector('.aircraft-find__clear')", 'generic mobile Aircraft clear action');
   const queriedMobileSearch = await evaluate(windowRef, `(() => {

@@ -287,6 +287,18 @@ source as third-party code.
 - The Windows package includes ONNX Runtime libraries used by sherpa-onnx.
   ONNX Runtime is Copyright Microsoft Corporation and licensed under the MIT
   License: https://github.com/microsoft/onnxruntime
+- Offline spoken feedback includes Hexgrad's Kokoro-82M v1.0 model and fixed
+  voice embeddings under Apache-2.0: https://huggingface.co/hexgrad/Kokoro-82M.
+  The sherpa-onnx conversion, archive digest and installed file hashes are pinned
+  in `electron/voice-model-manifest.js` and `electron/kokoro-model-files.json`.
+  The model licence is retained beside the installed model.
+- Kokoro pronunciation uses eSpeak NG and its language data, licensed under
+  GPL-3.0-or-later. Copyright Jonathan Duddington, Reece H. Dunn and contributors.
+  The licence is included in `resources/legal/voice/eSpeak-NG-GPL-3.0.txt`.
+  sherpa-onnx 1.13.5 pins its eSpeak fork to commit
+  `ed530aa113046142eb5115cf2fc9157854d0ffe1`:
+  https://github.com/csukuangfj/espeak-ng/tree/ed530aa113046142eb5115cf2fc9157854d0ffe1.
+  Build configuration: https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.5/cmake/espeak-ng-for-piper.cmake.
 - The bundled `sherpa-onnx-streaming-zipformer-en-2023-06-21` English
   LibriSpeech + GigaSpeech model is distributed under Apache License 2.0. Its upstream model
   repository is
@@ -323,7 +335,7 @@ source as third-party code.
 
 - Direct packages: `ajv` 8.20.0, `ajv-formats` 3.0.1, `dotenv` 16.6.1,
   `ws` 8.21.0.
-- Packaged transitive packages: `fast-deep-equal` 3.1.3, `fast-uri` 3.1.7,
+- Packaged transitive packages: `fast-deep-equal` 3.1.3, `fast-uri` 3.1.9,
   `json-schema-traverse` 1.0.0, `require-from-string` 2.0.2.
 - Declared in: root `package.json` and `backend/package.json`
 - Licenses: `ajv`, `ajv-formats`, `fast-deep-equal`,

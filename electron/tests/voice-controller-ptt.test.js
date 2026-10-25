@@ -338,10 +338,10 @@ test('retiring both held sources permits whichever actually releases and presses
   assert.deepEqual(delivered.at(-1), ['up', replacement]);
 });
 
-test('voice runtime loads using only JavaScript files declared in the packaged app', t => {
+test('voice runtime loads using only source and data files declared in the packaged app', t => {
   const { directory } = fixture(t);
   const packaged = path.join(directory, 'packaged-app'); fs.mkdirSync(packaged);
-  const included = require('../package.json').build.files.filter(name => name.endsWith('.js') && !name.includes('*'));
+  const included = require('../package.json').build.files.filter(name => /\.(js|json)$/.test(name) && !name.includes('*'));
   for (const name of included) fs.copyFileSync(path.join(ORIGINAL_SOURCE_DIR, name), path.join(packaged, name));
   const packagedRequire = createRequire(path.join(packaged, 'package.json'));
   assert.equal(typeof packagedRequire('./voice-runtime').createVoiceRuntime, 'function');

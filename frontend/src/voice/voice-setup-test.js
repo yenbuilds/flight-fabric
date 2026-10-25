@@ -306,7 +306,7 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
       const result = await api?.speakReadback?.('Spoken feedback is working.');
       if (generation !== feedbackGeneration || disposed) return false;
       update({ feedbackMessage: result?.started === true
-        ? 'Playing the test phrase through your default audio output.'
+          ? 'Test phrase requested through your default audio output.'
         : 'Spoken feedback could not start. Check your Windows voice and audio output.' });
       return result?.started === true;
     } catch {

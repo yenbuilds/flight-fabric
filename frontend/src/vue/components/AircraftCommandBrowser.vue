@@ -1,10 +1,15 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
-import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { AIRCRAFT_COMMAND_GROUP_LABELS, useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { aircraftCommandInput, aircraftCommandValueLabel } from '../../aircraft/command-input.js';
 
-defineProps({ embedded: { type: Boolean, default: false } });
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  revealRequest: { type: Object, default: null },
+});
 const controls = useAircraftControlsStore();
+const browserRoot = ref(null), highlightedId = ref('');
+let revealRevision = 0, highlightTimer;
 const searchInput = ref(null);
 const search = ref(''), group = ref(''), sending = ref(false), error = ref('');
 function clearFilters() {
@@ -18,27 +23,37 @@ watch(context, () => {
   for (const key of Object.keys(drafts)) delete drafts[key];
   search.value = ''; group.value = ''; error.value = ''; sending.value = false;
 });
-const groupNames = { flightGuidance: 'Autopilot & flight guidance', surfaces: 'Gear, flaps & brakes',
-  navigation: 'Navigation displays', radios: 'Radios', surveillance: 'Transponder',
-  approach: 'Approach', baro: 'Altimeters', lights: 'Exterior lights', cabin: 'Cabin signs',
-  visibility: 'Wipers', systems: 'Aircraft systems', propulsion: 'Thrust' };
+const groupNames = AIRCRAFT_COMMAND_GROUP_LABELS;
 // Presets have dedicated controls on the aircraft page. Every other advertised command has a
 // usable editor here, even when a family's handcrafted panel lacks that editor.
-const commands = computed(() => Object.values(controls.aircraftCommandCatalogue.commands || {})
-  .filter(command => command.kind !== 'preset')
-  .sort((a, b) => a.label.localeCompare(b.label)));
+const commands = computed(() => controls.findAircraftCommands('', { includePresets: false }));
 const groups = computed(() => [...new Set(commands.value.map(command => command.group))]
   .sort((a, b) => (groupNames[a] || a).localeCompare(groupNames[b] || b)));
-const filtered = computed(() => {
-  const query = search.value.trim().toLowerCase();
-  return commands.value.filter(command => (!group.value || command.group === group.value)
-    && (!query || [command.label, command.description, ...(command.speech?.patterns || [])].join(' ').toLowerCase().includes(query)));
-});
+const filtered = computed(() => controls.findAircraftCommands(search.value, { includePresets: false, group: group.value }));
+watch([() => props.revealRequest, () => controls.aircraftCommandCatalogue], async ([request, catalogue]) => {
+  const revision = ++revealRevision;
+  clearTimeout(highlightTimer);
+  highlightedId.value = '';
+  if (!request || request.catalogue !== catalogue || !catalogue.commands[request.commandId]
+    || catalogue.commands[request.commandId].kind === 'preset') return;
+  search.value = ''; group.value = '';
+  await nextTick();
+  if (revision !== revealRevision || request !== props.revealRequest
+    || catalogue !== controls.aircraftCommandCatalogue) return;
+  const editor = Array.from(browserRoot.value?.querySelectorAll('[data-command-editor]') || [])
+    .find(element => element.dataset.commandEditor === request.commandId);
+  if (!editor) return;
+  highlightedId.value = request.commandId;
+  editor.querySelector('h3')?.focus({ preventScroll: true });
+  editor.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+  highlightTimer = setTimeout(() => { if (revision === revealRevision) highlightedId.value = ''; }, 1600);
+}, { immediate: true });
+onBeforeUnmount(() => { ++revealRevision; clearTimeout(highlightTimer); });
 const busy = computed(() => sending.value || Object.values(controls.pendingCommands).some(Boolean));
 const request = (command, input = {}) => ({ type: 'canonical', commandId: command.id, input });
 const disabled = command => busy.value || controls.isCommandDisabled(request(command));
 const value = command => aircraftCommandInput(command.input, drafts[command.id]);
-const phrase = command => command.speech?.patterns?.[0] || '';
+const phrase = command => controls.commandVoiceExample(command);
 const unit = command => ({ 'feet-per-minute': 'ft/min', feet: 'ft', degrees: 'degrees',
   knots: 'kt', 'com-megahertz': 'MHz', megahertz: 'MHz', percent: '%', hpa: 'hPa', inhg: 'inHg' }[command.input.units]
   || command.input.units || '');
@@ -58,7 +73,7 @@ async function apply(command, input = value(command)) {
 </script>
 
 <template>
-  <component :is="embedded ? 'div' : 'details'" v-if="commands.length" :class="embedded ? '' : 'ff-panel rounded-xl border border-surface-200 bg-surface-100 p-3 sm:p-4'" data-aircraft-command-browser>
+  <component :is="embedded ? 'div' : 'details'" ref="browserRoot" v-if="commands.length" :class="embedded ? '' : 'ff-panel rounded-xl border border-surface-200 bg-surface-100 p-3 sm:p-4'" data-aircraft-command-browser>
     <summary v-if="!embedded" class="min-h-12 cursor-pointer text-sm font-semibold text-gray-100">Aircraft controls <span class="font-normal text-gray-400">({{ commands.length }})</span></summary>
     <div class="mb-3 flex flex-col gap-2 sm:flex-row">
       <input ref="searchInput" v-model="search" type="search" aria-label="Search aircraft controls" placeholder="Search controls or voice commands"
@@ -82,8 +97,8 @@ async function apply(command, input = value(command)) {
     </div>
     <div class="grid gap-3 lg:grid-cols-2">
       <form v-for="command in filtered" :key="`${context}:${command.id}`" class="min-w-0 rounded-lg border border-surface-300 p-3"
-        :data-command-editor="command.id" @submit.prevent="apply(command)">
-        <h3 class="text-sm font-semibold text-gray-100">{{ command.label }}</h3>
+        :data-command-editor="command.id" :data-command-highlight="highlightedId === command.id || undefined" @submit.prevent="apply(command)">
+        <h3 tabindex="-1" class="text-sm font-semibold text-gray-100">{{ command.label }}</h3>
         <p v-if="command.description" class="mt-1 text-xs leading-relaxed text-gray-400">{{ command.description }}</p>
         <div v-if="command.input.kind === 'boolean'" class="mt-3 flex gap-2">
           <button v-for="state in [true, false]" :key="String(state)" type="button" :disabled="disabled(command)"
@@ -104,13 +119,16 @@ async function apply(command, input = value(command)) {
             class="min-h-12 rounded border border-cyan-400/50 bg-cyan-400/10 px-4 text-xs font-semibold text-cyan-100 disabled:opacity-45">{{ command.input.kind === 'none' ? 'Execute' : 'Set' }}</button>
         </div>
         <p v-if="command.input.kind === 'number'" class="mt-2 text-xs text-gray-400">{{ command.input.min }}–{{ command.input.max }} {{ unit(command) }}; increments of {{ command.input.step }}.</p>
-        <p v-if="phrase(command)" class="aircraft-command-voice-hint">Say “{{ phrase(command).replace('{value}', '[setting]') }}”</p>
+        <p v-if="phrase(command)" class="aircraft-command-voice-hint">Say “{{ phrase(command) }}”</p>
       </form>
     </div>
   </component>
+  <p v-else role="status" class="text-sm text-muted-fg">No controls are available in the current aircraft catalogue.</p>
 </template>
 
 <style scoped>
+[data-command-highlight] { outline: 2px solid rgb(var(--primary)); outline-offset: 2px; }
+[data-command-editor] h3:focus-visible { outline: 2px solid rgb(var(--primary)); outline-offset: 3px; }
 /* Keep touch targets above the shared mobile form minimum. */
 [data-aircraft-command-browser] :is(input, select, button) {
   min-height: 48px !important;

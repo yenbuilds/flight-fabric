@@ -469,6 +469,10 @@ test('MSFS toolbar page is served under a frameable CSP with an allowlisted file
     const sharedSettings = await requestText(port, '/shared/app-settings-shared.js');
     assert.equal(sharedSettings.statusCode, 200, 'toolbar can load the shared release gate');
     assert.match(String(sharedSettings.headers['content-type']), /javascript/);
+    const sharedSearch = await requestText(port, '/shared/aircraft-search.js');
+    assert.equal(sharedSearch.statusCode, 200, 'toolbar can load shared search normalization');
+    assert.match(String(sharedSearch.headers['content-type']), /javascript/);
+    assert.match(sharedSearch.body, /FlightFabricAircraftSearch/);
     const reference = await requestText(port, '/toolbar/voice-reference.json');
     assert.equal(reference.statusCode, 200);
     assert.match(String(reference.headers['content-type']), /json/);

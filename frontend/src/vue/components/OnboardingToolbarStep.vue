@@ -34,7 +34,7 @@ async function install(installId) {
         </button>
       </div>
       <p v-if="toolbar.loading && !toolbar.hasLoaded" class="onboarding-note" role="status">Checking your MSFS 2024 installations…</p>
-      <p v-else-if="toolbar.hasLoaded && !rows.length && !toolbar.error && !toolbar.sourceError" class="onboarding-note" role="status">No MSFS 2024 installation was found. FlightFabric checks the Microsoft Store and Steam locations on this PC.</p>
+      <p v-else-if="toolbar.hasLoaded && !rows.length && !toolbar.error && !toolbar.sourceError" class="onboarding-note" role="status">No MSFS 2024 installation was found in the Microsoft Store or Steam locations.</p>
       <div v-for="row in rows" :key="row.key" class="onboarding-toolbar-install" :data-onboarding-install="row.installId">
         <div class="onboarding-toolbar-status">
           <strong>{{ row.label }}</strong>

@@ -380,7 +380,7 @@ onBeforeUnmount(() => {
             <OnboardingToolbarStep :disabled="saving || !canSave || toolbarChoice !== 'install'" />
             <p v-if="!voiceComplete" class="onboarding-note" role="status">Voice preferences changed. Go back to Voice to confirm your choice.</p>
           </template>
-          <p v-if="step === 2 && recordingChanged" class="onboarding-note">Restart FlightFabric after setup to apply this recording change. Any active recording will continue until you end the flight.</p>
+          <p v-if="step === 2 && recordingChanged" class="onboarding-note">Restart FlightFabric after setup to apply this change. The current recording continues until you end the flight.</p>
           <p v-if="error" ref="errorMessage" class="onboarding-error" role="alert" tabindex="-1">{{ error }}</p>
           <p v-if="!canSave" class="onboarding-note" role="status">Waiting for the connection to FlightFabric before saving.</p>
         </div>

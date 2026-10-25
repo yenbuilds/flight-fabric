@@ -1,0 +1,1807 @@
+[
+  {
+    "name": "espeak-ng-data/af_dict",
+    "bytes": 121473,
+    "sha256": "25729D3BF4C4A0F08DA60AEA9EB5A0CF352630F83FAB1AB0C3955B7740DA1776"
+  },
+  {
+    "name": "espeak-ng-data/am_dict",
+    "bytes": 63878,
+    "sha256": "9954365860682C756C8C4459577D3AA0AB77AD0CBA6798B746033ADA5C3D4BEA"
+  },
+  {
+    "name": "espeak-ng-data/an_dict",
+    "bytes": 6691,
+    "sha256": "6CF38CEDB6693AADE49E5A5D27A3C92516A5335125BF85FCAE58282E66FB82FD"
+  },
+  {
+    "name": "espeak-ng-data/ar_dict",
+    "bytes": 478165,
+    "sha256": "72316426E797777FE4DF9420935A3B6A79B37D7E3F3948537BA71CD7B21B2541"
+  },
+  {
+    "name": "espeak-ng-data/as_dict",
+    "bytes": 5005,
+    "sha256": "5BCB74FF4558A60C5BA1A48A2A92C01513EE2D29FE30C5A38DC5308C54F1CF49"
+  },
+  {
+    "name": "espeak-ng-data/az_dict",
+    "bytes": 43773,
+    "sha256": "E352B2DCF811662D79F4BEAAA0C7750706CF669C0409FD815A9BD0244B1ADFC7"
+  },
+  {
+    "name": "espeak-ng-data/ba_dict",
+    "bytes": 2098,
+    "sha256": "246C8C655CEED43D9FF44A65DE5F933F16255489D0B181B1A46A83E1FD5A0354"
+  },
+  {
+    "name": "espeak-ng-data/be_dict",
+    "bytes": 2652,
+    "sha256": "232FB0DEBFC8FDCA9B8F2494770FF23535F7F887BBEBB0178ABFFC243490E798"
+  },
+  {
+    "name": "espeak-ng-data/bg_dict",
+    "bytes": 87051,
+    "sha256": "8FA3ADEC8E18A3E695B2BBEA1D4780182E17222D8B9F8DA9908A237828F6B063"
+  },
+  {
+    "name": "espeak-ng-data/bn_dict",
+    "bytes": 89979,
+    "sha256": "2B59EC34C07955CA5B7814FA5152C33FA357880590703EEFAB1F3081F031FDEF"
+  },
+  {
+    "name": "espeak-ng-data/bpy_dict",
+    "bytes": 5226,
+    "sha256": "A4321D9BA80BD60F49E0BEE5AAE57F1AE9C49B7A1C3D4BA384338FE9BF3B6A92"
+  },
+  {
+    "name": "espeak-ng-data/bs_dict",
+    "bytes": 47068,
+    "sha256": "D5DF564F511AF082884719685DB86EC4DF23467CF012CE25E898540BAF9DE65B"
+  },
+  {
+    "name": "espeak-ng-data/ca_dict",
+    "bytes": 45566,
+    "sha256": "1BE203855ECB0BDFE66578EF5552F83289E39972D78C52714D061B7F7493DF4A"
+  },
+  {
+    "name": "espeak-ng-data/chr_dict",
+    "bytes": 2859,
+    "sha256": "1853980C673015327BED3D4E5F7E88C2EE3BD8A922BCDD232A6497277E903BCE"
+  },
+  {
+    "name": "espeak-ng-data/cmn_dict",
+    "bytes": 1566335,
+    "sha256": "109AAA7708D3727382ACB3AE41D8E2094A7E2BB9F651A81835BE22A6F08071FE"
+  },
+  {
+    "name": "espeak-ng-data/cs_dict",
+    "bytes": 49645,
+    "sha256": "5EC02ABA90465007F20A5C8AEB889275834CFA8C8F621C3D9BEE1CA90D21788D"
+  },
+  {
+    "name": "espeak-ng-data/cv_dict",
+    "bytes": 1344,
+    "sha256": "8260837C8F18FBE5870905EBB2850DFD18E252150AD6C868B96D9D2C6398EA8A"
+  },
+  {
+    "name": "espeak-ng-data/cy_dict",
+    "bytes": 43130,
+    "sha256": "31D74CCAD218AB80B79566CAEB8D21BCF0FE43326ED7C437FA736D39B85E603E"
+  },
+  {
+    "name": "espeak-ng-data/da_dict",
+    "bytes": 245287,
+    "sha256": "FE0C21895B4844868612F9EA846BC6010E30B5DD1F4CB1567459D73D2792A8AC"
+  },
+  {
+    "name": "espeak-ng-data/de_dict",
+    "bytes": 68276,
+    "sha256": "E9AC048DF5CDE03B74907D591C7B29B45EE9EC5FCD4592B0B894F0083572FCFD"
+  },
+  {
+    "name": "espeak-ng-data/el_dict",
+    "bytes": 72841,
+    "sha256": "5D9F759750131DA777D2FD4F06AA602ED746D38F27B84DD9A2D4A550F2CD452E"
+  },
+  {
+    "name": "espeak-ng-data/en_dict",
+    "bytes": 166944,
+    "sha256": "71BD330BA8A2E3E8076E631508208EF49449D6147C17B7BD2B4B1E1468292E35"
+  },
+  {
+    "name": "espeak-ng-data/eo_dict",
+    "bytes": 4666,
+    "sha256": "849F061ABDDD5388BAC112B32E6F7BF747E15E1B3AE53FE91079381EFFFF4CC9"
+  },
+  {
+    "name": "espeak-ng-data/es_dict",
+    "bytes": 49252,
+    "sha256": "3FA93E251EAB80838A2D6207EE58C9C847270A65FE3FAE98850E0185B5A2186C"
+  },
+  {
+    "name": "espeak-ng-data/et_dict",
+    "bytes": 44263,
+    "sha256": "1A6734B4E6BC9DE9A4C94CFB434873E0A7F4AE4EC89549B3137AE5491CF655DA"
+  },
+  {
+    "name": "espeak-ng-data/eu_dict",
+    "bytes": 48841,
+    "sha256": "762A6EFF63552EF72CD88BF1E92DC5A823EB378D50CB85C7917E8C5BBA079137"
+  },
+  {
+    "name": "espeak-ng-data/fa_dict",
+    "bytes": 292423,
+    "sha256": "F92F35CE7EB1D97360016617D97786412A94AF55B776A18F1C280DAB4F43BEFD"
+  },
+  {
+    "name": "espeak-ng-data/fi_dict",
+    "bytes": 43928,
+    "sha256": "DDA999437BD4B37A7F7400A2230AACE1200A52906AB0B1FF3507D44AB19D64B1"
+  },
+  {
+    "name": "espeak-ng-data/fr_dict",
+    "bytes": 63727,
+    "sha256": "E399AB924C4D10BEEF1FC310B30EA56E4DDFD8B4B64B8ED978E9C65394D49B2D"
+  },
+  {
+    "name": "espeak-ng-data/ga_dict",
+    "bytes": 52673,
+    "sha256": "B2DB03D21F7900B697D7DBB8BEC855CD1117E9867F19884FAF11C4DF626659F5"
+  },
+  {
+    "name": "espeak-ng-data/gd_dict",
+    "bytes": 49121,
+    "sha256": "E92B47DCF9A001363FFEE1E62863FAF264FF5F16E10CD9CF1F1E83CA89CA14AA"
+  },
+  {
+    "name": "espeak-ng-data/gn_dict",
+    "bytes": 3248,
+    "sha256": "7640DF272B192A68BA401294BF9197AB46D0B141DA7A358AD1986E7F77E7F29A"
+  },
+  {
+    "name": "espeak-ng-data/grc_dict",
+    "bytes": 3433,
+    "sha256": "488779493993D221B09E713E104A221AC1BB35765F826ACC26D3D3C1AA3A35ED"
+  },
+  {
+    "name": "espeak-ng-data/gu_dict",
+    "bytes": 82480,
+    "sha256": "CB1FBFB53BAB2EC6D9E44CD9D12CCB9B80DE49F274D772314389C477EEF530FD"
+  },
+  {
+    "name": "espeak-ng-data/hak_dict",
+    "bytes": 3335,
+    "sha256": "E3075C7D281F95A2CE2264C01EDBD09E962CB3ED29400766C5D2116A08A185C8"
+  },
+  {
+    "name": "espeak-ng-data/haw_dict",
+    "bytes": 2443,
+    "sha256": "2B4E77B61CADFC5EE622AA8B1D23941E36101D9BDBF8D809E0FA1B442D2C3F74"
+  },
+  {
+    "name": "espeak-ng-data/he_dict",
+    "bytes": 6963,
+    "sha256": "A8BF0D939D630E9E5097AD361A7765297BAF297FD7D06E89F48A79EAD980869E"
+  },
+  {
+    "name": "espeak-ng-data/hi_dict",
+    "bytes": 92143,
+    "sha256": "5A68C9532624E57AC845B26CE1E2E5034C4F6353BEDE46ECBE57E583EC8EFFD6"
+  },
+  {
+    "name": "espeak-ng-data/hr_dict",
+    "bytes": 49388,
+    "sha256": "5F98FCF05F97335A5436A8A9643677DA6F158F2A9EE1D41BDDA1725B1BB3527E"
+  },
+  {
+    "name": "espeak-ng-data/ht_dict",
+    "bytes": 1803,
+    "sha256": "D577219D15C29396DB254AED958358456EC1501CDF62CB4CA5413752F2EE7CC1"
+  },
+  {
+    "name": "espeak-ng-data/hu_dict",
+    "bytes": 153785,
+    "sha256": "055D563B839D599DB40BE5B1CC2AF9D31793795B328EB8D4F389EC7D38FE7E81"
+  },
+  {
+    "name": "espeak-ng-data/hy_dict",
+    "bytes": 62263,
+    "sha256": "8B808AD8F1D4CAE32B3B785B96D1E27B3AF28E32F4DDDFED7C93E129D63B2587"
+  },
+  {
+    "name": "espeak-ng-data/ia_dict",
+    "bytes": 331275,
+    "sha256": "1C665603A82BEB81E0CEF2878C9B44642AE6D519E301FBBD06326E03325FEBF3"
+  },
+  {
+    "name": "espeak-ng-data/id_dict",
+    "bytes": 43458,
+    "sha256": "8FB3F23F80F71F023219CEE7032223F3F6886CC5040EB4C8C507F79D1B84E98D"
+  },
+  {
+    "name": "espeak-ng-data/intonations",
+    "bytes": 2040,
+    "sha256": "3F8AF65FD3EDA9759A10F021D61361C120871F463515229C925995C7F90918CC"
+  },
+  {
+    "name": "espeak-ng-data/io_dict",
+    "bytes": 2165,
+    "sha256": "0D9D6995FEAD1CCDD5512F7909EC8F9EFC8CCC97F5C9D23ECAE6B3BA77FFADBF"
+  },
+  {
+    "name": "espeak-ng-data/is_dict",
+    "bytes": 44354,
+    "sha256": "8EEAB5B1CA3F75362881FAE3DE3316FCAFF281179A4C51FCEB0098F11EAD96E0"
+  },
+  {
+    "name": "espeak-ng-data/it_dict",
+    "bytes": 152889,
+    "sha256": "111F968359C9EBE36B107A2565BA9F258BAB337D3CBE37E44871980A8F21CE6B"
+  },
+  {
+    "name": "espeak-ng-data/ja_dict",
+    "bytes": 47652,
+    "sha256": "0D1135D3CDFED811D3EAC7C90A2E277329FA6F060CDD23AF287DB161982CAB44"
+  },
+  {
+    "name": "espeak-ng-data/jbo_dict",
+    "bytes": 2243,
+    "sha256": "71298417DE1E5FD07DF275270A5D47CA8820CB8C9F5DC2156C070B7A3AE7999C"
+  },
+  {
+    "name": "espeak-ng-data/ka_dict",
+    "bytes": 87775,
+    "sha256": "C8624947110A13BEE72D4FC15B06026004DF3F40C16C7B917D27E369CA122A32"
+  },
+  {
+    "name": "espeak-ng-data/kk_dict",
+    "bytes": 1859,
+    "sha256": "88DC0106629A57D0ACA5073AFB11DB1A044799185355088A7AD4331C836AFFD3"
+  },
+  {
+    "name": "espeak-ng-data/kl_dict",
+    "bytes": 2838,
+    "sha256": "EC441964D7FBD4622BB628327903D5C6C999C95D539B2E061884DECF95AC30E3"
+  },
+  {
+    "name": "espeak-ng-data/kn_dict",
+    "bytes": 87828,
+    "sha256": "C51E0385937B407B36C02FD2C85DFECDC5CAC411398EE8A74ECA15B35617AF64"
+  },
+  {
+    "name": "espeak-ng-data/ko_dict",
+    "bytes": 47523,
+    "sha256": "F629060F27D597E0FD52D8010609F41C8A0EC28F5C2BB0016850E00244950681"
+  },
+  {
+    "name": "espeak-ng-data/kok_dict",
+    "bytes": 6394,
+    "sha256": "52659DEC01D1B119BFEF56B622430F5525C50AF0144C9F9688CB3C22CC02ED31"
+  },
+  {
+    "name": "espeak-ng-data/ku_dict",
+    "bytes": 2265,
+    "sha256": "65DE1C5429E8D193775B36FCF169A60FBBB9964EF13A4A1BAB7FF0CE855CAD20"
+  },
+  {
+    "name": "espeak-ng-data/ky_dict",
+    "bytes": 64977,
+    "sha256": "DEF4427FD4070673C073B892C7B229F8C3F17EB1DF36BEA2EC7188DDCFB4D0EA"
+  },
+  {
+    "name": "espeak-ng-data/la_dict",
+    "bytes": 3806,
+    "sha256": "17818DD567936FDE032404FBBD6177844B9F5FC5A915480F567272147936F917"
+  },
+  {
+    "name": "espeak-ng-data/lang/aav/vi",
+    "bytes": 111,
+    "sha256": "3199C980F9E23A88A2AA693CD631BF4FCB0F3408C4272BC01B7AC0FF8E79D778"
+  },
+  {
+    "name": "espeak-ng-data/lang/aav/vi-VN-x-central",
+    "bytes": 143,
+    "sha256": "B351F13C6ED0DA37561DF25F45579872FF9863920AD66B94E27327A2C611755B"
+  },
+  {
+    "name": "espeak-ng-data/lang/aav/vi-VN-x-south",
+    "bytes": 142,
+    "sha256": "C0A0A2C894CD57B0BBACF9EF4EFB8D89BFAF9FEB164830E1539F599E7CC4E021"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/eo",
+    "bytes": 41,
+    "sha256": "0254B93C8AF79D9666A7667CA8B33B21A5453012DA4EA0ACD79660A9695F89D4"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/ia",
+    "bytes": 29,
+    "sha256": "8FB11718030F8B29146F773CA462B838A6C660F166933EB6F1498C361F2E958B"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/io",
+    "bytes": 50,
+    "sha256": "8E8391C7F40B7F9D2307FAFF8018A40DD2B448DF4BD581A2950EE8393A00CEBF"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/jbo",
+    "bytes": 69,
+    "sha256": "D9529DE82DCCBD95F83C1DE401F4EA661609BDE644546E9EF421241B7043C00E"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/lfn",
+    "bytes": 135,
+    "sha256": "394874FD9022E37CDC307C3386E81F1C0C133A8E9C5FDFF74888B519F2C6D648"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/piqd",
+    "bytes": 56,
+    "sha256": "D1A559B714CD8DD0EA9E46C4574E06C4F451957FB17BF39B945A89B9586F8B97"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/py",
+    "bytes": 140,
+    "sha256": "59E54B95E8571417F43DB37A7FD7E351AF4E22A8C250CFB66AF394F8ED6C4E9C"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/qdb",
+    "bytes": 57,
+    "sha256": "52B83FC4F294580EBABD71DF641AB5BEEC6B308758A3458B497124737589A7D8"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/qya",
+    "bytes": 173,
+    "sha256": "78AE3F4D70208A9F69E2C26A6A3B5DB28D7E6A58740FAE937F51DD7FC9FAEB1B"
+  },
+  {
+    "name": "espeak-ng-data/lang/art/sjn",
+    "bytes": 175,
+    "sha256": "61D85974B6841DFBFCC8CB92AD0742696CB87A6A85D5A28FE99895E46EF9DE6F"
+  },
+  {
+    "name": "espeak-ng-data/lang/azc/nci",
+    "bytes": 114,
+    "sha256": "7BF70CB18E969398F74428B91C694A4483EAEBD6733ECC437EB8714BBF7FFF76"
+  },
+  {
+    "name": "espeak-ng-data/lang/bat/lt",
+    "bytes": 28,
+    "sha256": "7691C7CA1E79FC9728C70A0D22830EB113A0124BF96807E2A1ACE3C6BF0C2F89"
+  },
+  {
+    "name": "espeak-ng-data/lang/bat/ltg",
+    "bytes": 312,
+    "sha256": "BE716CBBDCB5FE319EED88ABD4A44C3329A06E1DC468C8363D3F43CCA2683A11"
+  },
+  {
+    "name": "espeak-ng-data/lang/bat/lv",
+    "bytes": 229,
+    "sha256": "F08A801DACCCACE62F5B90166428E90E088818D92DD5F9333EBBE834B0F21C16"
+  },
+  {
+    "name": "espeak-ng-data/lang/bnt/sw",
+    "bytes": 41,
+    "sha256": "271DD28B3EC41ADEEA53F1146249BA6CAB61572963AB2743041114D95784E368"
+  },
+  {
+    "name": "espeak-ng-data/lang/bnt/tn",
+    "bytes": 42,
+    "sha256": "2243A1FC208DFDC37E154E837C0E782AFC325D4ACFBACC22718B7F05583ACE92"
+  },
+  {
+    "name": "espeak-ng-data/lang/ccs/ka",
+    "bytes": 124,
+    "sha256": "68788B99DBA7B82CDF8FC9DD05134BD72CF21F0B4C07B13B67B6F036E6294CBA"
+  },
+  {
+    "name": "espeak-ng-data/lang/cel/cy",
+    "bytes": 37,
+    "sha256": "67BC33B4A66041E6343DFB98E1950D1089EECB68731F346FCC4F47CD07E79970"
+  },
+  {
+    "name": "espeak-ng-data/lang/cel/ga",
+    "bytes": 66,
+    "sha256": "29C2CC5736CEB2BD9EF745694D4ABF7ED363A33569DFBE745811D4703B7B6CCE"
+  },
+  {
+    "name": "espeak-ng-data/lang/cel/gd",
+    "bytes": 51,
+    "sha256": "7DA0BA464579C367089109826EC15C2584A17417CCA4A2C66DAE0318D33E3128"
+  },
+  {
+    "name": "espeak-ng-data/lang/cus/om",
+    "bytes": 39,
+    "sha256": "B7C563F1EFFD83C08F3D229FB5A13D074513B85165CE4359A674EF30CA71786B"
+  },
+  {
+    "name": "espeak-ng-data/lang/dra/kn",
+    "bytes": 55,
+    "sha256": "C988A5226FA27EE6768B45566CE999CED9A4B68F8E79232B323D5903F4BB2258"
+  },
+  {
+    "name": "espeak-ng-data/lang/dra/ml",
+    "bytes": 57,
+    "sha256": "AA7E1F1F239BA55A8A79ED1F3544E9A51B94EFE53925DE60D4FF737273660B5C"
+  },
+  {
+    "name": "espeak-ng-data/lang/dra/ta",
+    "bytes": 51,
+    "sha256": "5BC213EB163BBF069CBFE4F2E9F7E7DB71A719D8C0A96E95401D94C992960ED7"
+  },
+  {
+    "name": "espeak-ng-data/lang/dra/te",
+    "bytes": 70,
+    "sha256": "176CA4A81FEB2181393EDFF3E2D5C0253CB52239392C4B809C61501D60C69811"
+  },
+  {
+    "name": "espeak-ng-data/lang/esx/kl",
+    "bytes": 30,
+    "sha256": "D08CF6FF60B99E6C2CEDA549BCBB1A57580915D6A4D50C7F0F5D75289D9FB45A"
+  },
+  {
+    "name": "espeak-ng-data/lang/eu",
+    "bytes": 54,
+    "sha256": "A16E4E4D9B910A6E25A2A55913C812BADC4FC3CBECE0B8D49A64AF112782D5A5"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmq/da",
+    "bytes": 43,
+    "sha256": "E8DD5E0D30FF0694A7EE839FAA8ED35C015EB927A737ABA1F120C00005692EAF"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmq/is",
+    "bytes": 27,
+    "sha256": "16C077E6222ACFC7702046FA3579BB5D6B57ECE98646229E13BE2233F9FDCBD7"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmq/nb",
+    "bytes": 87,
+    "sha256": "D47966621312FB95570539F446982F6DEB98FD46D9B71FEC4A0005A6BACE8F46"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmq/sv",
+    "bytes": 25,
+    "sha256": "02727D3B25FC82409BD2CD1EBB444FDB2D5D3F3DE7F76B95FC9ED9164C3E59C3"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/af",
+    "bytes": 123,
+    "sha256": "FB8CCC05F5EAE1754B5AA7E92CB919DEFDD0810B70EEC19F7C77CF836E51DB09"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/de",
+    "bytes": 42,
+    "sha256": "F3CCA92F94B70F8C25A29EE0A4C9CE4C7F1022241532E0647FA2B7F698BF104E"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/en",
+    "bytes": 140,
+    "sha256": "4605D5330801DE3641C6E366D15F129EA1F5FFBCE8722642ABA01ACE07AB9C83"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/en-029",
+    "bytes": 335,
+    "sha256": "FAEB8CB201056775F733ACBD908C66555FE57BF01CB063920F178F389CBF85D3"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/en-GB-scotland",
+    "bytes": 295,
+    "sha256": "1CE4282C1F4385DBAF0035E799B2AB1EE9E9A3AB4829100594A3047727B52353"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/en-GB-x-gbclan",
+    "bytes": 238,
+    "sha256": "2040E176F1F7F27BDCE81C32D7E2B1662449D54D264AFD3C0ED871B8E42B6E46"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/en-GB-x-gbcwmd",
+    "bytes": 188,
+    "sha256": "927A5AB891C65B30B4426B151D1623A01024F6B773A38497BA1C90CD77A95747"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/en-GB-x-rp",
+    "bytes": 249,
+    "sha256": "D0625AF7F58561B1B8CF96FD7F93EEE6553BCB3EADB9020AE0757BF96E5115E5"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/en-US",
+    "bytes": 257,
+    "sha256": "41534C2A22DF5DD4F1052FF9E1A33A3EA7BFF5A26B5C02BDAD5BA8DDB7524704"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/en-US-nyc",
+    "bytes": 271,
+    "sha256": "E8EE9168376D1F7D9E7DCDA7C4644C36C529A8BEA816E6380895364DB46EA2E3"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/lb",
+    "bytes": 31,
+    "sha256": "071BEB0E769AFEBA32177796FC0F1386BDC89A3234BED2BF720E76CBF73F5B99"
+  },
+  {
+    "name": "espeak-ng-data/lang/gmw/nl",
+    "bytes": 23,
+    "sha256": "56AE04FAE28AE9371ED6DB28193189E4EE962BA8236F0BCDEEF6A06EA4DEE374"
+  },
+  {
+    "name": "espeak-ng-data/lang/grk/el",
+    "bytes": 23,
+    "sha256": "0B529C998AF07C72BF516B5750709464F6258C56C6916B8B8F0C843BE9836FCA"
+  },
+  {
+    "name": "espeak-ng-data/lang/grk/grc",
+    "bytes": 99,
+    "sha256": "319F950B1AD7B1F37EFAA390540BF957BDDAC16D0557A6C3ADAFF27E0C64E12E"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/as",
+    "bytes": 42,
+    "sha256": "3F58F5628F792B00A5AE6E8FE3BF8696F64AF2838E5723799DDBAB6027A0B378"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/bn",
+    "bytes": 25,
+    "sha256": "BC3CE23384B9D0BB3BAC06A09D90F690FAE32A492DCBB030F0E56BA67B5D656C"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/bpy",
+    "bytes": 39,
+    "sha256": "E528D1189B995B94966CEF4CC182469CC54F7DA8EFC5860375C4ECF186CE6146"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/gu",
+    "bytes": 42,
+    "sha256": "F938A755D270745188C2CF2AACBA06642A96BB73BA2A0325384121B9D5EC5407"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/hi",
+    "bytes": 23,
+    "sha256": "3C1C3F916F57F2D6D6CBF7923C0F39A36AC2140E2A69DDFFCE917D7B8BF3CCAB"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/kok",
+    "bytes": 26,
+    "sha256": "810EE23FBBE9C186A036BC12F4E5C0DE674A132E2E099C9B3DECE2A1C9CDB28A"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/mr",
+    "bytes": 41,
+    "sha256": "29063FF3A5257D0D3D7C215DFD4C14DEED39E1D48F15894202E6712459720EFD"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/ne",
+    "bytes": 37,
+    "sha256": "D53FDA082EC174EF33ED3C3468FC973C43B4EF71ACA8C1A28CB344668F4838DC"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/or",
+    "bytes": 39,
+    "sha256": "9B52EDE7D19659F884854DE3DFF12597A96F4D6EC7CB4146D2F8DAD1453C742F"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/pa",
+    "bytes": 25,
+    "sha256": "EED3CF477F81D13559DBB367256F9532B20DAD1432C15B206C777217B8F570CA"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/sd",
+    "bytes": 66,
+    "sha256": "65BFE0E37799029D42A370EB627CCA5AA4108B967FBA6C8141878D693C903619"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/si",
+    "bytes": 55,
+    "sha256": "8F0993B35BA5B075C38AE76640971256E560ABFBD721B608D16A48588932596D"
+  },
+  {
+    "name": "espeak-ng-data/lang/inc/ur",
+    "bytes": 94,
+    "sha256": "5B7AF7474FAC265C7BD7D269111994A09610F954690698F55A8613F3FA973318"
+  },
+  {
+    "name": "espeak-ng-data/lang/ine/hy",
+    "bytes": 61,
+    "sha256": "B6AD6129079C49CA915C3005ECB74A02BF5D69CBBC8EC3F8E0F6B949CB3A768F"
+  },
+  {
+    "name": "espeak-ng-data/lang/ine/hyw",
+    "bytes": 365,
+    "sha256": "26F8A863C74B3D19C9C42FCF16AE5151C12AC52EF8FAB36CAE1E5F0D4AD30E6A"
+  },
+  {
+    "name": "espeak-ng-data/lang/ine/sq",
+    "bytes": 103,
+    "sha256": "865FDE9017B5AF82ACB844E5F9793998FED422A208AD8AAF9DEDACAD3BF27AF1"
+  },
+  {
+    "name": "espeak-ng-data/lang/ira/fa",
+    "bytes": 90,
+    "sha256": "0DC7E93BE4D1FBDF7FF52DE2FE8BCDC23304E6D86E012B4AB8276D626B5D980C"
+  },
+  {
+    "name": "espeak-ng-data/lang/ira/fa-Latn",
+    "bytes": 269,
+    "sha256": "A04CF8EFED8DB1AC33B306F1F8C6F42733DACE87C9FC9F34A2D227B3BB291E28"
+  },
+  {
+    "name": "espeak-ng-data/lang/ira/ku",
+    "bytes": 40,
+    "sha256": "57DB3A210D73412A49E961DBED9B27077F5C7B967A19A0EB9F9363EA4B16CEA5"
+  },
+  {
+    "name": "espeak-ng-data/lang/iro/chr",
+    "bytes": 569,
+    "sha256": "F0E2FB8549306C07F571D3E77C89B1D3E9022D448D58E5D424441E01CCCE88BE"
+  },
+  {
+    "name": "espeak-ng-data/lang/itc/la",
+    "bytes": 297,
+    "sha256": "B70D13A264352EBA2D22A5D0EF21730849509D18F7277320B008A56DECC6EFC2"
+  },
+  {
+    "name": "espeak-ng-data/lang/jpx/ja",
+    "bytes": 52,
+    "sha256": "6FD980445BC52E0F593062929F5B62831448ABAAE2A92739BEBA49DF27A79743"
+  },
+  {
+    "name": "espeak-ng-data/lang/ko",
+    "bytes": 51,
+    "sha256": "C2DFBF88D9AA2AC9BF2F30E92E260120E4F2C21123A02265014AE98D59D5774E"
+  },
+  {
+    "name": "espeak-ng-data/lang/map/haw",
+    "bytes": 42,
+    "sha256": "B19F22EFB6714354D8D1360F449E05F0F84D50D6FA3C98FCFD619EA1B4BA8996"
+  },
+  {
+    "name": "espeak-ng-data/lang/miz/mto",
+    "bytes": 183,
+    "sha256": "E33ABA5E8159730F62004B22518D627C796F7D039431E5D9217B498F10341976"
+  },
+  {
+    "name": "espeak-ng-data/lang/myn/quc",
+    "bytes": 210,
+    "sha256": "76A75B77C672C432B56B84D517310D6AA75C4B3F9DE580E290199804366174EA"
+  },
+  {
+    "name": "espeak-ng-data/lang/poz/id",
+    "bytes": 134,
+    "sha256": "CE1FCDDAB3E756A7CDBA3DD009AD24CD57E1FDE29CE395698355DA24E32A6075"
+  },
+  {
+    "name": "espeak-ng-data/lang/poz/mi",
+    "bytes": 367,
+    "sha256": "2146CF3868C79B853BB5E41DDBF611D51B4B0A14087199F16194313562B98987"
+  },
+  {
+    "name": "espeak-ng-data/lang/poz/ms",
+    "bytes": 430,
+    "sha256": "8A965182EE0C5A41357197C05CF047D21B96744775A57A344D831A961E30351B"
+  },
+  {
+    "name": "espeak-ng-data/lang/qu",
+    "bytes": 88,
+    "sha256": "3069E443ECF3421BCB3B35B864E1A89FA9465AF072F86EEDD46A415990ABA6E6"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/an",
+    "bytes": 27,
+    "sha256": "FF8AA97C55286CC90531CAD5DF3CD36165ABBA11502A84D53B0FCD923F965F23"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/ca",
+    "bytes": 25,
+    "sha256": "787DF034320467236292BB46F1F8781A2998A185F117D350C018B6CFCF360854"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/es",
+    "bytes": 63,
+    "sha256": "966AA015EA5646D79F0CA4807CF5DA7339AABD3782B55CFA5EB0D8C3FC8FC588"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/es-419",
+    "bytes": 167,
+    "sha256": "FF0F84457AC40E3BCF61D6DE58028312BE74E0E6CBC3B742F31B3CE729C2AA0C"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/fr",
+    "bytes": 79,
+    "sha256": "95F44834B48C075DAD13EACE54D2C98FF79B81AA0074DD67EEBAF66C2909EEF8"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/fr-BE",
+    "bytes": 84,
+    "sha256": "72496A316E47B997F893500B8953DC01A10B86A2D4238E13C1260F50B47D792A"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/fr-CH",
+    "bytes": 86,
+    "sha256": "B449B0FD99D9CD93261FE1C6B816448B99B4A10420BEE3F301E669568AD0DE55"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/ht",
+    "bytes": 140,
+    "sha256": "389BDF3E984A2F93B7060BAAD82452DAC65B83BF4482D3884525A176AE0E0524"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/it",
+    "bytes": 109,
+    "sha256": "0D9069EB9A96DB1C55C131B2BB7D1F5255C68FBDDC2199FFD3295B52519A3256"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/pap",
+    "bytes": 62,
+    "sha256": "41A5B5E91482A5498A66711C05873A634BBD418786B0BA037032DF846344CFC1"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/pt",
+    "bytes": 95,
+    "sha256": "A44060072F790E41912C57B7D52F7B6438C4383E0DABDB052F6FDB7AACC23493"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/pt-BR",
+    "bytes": 109,
+    "sha256": "84DD4E34C970FADBE32211EADECFDFAAB52432479C0911E43300DA88A33398BA"
+  },
+  {
+    "name": "espeak-ng-data/lang/roa/ro",
+    "bytes": 26,
+    "sha256": "B12AF10FFC3F89CB87767CA701C6FEA0DEF8A712DE63426A9C3D0BF2432467F8"
+  },
+  {
+    "name": "espeak-ng-data/lang/sai/gn",
+    "bytes": 47,
+    "sha256": "FF82D2D163D3E06ADB580254D89012E689B2615C46579883562838AB401FB5D5"
+  },
+  {
+    "name": "espeak-ng-data/lang/sem/am",
+    "bytes": 41,
+    "sha256": "5970B16BF865528EE96A78C08498244BC8F54218FC2ADD499716B0E0C09969FB"
+  },
+  {
+    "name": "espeak-ng-data/lang/sem/ar",
+    "bytes": 50,
+    "sha256": "43F418F8140E5A7BD7096963DA20CCBA9247F6BE1FCDB08CB53DD7967DD72EEE"
+  },
+  {
+    "name": "espeak-ng-data/lang/sem/he",
+    "bytes": 40,
+    "sha256": "DE9195E743B91FB7FBEF7493BD5DDCCAD14C380A58D5AEB7C1D11D3419EF3B86"
+  },
+  {
+    "name": "espeak-ng-data/lang/sem/mt",
+    "bytes": 41,
+    "sha256": "D23F38FAE3253B6FB42E3336760AB482E676893692455465448BC9FBC0AC3E83"
+  },
+  {
+    "name": "espeak-ng-data/lang/sit/cmn",
+    "bytes": 686,
+    "sha256": "A130A38E3B622735C2401CB37F6719F46995E84A133729185CEF9A543EC0B072"
+  },
+  {
+    "name": "espeak-ng-data/lang/sit/cmn-Latn-pinyin",
+    "bytes": 161,
+    "sha256": "14C2FC097DB280416B688C2BF97DE2E5DA532C279754020FDE7BF6CD624CDD10"
+  },
+  {
+    "name": "espeak-ng-data/lang/sit/hak",
+    "bytes": 128,
+    "sha256": "C03C30B43E0B0ABDFA689445BAF9F442664A0373154A5D0CA75A33D30F46AEED"
+  },
+  {
+    "name": "espeak-ng-data/lang/sit/my",
+    "bytes": 56,
+    "sha256": "4B5AE2566CBF30AA59207020469E09832E66A7883818788F253996C534303DCA"
+  },
+  {
+    "name": "espeak-ng-data/lang/sit/yue",
+    "bytes": 194,
+    "sha256": "83F3DAC92AF5B4AAECC119515698A6979524BE236B28EA8F1024EC707D99EA5B"
+  },
+  {
+    "name": "espeak-ng-data/lang/sit/yue-Latn-jyutping",
+    "bytes": 213,
+    "sha256": "C56D45BB9A9CD97EFB38EDABE31C7DD3FEB0518CC900AAC6A891DCB6BD8EB428"
+  },
+  {
+    "name": "espeak-ng-data/lang/tai/shn",
+    "bytes": 92,
+    "sha256": "F16BF2DE219D3AE9A6AEC263CE9C684D9CD3E61258D04C7948DB0757C67E2C96"
+  },
+  {
+    "name": "espeak-ng-data/lang/tai/th",
+    "bytes": 37,
+    "sha256": "6C8AC809868DE659E06673F1FC2B56DBF4637FF9980DA7A4726B846478B4CFE6"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/az",
+    "bytes": 45,
+    "sha256": "52B424332DE4C443F3E9C5CE4DE5AED6FBFD421269FC825756DFC6BCBD7E1AD8"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/ba",
+    "bytes": 25,
+    "sha256": "A0CC3A06293962093C66533F9C1CFFBCCF083A2EB666751F2778A02A5316D98C"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/cv",
+    "bytes": 40,
+    "sha256": "94BAF6BACF581CC20337471C599F85ECBBE211F0B8476351FF19450C6541EA92"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/kk",
+    "bytes": 40,
+    "sha256": "2219F4D6DE0FBB1DC9982157C6F3CC5F4C8ABE5FCB605908A9D1054B9880CD51"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/ky",
+    "bytes": 43,
+    "sha256": "8239DFE8BDC6D4725880F5192B4EAF645F839E40CADFD145A4409C8387AC2D59"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/nog",
+    "bytes": 39,
+    "sha256": "E0E27FE61D406B6F4A4879FB8F81A14BC65997106666933991B818C7D79FABC1"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/tk",
+    "bytes": 25,
+    "sha256": "D78263398C135119909AD63A3ECB6FFE3AFF08383212934DD03695222A9786D0"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/tr",
+    "bytes": 25,
+    "sha256": "490EB5A2F777A2F3396F3A824ED8021BD77A94BE801214411461BDE6689738C9"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/tt",
+    "bytes": 23,
+    "sha256": "8B9617A9B6C56F4A2FE2F59D9CE55426837196567962716F9330F70948F8F9B0"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/ug",
+    "bytes": 24,
+    "sha256": "65D0CDBC96EFAB4D9E3CD0095440752A31DC7F425EDD3BA0A53C4DD33EAC5D63"
+  },
+  {
+    "name": "espeak-ng-data/lang/trk/uz",
+    "bytes": 39,
+    "sha256": "04FD711DFDA1E00D17DC8B1B250C24D70CC3C498B27E35D31065AC47441A6759"
+  },
+  {
+    "name": "espeak-ng-data/lang/urj/et",
+    "bytes": 237,
+    "sha256": "59C77747C4774E54A63AB74D2C6A95BC3C5B5B0A50D3781F187BD1FC3A613DE5"
+  },
+  {
+    "name": "espeak-ng-data/lang/urj/fi",
+    "bytes": 237,
+    "sha256": "61F58EC3BBA5B55A392AFF7ECF8A84D024200AEAA404B5553FCFB47770936928"
+  },
+  {
+    "name": "espeak-ng-data/lang/urj/hu",
+    "bytes": 73,
+    "sha256": "C575421D2AE397065D35AF0EB4F79DFF4E85F3435CCF45DA874F46B3FEE1338B"
+  },
+  {
+    "name": "espeak-ng-data/lang/urj/smj",
+    "bytes": 45,
+    "sha256": "3D709DEC77BB633AF0D57B89668DBAAA72D9BE8688118D6909F7D457BEC12A50"
+  },
+  {
+    "name": "espeak-ng-data/lang/zle/be",
+    "bytes": 52,
+    "sha256": "5BEB002D15A36BF3D0D764ED0D483C75A1DF6909EAA3B10FE5F6546700C9BFEC"
+  },
+  {
+    "name": "espeak-ng-data/lang/zle/ru",
+    "bytes": 57,
+    "sha256": "9F52D00A279AAEAA45A786B4FD3A98B34E95FEDBF823F8CDB9FECC1339751D3A"
+  },
+  {
+    "name": "espeak-ng-data/lang/zle/ru-cl",
+    "bytes": 91,
+    "sha256": "200EA345B505EC9E7B8838490AEAF1822AF41033429AEAE4EA68159047F59F90"
+  },
+  {
+    "name": "espeak-ng-data/lang/zle/ru-LV",
+    "bytes": 280,
+    "sha256": "980E379667CCB94ABE33B9C9C660C08800E3F31E36FE4A939551398AB98457AE"
+  },
+  {
+    "name": "espeak-ng-data/lang/zle/uk",
+    "bytes": 97,
+    "sha256": "DF3D1A9F77BAC0531E72F87BE398D9EB1E903BD6F839D4F04FFEC5ABB4E34634"
+  },
+  {
+    "name": "espeak-ng-data/lang/zls/bg",
+    "bytes": 111,
+    "sha256": "9B91ACCCCB0D53BB2A7BF21922846BA58C74BC082BA71AE32BF12CB0D092F853"
+  },
+  {
+    "name": "espeak-ng-data/lang/zls/bs",
+    "bytes": 230,
+    "sha256": "0820E7C78B68FBDAF86D83C782CDDE1901B642D1CDBEAE4181C6F5F5E21E5E89"
+  },
+  {
+    "name": "espeak-ng-data/lang/zls/hr",
+    "bytes": 262,
+    "sha256": "CEF3EF0411C66F154E6C82F7DECD95BEFFA8CBFBE953335658DF9F125BDD6096"
+  },
+  {
+    "name": "espeak-ng-data/lang/zls/mk",
+    "bytes": 28,
+    "sha256": "6DBC2CFB8999141BD0782CD463D4880468161088190C6B4C9412F43552DC39E2"
+  },
+  {
+    "name": "espeak-ng-data/lang/zls/sl",
+    "bytes": 43,
+    "sha256": "E1C2BD1F75C0EEB86F64182472D5F597CE23E64AD7478C248C2F75B694655942"
+  },
+  {
+    "name": "espeak-ng-data/lang/zls/sr",
+    "bytes": 250,
+    "sha256": "0E076528D3566F6E59B807E16E274DEE505E88A6D477DA188AB8EC442EAE44F4"
+  },
+  {
+    "name": "espeak-ng-data/lang/zlw/cs",
+    "bytes": 23,
+    "sha256": "1477CDBA5BA3BCE85DB559ACCBBD8A24B86B3F6D9D9988BC587E89357C1C4431"
+  },
+  {
+    "name": "espeak-ng-data/lang/zlw/pl",
+    "bytes": 38,
+    "sha256": "83C586A2B724B24B9F98D21ADE5022112C465AC446CA09930286980CEAE1C781"
+  },
+  {
+    "name": "espeak-ng-data/lang/zlw/sk",
+    "bytes": 24,
+    "sha256": "F46FF673C7D58C1646096C174D58DA34047D893D0D2993DBCA260CE54ABE77EF"
+  },
+  {
+    "name": "espeak-ng-data/lb_dict",
+    "bytes": 687931,
+    "sha256": "D819A062B9722334F187540D3530FAC1DE365CD200D4A466F5ECCCD7E3C05772"
+  },
+  {
+    "name": "espeak-ng-data/lfn_dict",
+    "bytes": 2793,
+    "sha256": "10281BC404F429165A330B800EB64674E37A135D1B4C689E57FB1D9E827D6924"
+  },
+  {
+    "name": "espeak-ng-data/lt_dict",
+    "bytes": 49890,
+    "sha256": "68EF55ABA9545D27CE73E7D4ACA1C2FA51D2C3D3D626152FBC22BF5A90FBFF11"
+  },
+  {
+    "name": "espeak-ng-data/lv_dict",
+    "bytes": 66337,
+    "sha256": "3E246C76B7DA924235FFB75925070865E669DA2CE3E41E98395E99BE1F8DB9F7"
+  },
+  {
+    "name": "espeak-ng-data/mi_dict",
+    "bytes": 1346,
+    "sha256": "401621FDF61DA47D0513E80279134A3515CED898AAADD5205B82CCED0F2DF042"
+  },
+  {
+    "name": "espeak-ng-data/mk_dict",
+    "bytes": 63859,
+    "sha256": "E4960FF4E74E1096FF1C3BCCAB62CE0429FA4FAA725E546CD5D33E43F45225BE"
+  },
+  {
+    "name": "espeak-ng-data/ml_dict",
+    "bytes": 92345,
+    "sha256": "B12687557C38F9BCD17417854253DDDE3781E3B0C16F9470D732205818E7CD38"
+  },
+  {
+    "name": "espeak-ng-data/mr_dict",
+    "bytes": 87391,
+    "sha256": "F712A7525DB108EF9769AEE53FDD1CD141F0DF372778924691B89623AA6FC22F"
+  },
+  {
+    "name": "espeak-ng-data/ms_dict",
+    "bytes": 53541,
+    "sha256": "74B01897385BA1F018DE44C0268048FA5BE588BBBB702A900BB35C691A466707"
+  },
+  {
+    "name": "espeak-ng-data/mt_dict",
+    "bytes": 4384,
+    "sha256": "1F76761BDFD481A984B15D07522DF23C9444F4AC21EA9671917E08BBFFA7F8D3"
+  },
+  {
+    "name": "espeak-ng-data/mto_dict",
+    "bytes": 3960,
+    "sha256": "6D51CB6BE959DBA045D41D3D63FF662A7363E1287CCE2C633B071295CE55D560"
+  },
+  {
+    "name": "espeak-ng-data/my_dict",
+    "bytes": 95948,
+    "sha256": "E7F9C2DC672E1388F6941AC6DEF956B8AB2D622ADB00D0ED6640DEE4B7ACC96B"
+  },
+  {
+    "name": "espeak-ng-data/nci_dict",
+    "bytes": 1534,
+    "sha256": "38C7201E7726C8D508F8F8611349CBC44FCC4684A0FEE4DB7285D83E808A5B69"
+  },
+  {
+    "name": "espeak-ng-data/ne_dict",
+    "bytes": 95377,
+    "sha256": "43831C3F53EA6E939CAC37B5AE5BD7A2EA8237AA46F0E7F2441AB772A3C51DBA"
+  },
+  {
+    "name": "espeak-ng-data/nl_dict",
+    "bytes": 65979,
+    "sha256": "D28641049F98C76B460C3DDDDE3E2EDECB7782C4EB9A3F242391301FF526C83F"
+  },
+  {
+    "name": "espeak-ng-data/no_dict",
+    "bytes": 4178,
+    "sha256": "43B828F8C1709E7ABB23A0CC6416FB32E4814E3F1FF1DB4BAF2935BF7C77C9FF"
+  },
+  {
+    "name": "espeak-ng-data/nog_dict",
+    "bytes": 3294,
+    "sha256": "8B921398A2F1907B43C07B96A72277D8D3D8545E385955EEBAE5F340AAE33BD2"
+  },
+  {
+    "name": "espeak-ng-data/om_dict",
+    "bytes": 2302,
+    "sha256": "3624E67EF8D9C20D894DB0ADCCACCC61EE852977CB77D5FE5801E7B4A528FCF5"
+  },
+  {
+    "name": "espeak-ng-data/or_dict",
+    "bytes": 89246,
+    "sha256": "E0DD737E9104DA63A27D86CD464CF7764837625B1513169B8D28FCA1BD3C8C3B"
+  },
+  {
+    "name": "espeak-ng-data/pa_dict",
+    "bytes": 79953,
+    "sha256": "CEE0E2A2BFB166E602FF84E185351A8AC311571CCDF46E1831C7A25245563C10"
+  },
+  {
+    "name": "espeak-ng-data/pap_dict",
+    "bytes": 2128,
+    "sha256": "770039BBF4EA8C5A3FFDDD98C4831CA02C9F39E1FF6B3DE7729FA71A8F3BC0F1"
+  },
+  {
+    "name": "espeak-ng-data/phondata",
+    "bytes": 550424,
+    "sha256": "4E0288957874029A8C3C9F41A8F517AD4BF18127046DECBDD4B9D1D6807CE3A3"
+  },
+  {
+    "name": "espeak-ng-data/phondata-manifest",
+    "bytes": 21821,
+    "sha256": "7B387AF0702C7CF0B61F0BEAD68FEDED0BD8E1620729B0B252E76ACBC30D3813"
+  },
+  {
+    "name": "espeak-ng-data/phonindex",
+    "bytes": 39074,
+    "sha256": "3CA7B8FA3B42624E4B0F152707E7A39245FCE569AA99EA47C055D9E622FCF0C4"
+  },
+  {
+    "name": "espeak-ng-data/phontab",
+    "bytes": 55796,
+    "sha256": "886F3FA402CB0BA73D483AA8AD000AF47A6B7CC06293C75A97913FBA68A530F6"
+  },
+  {
+    "name": "espeak-ng-data/piqd_dict",
+    "bytes": 1710,
+    "sha256": "33004A36210C33291AEF8A838D477667EED7AF52FF5093152891379B1774188D"
+  },
+  {
+    "name": "espeak-ng-data/pl_dict",
+    "bytes": 76730,
+    "sha256": "0E0CE6CFE4EBA41A1223362A046390DCA359A3E597AF8243ADAAC84D624EF18F"
+  },
+  {
+    "name": "espeak-ng-data/pt_dict",
+    "bytes": 67817,
+    "sha256": "7E8398F15FA4A21DB39A213381F28EC0D302B22663C644E865ABB61A09C1B004"
+  },
+  {
+    "name": "espeak-ng-data/py_dict",
+    "bytes": 2409,
+    "sha256": "2255348879547940E8B49E0CA1B80452748F142CB6E267E49CAB0560C720129A"
+  },
+  {
+    "name": "espeak-ng-data/qdb_dict",
+    "bytes": 3028,
+    "sha256": "C9B7F307FFE54F4AAF323290ECA1C620572919035B0EB268E5C94F5D7A430058"
+  },
+  {
+    "name": "espeak-ng-data/qu_dict",
+    "bytes": 1919,
+    "sha256": "D50659C2A14F43E01FDEF0B668EB083025A00CAC481B49DFB068E0220E0ED945"
+  },
+  {
+    "name": "espeak-ng-data/quc_dict",
+    "bytes": 1450,
+    "sha256": "458C1CA6DCFA288EA2584915D206C5127512501174D82655DE2CF031378E6DFD"
+  },
+  {
+    "name": "espeak-ng-data/qya_dict",
+    "bytes": 1939,
+    "sha256": "E56AE297EBAC26ED6C77A9718812E087F0BD198241DAC3C0D964F36510984783"
+  },
+  {
+    "name": "espeak-ng-data/ro_dict",
+    "bytes": 68538,
+    "sha256": "B14F68866B0440C4B0D95FB7DA3B7FFD3C59B693E8593D188474FABFC9A1117D"
+  },
+  {
+    "name": "espeak-ng-data/ru_dict",
+    "bytes": 8532392,
+    "sha256": "F0F6181BBBF9E53CD1E8F9D26BDE8FC62119C4F78181948F961CB29866E5E585"
+  },
+  {
+    "name": "espeak-ng-data/sd_dict",
+    "bytes": 59928,
+    "sha256": "398C876B52213A6E7DD54C68D0560D2A1C164C6BFB23B9EC1C044266CDCF2217"
+  },
+  {
+    "name": "espeak-ng-data/shn_dict",
+    "bytes": 88172,
+    "sha256": "121B6682A9B49700232B3A05CC2289D8D4B9C1027E6C2DB5C3F552804AD3D04A"
+  },
+  {
+    "name": "espeak-ng-data/si_dict",
+    "bytes": 85384,
+    "sha256": "A241437D4B64FD328AC4A3E786C9465C60488F6FA31CBBA04153F628CDC61F27"
+  },
+  {
+    "name": "espeak-ng-data/sjn_dict",
+    "bytes": 1783,
+    "sha256": "EB70510144230F6791574D86BAE0918B4191B076DD66C555E6AE3D5637DAADF7"
+  },
+  {
+    "name": "espeak-ng-data/sk_dict",
+    "bytes": 50002,
+    "sha256": "58B9BC11C9A95D81E96966242367009F8D02AB7A3F8F4FD77E3581ED4159F0A8"
+  },
+  {
+    "name": "espeak-ng-data/sl_dict",
+    "bytes": 45047,
+    "sha256": "9CB2BCBF616A5E7DD7CA769E7D222A48C613299EF1D76E44C08B002F8C22861A"
+  },
+  {
+    "name": "espeak-ng-data/smj_dict",
+    "bytes": 35095,
+    "sha256": "815270CE38A59C192EF5AA8801119D9B3ED973D9E23DFA6DA8D5D27DED5A9CD6"
+  },
+  {
+    "name": "espeak-ng-data/sq_dict",
+    "bytes": 45003,
+    "sha256": "6B74BEF94C3319407C27E44D944E765D036A88B30B4C17F30BBC182DBFFCC4CE"
+  },
+  {
+    "name": "espeak-ng-data/sr_dict",
+    "bytes": 46832,
+    "sha256": "770CAE9C516E48AF7896629FAF4ABEFAF041E1FD4AE184011AAD07B97196F613"
+  },
+  {
+    "name": "espeak-ng-data/sv_dict",
+    "bytes": 47836,
+    "sha256": "565F058B14F1C89C6BFA44FC3700793886A39C7818F1037AD1F4961FA7517509"
+  },
+  {
+    "name": "espeak-ng-data/sw_dict",
+    "bytes": 47804,
+    "sha256": "375FAB2CCD0D669177AD406B20B0CDB5851A1E86F093672F24F72C29FEC8A815"
+  },
+  {
+    "name": "espeak-ng-data/ta_dict",
+    "bytes": 209553,
+    "sha256": "8F3D855C8D7A35AD0E2B22BC7C15A8830E5FC235492894E5DB40458655076ECD"
+  },
+  {
+    "name": "espeak-ng-data/te_dict",
+    "bytes": 94837,
+    "sha256": "640407C66A5BB975671243325DE616C221F90BB2842D3A36278FACB68C0772F8"
+  },
+  {
+    "name": "espeak-ng-data/th_dict",
+    "bytes": 2301,
+    "sha256": "DD5D3E6268A381920F21C769F52DAF3A8E610AE83F7995E56F15E9D4DE18D653"
+  },
+  {
+    "name": "espeak-ng-data/tk_dict",
+    "bytes": 20868,
+    "sha256": "B3CD4A246F014F0564EC9EFAE79731C0FE73FFE1CD1617359DD8D5344EE3F9C8"
+  },
+  {
+    "name": "espeak-ng-data/tn_dict",
+    "bytes": 3072,
+    "sha256": "67F68DC336E7C65B946C95414CC8AE96CD10D241783BF857B3F990AC73221B2B"
+  },
+  {
+    "name": "espeak-ng-data/tr_dict",
+    "bytes": 46793,
+    "sha256": "311B0557059F2DAB5EE2FAABB51361F5033368F0E2A54C4BDFE45E730674F26E"
+  },
+  {
+    "name": "espeak-ng-data/tt_dict",
+    "bytes": 2121,
+    "sha256": "60D138D38330E44A78B4224CBEA452BFCA22BCE6734C8CE3F640C0216CE14001"
+  },
+  {
+    "name": "espeak-ng-data/ug_dict",
+    "bytes": 2070,
+    "sha256": "7C4567FFE6BD8D5224B6B3FD8FAB65B1343254636E6228D738AE3A708428E8E7"
+  },
+  {
+    "name": "espeak-ng-data/uk_dict",
+    "bytes": 3492,
+    "sha256": "A779BB0F51CE5CEBB650A4E2282162FC8C44609210A2BAA700F81F3E83E6E10C"
+  },
+  {
+    "name": "espeak-ng-data/ur_dict",
+    "bytes": 133556,
+    "sha256": "74B60E4331F532810CCFC70751AD07AB440647550A2D25823F44663A0DFA86FB"
+  },
+  {
+    "name": "espeak-ng-data/uz_dict",
+    "bytes": 2540,
+    "sha256": "790D42AC417B26DD7B1BBFED4BE72329C16ED1839DD75F55F7C962EB7BD5857A"
+  },
+  {
+    "name": "espeak-ng-data/vi_dict",
+    "bytes": 52608,
+    "sha256": "BBF7CAB4BA733B2F5D9D3B61EB1194EF745232FA3ADEBB4BC92456E948CB3722"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/adam",
+    "bytes": 75,
+    "sha256": "B21EFBF56FD7D58470E7CE4759C6EF9F23949706B269F2D777832204658EE0DD"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Alex",
+    "bytes": 128,
+    "sha256": "1CF9874567F4FA8109329F084E9AD9ED788FB2362298921D0A04A57B24F1141F"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Alicia",
+    "bytes": 474,
+    "sha256": "6D3F60EC866706E9D4AB7DA2A79EEDB8C11B50F63620F87E58317F316EA3D58E"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Andrea",
+    "bytes": 357,
+    "sha256": "6CA52734EC2CF7C419D2D3AD7C3449CD1A1776342C4D152EA12C5B1E72801E89"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Andy",
+    "bytes": 320,
+    "sha256": "0E13BA1A940CD9DF7E65358C36445C9740F3D75F1360C7F7C71AB9F74B45EDCA"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/anika",
+    "bytes": 493,
+    "sha256": "228771CE84CAD16A089E0B23EFE2E69EDF25F1AB7C0CB3A50D366AC70E82FBBD"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/anikaRobot",
+    "bytes": 512,
+    "sha256": "3BA724BE6AAB2FC1A084B25CDB16F469250EB9DE4C6C0924A18788D0246FC32F"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Annie",
+    "bytes": 315,
+    "sha256": "40F0F829C5C6E7ABF4A02A21F128A572756D6F6693014C26D09A5C29EDE5EC33"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/announcer",
+    "bytes": 300,
+    "sha256": "4AF6A6748C720CBBAAC1E3DCAC17BB3BC7A4C553499EC7EE69E054DB51A50DE3"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/antonio",
+    "bytes": 381,
+    "sha256": "C90477080CD9AA9C384770C0EC18901D01E9851F1BC7D15526A2565A3B0C4DA5"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/AnxiousAndy",
+    "bytes": 361,
+    "sha256": "7DFE126F517B76CC78269618DBEE2C30D324BEA9460B400938756EC93995EAF8"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/aunty",
+    "bytes": 358,
+    "sha256": "0AEDE4D1CA614F32C348F3D728EAB58322CCD016E8531234FDC3DFCF00E32BF1"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/belinda",
+    "bytes": 340,
+    "sha256": "9BD791B7115820E25ADA82B4911134D5116E8238B4FD4D214DFCCF162576141C"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/benjamin",
+    "bytes": 201,
+    "sha256": "3FA10B0D865FC751FD9C8ED1DABAC4BB9B011EA2B95064D4D25A8C719F7785D8"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/boris",
+    "bytes": 224,
+    "sha256": "F23D0A6EE2EEB7E3340506D61D422B691FB04F4E98977EA15C1E0EE5715846D5"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/caleb",
+    "bytes": 57,
+    "sha256": "BCDE145EC713EAE6D3451A6F25DBBDC0B6756FD44E9E092B7AEF89F2CFF25BE8"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/croak",
+    "bytes": 93,
+    "sha256": "2906A2C6F7B7687DB2F1C862164A9B80435D5AFC3BA16D74619728BF8C3A8CA7"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/david",
+    "bytes": 112,
+    "sha256": "50B5CB5F61A50F5FF5299DD22E5D645446746DBC36909595F6AE47BAC0BDA9C3"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Demonic",
+    "bytes": 3858,
+    "sha256": "241B0E78362BD3208BB586B65BDF52330E1E8322F8F226C4790C4ABEB47CFB09"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Denis",
+    "bytes": 305,
+    "sha256": "A09FE9F7A4E478D2BA1E139C2995633E2B99DE9ABDAAA82307954599B0E3D6FD"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Diogo",
+    "bytes": 379,
+    "sha256": "A4A17C453D13242B48783C247816BFF8D2CF7BC8931C3F8237887D88A2881B18"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/ed",
+    "bytes": 287,
+    "sha256": "12DDB6355B40A2E39A3B6CEF66A2BF4DB15A25045769B330A9A3B344A608026D"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/edward",
+    "bytes": 151,
+    "sha256": "B7A12BCB2AF280C40E4BE4280B675001024619ED529262DBF3E819DB53B5B310"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/edward2",
+    "bytes": 152,
+    "sha256": "59D166F7ADFEE4515A492993405E95432889050AAA47B6CD7EAEEB457FBCA227"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/f1",
+    "bytes": 324,
+    "sha256": "7CDEF453C6B0391D50A02B8F35392E6F41249CEA65DF1021AFFD68A64917B85F"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/f2",
+    "bytes": 357,
+    "sha256": "62B17F6C8F94ADD0310DB032F5E463C13510C5FF83EF1F21E8894CCBF00B00E3"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/f3",
+    "bytes": 375,
+    "sha256": "D0342EE8CEEBE3047831774634D234E90281EC73CE2AED8DD0BDD915CCF500FC"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/f4",
+    "bytes": 350,
+    "sha256": "FF9E2907A818920E3B976232C90EABAF270FFF0DE0B8A479AF9A3633E9B7921F"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/f5",
+    "bytes": 432,
+    "sha256": "6C76406D94540D59DEE16DE11520C37124A1F6DFC236981E483877075F0271B3"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/fast",
+    "bytes": 149,
+    "sha256": "FA2F9C2918F351499037F6BFFB25294D9B781B2785D9772A8AE3293C0C0037FE"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Gene",
+    "bytes": 281,
+    "sha256": "06258DAE680CDE2122A4939DBD4F23ED4EA145B7475068BF7DD4D466090AFD2A"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Gene2",
+    "bytes": 283,
+    "sha256": "BCDB3039296EEA37398E4423DC9BB6849CDA9C5C812B83702EBC49682C649F57"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/grandma",
+    "bytes": 263,
+    "sha256": "E033D57BA9B098971FDB995C13830F9C709206ADD081C586DAAEC323FF69A392"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/grandpa",
+    "bytes": 256,
+    "sha256": "F25627887B95E8BCCAC5E6CE99CB97C6E34290FF0BF919FEBE64A9987138796D"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/gustave",
+    "bytes": 253,
+    "sha256": "5FA89CF8625CD460B9309748ECA019AB5B325A04DCCBD29F1A9B2A00CAA2E848"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Henrique",
+    "bytes": 381,
+    "sha256": "5C6BF1CF5B6BC7C7D48F2A8368AE348C6FF64232C047F40F9D9A6E6824B4CE6A"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Hugo",
+    "bytes": 378,
+    "sha256": "906ACBEF890DC4DA67CB54B5B0DDC2CAB7EE308A95D350C899F0B0CB6A83DD5F"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/ian",
+    "bytes": 3168,
+    "sha256": "C0722C7954D3E6582E3F5B3F584140675AB060AC3C6CAC5DD11A74592DB5550A"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/iven",
+    "bytes": 261,
+    "sha256": "10AB9DE8365FF7BF5A20621D08F1A2019D4BF5521F3C6F65447C9256057406C8"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/iven2",
+    "bytes": 279,
+    "sha256": "F94830E5ABE118DC4C0909630D66637BA2A7C94957279C31FD78E313374054CD"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/iven3",
+    "bytes": 262,
+    "sha256": "27CCF2D2F7BB8F1FF28C705C39CF6FF575EB2458C39A518ED33741AD9C1AF252"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/iven4",
+    "bytes": 261,
+    "sha256": "11B3D46C01D4307EEDCB60BD8DBCC73A40F3EB86C289176D6FD5BB418223B92F"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Jacky",
+    "bytes": 267,
+    "sha256": "41884ED9B66160AEB5A0DC418370A59FE39EAD0013D93E023E6D607EF01C1A6E"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/john",
+    "bytes": 3186,
+    "sha256": "BFBCC1CEC33EF0581FDEB4955FBCD0D824A5D4BE5493D731E4A2EF7F8F3BA670"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/kaukovalta",
+    "bytes": 361,
+    "sha256": "B9F6016145835C3999BCD5872B8A53442729BD903591781EA3340746B3B4956B"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/klatt",
+    "bytes": 38,
+    "sha256": "9ABB6D05D0CA354831C570E14323DD4E821459B53166D96395875A48BACDBDE2"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/klatt2",
+    "bytes": 38,
+    "sha256": "AFAB662A55953532FF8D6F9C615B824ECEC87F7AEF6790A58C4CCBC4505A742A"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/klatt3",
+    "bytes": 39,
+    "sha256": "F1C0CD147BD656F6C4830B3341C9694483438C43AEA15C982DCC1945DBB334B9"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/klatt4",
+    "bytes": 39,
+    "sha256": "3459C15AA8FA7D7218AC34388DFC0833C850FFC923013949308C2F643F3DAAD2"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/klatt5",
+    "bytes": 39,
+    "sha256": "44397D8282454A2974078D25509CAA470BCEB093E484E727843A5147B4193E60"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/klatt6",
+    "bytes": 39,
+    "sha256": "7D3930CD97EF7A0732F2E19F53F84E480F2D441D263390647B92BB0B4C645D05"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Lee",
+    "bytes": 338,
+    "sha256": "A1584887CDDB40C10E04992FB770025B52E66B70504656094F80975F1D6BBF6B"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/linda",
+    "bytes": 350,
+    "sha256": "DF06B4C29F5953034E7815EA7062E356917266F8FAB576F76C036045525C8E28"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/m1",
+    "bytes": 335,
+    "sha256": "7F2DE023BDFE18651D2D0453D2E7FF5E8ADE9F094912A79247336DDC90FD7783"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/m2",
+    "bytes": 264,
+    "sha256": "6EB925EB6691621A6DE66C87596C6ED879C80A04215A9A8437DFFC28FCFA14DD"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/m3",
+    "bytes": 300,
+    "sha256": "7A4AC872387439814DDD65F5E1FF73017122975911DF6B5DC62C5709E6FDB611"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/m4",
+    "bytes": 290,
+    "sha256": "6BEF82CEA3538DA1246B7A2C203206E90155CBB4AF86FAA8EF03366C3119CEEE"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/m5",
+    "bytes": 262,
+    "sha256": "08590EF7CE37630A6875D9CBE200DC473A9054B4184287808A4FD1C8E27DD02A"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/m6",
+    "bytes": 188,
+    "sha256": "FC0E01AF458A96D43F55878010D3ABCBBDA85E846922B25361A78D27C3A9CA00"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/m7",
+    "bytes": 254,
+    "sha256": "BDFC54A3558CA98F9CA082479C5211034A824D8721DB91804F9D77867DB6FAB3"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/m8",
+    "bytes": 284,
+    "sha256": "060130540E2FAE5F8ACFB19BCD4EF3DC5DC8F8D2134C502BB57AF277FD4CC491"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/marcelo",
+    "bytes": 251,
+    "sha256": "3238A933A17C40C61CDD385C0E742BF54C42C008F4110D4B0353A6AE72A5D1A0"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Marco",
+    "bytes": 467,
+    "sha256": "04025677360C0270F094BBB6716B83C8284902F6DA9B496BEDBBF590963835FB"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Mario",
+    "bytes": 270,
+    "sha256": "A94AC65D132030DF496E8AA364D5CDE5F2EAFA4B6B3AE361A2901D512C6029D8"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/max",
+    "bytes": 225,
+    "sha256": "C88F70A60A19E76A6774DFBD7664BE639B9AA8AA587C680834C305FFA434AAAF"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Michael",
+    "bytes": 270,
+    "sha256": "4409BE23EF5FEDF4C8BFFBFAA8A802A342824D7E97F1D92938336A25F92F0EBE"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/michel",
+    "bytes": 404,
+    "sha256": "C0068AD9CB792DFB78AEDBDFF9C3CEC68E5083736BAE0C33BF19088186101087"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/miguel",
+    "bytes": 382,
+    "sha256": "9C8C2BBE9FBA6D1F06EB63EE67D98D7EBB8846B2BF13847A9B359C90BA9FA8FE"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Mike",
+    "bytes": 112,
+    "sha256": "8999B264606C0AF23D346A877E10CA05AA757F7EA433E6CFCB3BEF50A56BA2CF"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/mike2",
+    "bytes": 188,
+    "sha256": "274EBC5DF252B3258E8996F1276137B2CF9D6E5006E1145A5172997284F1DBA0"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Mr serious",
+    "bytes": 3193,
+    "sha256": "794ABD78DEB07CE9B03419D20F7744DF4C0151D5ABFF7981217E9D0926A2F240"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Nguyen",
+    "bytes": 280,
+    "sha256": "4F3D557D9C045080F56022A96E5B3659C4D1CAA5FA1D702E12D3EF6BEC2E3A45"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/norbert",
+    "bytes": 3189,
+    "sha256": "35B9923E15CAF36280542270282BD2392C6D86EF5DB9A8BE7BE92CE2241A46CB"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/pablo",
+    "bytes": 3142,
+    "sha256": "053A85C8A6D7E7A0F6432A3158FE73FA9ACCF06202E5D69C273D4E5BAE8BAFC8"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/paul",
+    "bytes": 284,
+    "sha256": "75FB8098BEA28859513DE6CE033092307382D6F20455E71B051193DFC0793D5E"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/pedro",
+    "bytes": 352,
+    "sha256": "7429792BA833FA2446BEC6DB790068F5862B9ED099392002CD0E724EC6AB2A66"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/quincy",
+    "bytes": 354,
+    "sha256": "E9945BEE7B4F3240221866F497BF2511A886ED7702D8389688A03C2EA120CAF0"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Reed",
+    "bytes": 202,
+    "sha256": "727DBC3F6BFF0BE4DD7D0438F66D3BB82CFF68ED148CF52CB58E73314AAEC1E4"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/RicishayMax",
+    "bytes": 233,
+    "sha256": "7DDC7A57711CCD7A736540F14271ADADF1E2E0422941ECAA7CC43AB87F8E2017"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/RicishayMax2",
+    "bytes": 435,
+    "sha256": "3DE5E414D4B2EF082A7B974BB7EDE94937E93B5B873D2B2F7928B19D30745180"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/RicishayMax3",
+    "bytes": 435,
+    "sha256": "36D20550B68A8C229D34D956657B7D642929962F7E5D4FDDD6396AF9E5378B56"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/rob",
+    "bytes": 265,
+    "sha256": "FBFFFCDB0AFB2E3B70F886C02282FEAE22509D77FE6E7103DAF907F7A356595D"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robert",
+    "bytes": 274,
+    "sha256": "72604F85AFE5BB52A5CE7E3427B196E1E3E426A14A64E2D93B6617E248A46417"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robosoft",
+    "bytes": 451,
+    "sha256": "CE2820EDD349F3FBC734BFE94095518F10ECBEFDB304560109F37106F9F4D2FA"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robosoft2",
+    "bytes": 454,
+    "sha256": "249A44F4069B323640E6B532FF6A9BC30DCA35F5F9A5F666B647937CBC58C685"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robosoft3",
+    "bytes": 455,
+    "sha256": "F8543EFE18019C735EBAD99D1CAB4E06E0EFD565AC269A895415DFEBF342C383"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robosoft4",
+    "bytes": 447,
+    "sha256": "D5F728E0D0A9D27F604F34E835E059590FD01411FD467C91328B573C7597BB2D"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robosoft5",
+    "bytes": 445,
+    "sha256": "39DA0EFE1768E14EEFE05A7019FAB416795BBFFB222FCE23AD7F963991447F7B"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robosoft6",
+    "bytes": 287,
+    "sha256": "46426971D76C34266580133FAD2C26AB829395A71C1713E6205D9D46B0871672"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robosoft7",
+    "bytes": 410,
+    "sha256": "E19C1045259D9CFB078C229D5D1372F7C5AF971D0E2536A41B89C40CA3E23EDE"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/robosoft8",
+    "bytes": 243,
+    "sha256": "389230461647836C1B66C51939C0A493E3FBC81E2B7AFC01C6F88B8F9DA21E2B"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/sandro",
+    "bytes": 530,
+    "sha256": "1B8C36A3CE35A27CBBABF4679DF0264CD37F4C79B66AA1F4C310EB31B9C80490"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/shelby",
+    "bytes": 280,
+    "sha256": "5E96565045BCDD5B42E7AD0EAB2BBD670C67CF5C9E3F2AC6B50B30580FB92BE4"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/steph",
+    "bytes": 364,
+    "sha256": "78186AEDDCE4C449348F368046B2665375B1A492E948D739249B0C964F082861"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/steph2",
+    "bytes": 367,
+    "sha256": "CA88414B48553FED1FD409389548A94EA90CF282D6340E3CB968C8538A2AC2EC"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/steph3",
+    "bytes": 377,
+    "sha256": "A7D796211B6969BA92213F89DE54B053890306AF774424EE38FB02ACE45E852D"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Storm",
+    "bytes": 420,
+    "sha256": "E817C7D1CE10DE527EBC19C0835F580CB584C3AE7D36D30A4F414482602E7B89"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/travis",
+    "bytes": 383,
+    "sha256": "7D5A34BE05778EE850D97B0491A62DB7683C058D660FF2AFC71C08C87360F30D"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/Tweaky",
+    "bytes": 3189,
+    "sha256": "C34D1C1D8B7922CEB886B95AD6AB534CA048F9C47E19698EC2AAE5CF0C32CDBC"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/UniRobot",
+    "bytes": 417,
+    "sha256": "23DBA52C2D1CB332DB6225304818D85488F110A668DDCDBFD7F0438AFE37794B"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/victor",
+    "bytes": 253,
+    "sha256": "A880A8083AC5EAADF94F71C63B51F34C1426D4BFE0A26F6761DDEC5C6E9A5C76"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/whisper",
+    "bytes": 186,
+    "sha256": "1E3534C843768898CEA47A3F83B2FD91720C0775B438EA5C0134676940A66E96"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/whisperf",
+    "bytes": 392,
+    "sha256": "7FEA42B10114F1BFD2004181E6B0EB626997CCA987893E23D24B5C616AAC89D7"
+  },
+  {
+    "name": "espeak-ng-data/voices/!v/zac",
+    "bytes": 275,
+    "sha256": "EDAF508B2CFBFD6088A163DCC78D5F6A26850A7D39A5A0E5128B09526F56B6DB"
+  },
+  {
+    "name": "espeak-ng-data/yue_dict",
+    "bytes": 563571,
+    "sha256": "1D26AFA203034698772107ABFFF1B53ACBEE30434700A4D2B75DEE98951588F8"
+  },
+  {
+    "name": "lexicon-us-en.txt",
+    "bytes": 5956885,
+    "sha256": "7DAAAB53A181BE9885B853A8582BF1838186317E5DADACBCEF9C426D6FA0DA14"
+  },
+  {
+    "name": "LICENSE",
+    "bytes": 11358,
+    "sha256": "CFC7749B96F63BD31C3C42B5C471BF756814053E847C10F3EB003417BC523D30"
+  },
+  {
+    "name": "model.onnx",
+    "bytes": 325560556,
+    "sha256": "B40F62B166AC8164B0627EF48A0B358EDA0985E272FB03EF5252E7206305DA11"
+  },
+  {
+    "name": "README.md",
+    "bytes": 730,
+    "sha256": "87359CD32DFDFF6DFEB16633B5A116AEE3B9AC69DEC3302378270A2CAB9885B1"
+  },
+  {
+    "name": "tokens.txt",
+    "bytes": 687,
+    "sha256": "6EBB6BB288F20F3AE8D004D3C2CA27697DA27C037D75E81A60E2A6A663F95425"
+  },
+  {
+    "name": "voices.bin",
+    "bytes": 28200960,
+    "sha256": "1C5A5B983D3D50D8586D437A51F3FAA2DA7919CE76A013C081E65671A3447C29"
+  }
+]

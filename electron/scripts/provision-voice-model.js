@@ -189,6 +189,7 @@ async function provisionVoiceModel({
 
 async function main() {
   await provisionVoiceModel();
+  await require('./provision-kokoro-model').provisionKokoroModel();
 }
 
 if (require.main === module) {

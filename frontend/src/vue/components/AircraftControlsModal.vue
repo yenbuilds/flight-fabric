@@ -5,11 +5,15 @@ import { useBodyClass } from '../composables/useBodyClass.js';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import AircraftCommandBrowser from './AircraftCommandBrowser.vue';
 
-const props = defineProps({ open: { type: Boolean, default: false } });
+const props = defineProps({ open: { type: Boolean, default: false }, revealRequest: { type: Object, default: null } });
 const emit = defineEmits(['close']);
 const mounted = ref(false), panel = ref(null);
-watch(() => props.open, open => {
-  if (open) nextTick(() => panel.value?.querySelector('input[type="search"]')?.focus());
+watch([() => props.open, () => props.revealRequest], ([open]) => {
+  if (open) nextTick(() => {
+    if (props.open && !props.revealRequest && !panel.value?.contains(document.activeElement)) {
+      panel.value?.querySelector('input[type="search"]')?.focus();
+    }
+  });
 });
 useBodyClass(() => props.open, 'ff-dialog-open');
 useBodyClass(() => props.open, 'aircraft-controls-open');
@@ -36,7 +40,7 @@ onMounted(() => { mounted.value = true; });
             aria-label="Close aircraft controls" @click="emit('close')">&times;</button>
         </header>
         <div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          <AircraftCommandBrowser embedded />
+          <AircraftCommandBrowser embedded :reveal-request="revealRequest" />
         </div>
       </section>
     </div>

@@ -27,6 +27,24 @@ const shortcutNotice = ref('');
 const shortcutError = ref('');
 const recognitionSaving = computed(() => voice.recognitionChanging);
 const recognitionError = ref('');
+const readbackSelectionError = ref('');
+let readbackSelectionRevision = 0;
+async function changeReadbackEngine(event) {
+  const revision = ++readbackSelectionRevision;
+  readbackSelectionError.value = '';
+  const saved = await voice.setReadbackEngine(event.target.value);
+  if (revision !== readbackSelectionRevision) return;
+  if (!saved) readbackSelectionError.value = 'The voice choice could not be saved. Try again.';
+  event.target.value = voice.runtime.readback.selectedEngine;
+}
+async function changeReadbackVoice(event) {
+  const revision = ++readbackSelectionRevision;
+  readbackSelectionError.value = '';
+  const saved = await voice.setReadbackVoice(voice.runtime.readback.selectedEngine, event.target.value);
+  if (revision !== readbackSelectionRevision) return;
+  if (!saved) readbackSelectionError.value = 'The voice choice could not be saved. Try again.';
+  event.target.value = voice.runtime.readback.selectedVoice;
+}
 const configurationOpen = ref(false);
 const microphoneOpen = ref(false);
 const inputChoice = ref(voice.runtime.controllerEnabled && voice.runtime.controller?.binding ? 'controller' : voice.runtime.shortcut ? 'keyboard' : 'screen');
@@ -260,7 +278,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="settings-panel-header">
         <h3 id="settings-voice-title" class="settings-panel-title">Voice control</h3>
-        <p class="settings-section-description">A quick microphone check, then choose how you want to talk.</p>
+        <p class="settings-section-description">Test your microphone and set up push-to-talk.</p>
       </div>
       <button v-if="voice.settingsReturnToAircraft" type="button" class="ff-button-secondary text-xs" data-voice-back-to-aircraft @click="backToAircraft">Back to Aircraft</button>
     </div>
@@ -350,7 +368,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
           <section aria-labelledby="voice-ptt-title" data-voice-ptt-settings>
             <h4 id="voice-ptt-title" class="mb-3 text-base font-semibold text-fg">2. Set up push-to-talk</h4>
             <p class="mb-3 text-xs text-muted-fg">Hold to speak. Release for a response.</p>
-            <p id="voice-input-choices-help" class="mb-3 text-xs text-muted-fg">Select an input to view its settings. Existing bindings stay configured until you remove them.</p>
+            <p id="voice-input-choices-help" class="mb-3 text-xs text-muted-fg">Existing bindings stay configured until you remove them.</p>
             <div class="setup-input-choices" :class="{ 'setup-input-choices--two': inputChoices.length === 2 }" role="group" aria-label="Push-to-talk settings to view" aria-describedby="voice-input-choices-help">
               <button v-for="choice in inputChoices" :key="choice.id" type="button" :data-voice-input-choice="choice.id" :aria-pressed="inputChoice === choice.id" :disabled="captureLocked || shortcutSetupBusy || shortcutDirty || shortcutSaving" @click="chooseInput(choice.id)">
                 <SetupIllustration :kind="choice.kind" /><span>{{ choice.label }}</span>
@@ -472,7 +490,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
                   {{ shortcutDraft.split('+').includes('CapsLock') ? 'Caps Lock also toggles capitalisation.' : '' }}
                 </p>
                 <p v-if="voice.runtime.shortcut" class="text-[11px] text-muted-fg">
-                  Remove the shortcut to turn off keyboard push-to-talk. Your controller button and other voice settings are kept.
+                  Removing this shortcut disables keyboard push-to-talk only.
                 </p>
                 <p v-if="shortcutError" id="voice-ptt-shortcut-error" class="text-[11px] text-warning" role="alert">
                   {{ shortcutError }}
@@ -493,7 +511,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
             <CloudVoiceSettings :disabled="captureLocked || shortcutSetupBusy || recognitionSaving || voice.status === 'sending'" />
           <div>
             <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <label class="flex min-h-10 shrink-0 cursor-pointer items-center gap-2 text-fg" title="Speaks command results using an installed local voice. Online voices are never selected.">
+            <label class="flex min-h-10 shrink-0 cursor-pointer items-center gap-2 text-fg" title="Speaks command results entirely offline on this PC.">
               <input
                 class="peer sr-only"
                 type="checkbox"
@@ -518,9 +536,30 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
             <button type="button" class="ff-button-secondary text-xs disabled:opacity-50" data-voice-test-feedback
               :disabled="captureLocked || recognitionSaving || voice.status === 'sending'" @click="voice.testSpokenFeedback">Test spoken feedback</button>
             </div>
+            <div v-if="voice.runtime.readback.engines.length" class="mt-3 max-w-md">
+              <label for="voice-readback-engine" class="mb-1 block text-xs font-medium text-fg">Speech engine</label>
+              <select id="voice-readback-engine" class="w-full rounded-lg border border-border bg-surface-100 px-3 py-2 text-sm text-fg"
+                data-voice-readback-engine :value="voice.runtime.readback.selectedEngine" :disabled="captureLocked"
+                @change="changeReadbackEngine">
+                <option v-for="engine in voice.runtime.readback.engines" :key="engine.id" :value="engine.id">{{ engine.label }}</option>
+              </select>
+              <div v-if="voice.runtime.readback.voices.length" class="mt-3">
+                <label for="voice-readback-voice" class="mb-1 block text-xs font-medium text-fg">Voice</label>
+                <select id="voice-readback-voice" class="w-full rounded-lg border border-border bg-surface-100 px-3 py-2 text-sm text-fg"
+                  :value="voice.runtime.readback.selectedVoice" :disabled="captureLocked" @change="changeReadbackVoice">
+                  <option v-for="option in voice.runtime.readback.voices" :key="option.id" :value="option.id">{{ option.label }}</option>
+                </select>
+              </div>
+              <p class="mt-1 text-xs text-muted-fg">All voices work offline.</p>
+              <p v-if="voice.runtime.readback.preparing" class="mt-1 text-xs text-muted-fg" role="status">Preparing the selected voice…</p>
+              <p v-if="readbackSelectionError" class="mt-1 text-xs text-warning" role="alert">{{ readbackSelectionError }}</p>
+              <p v-if="voice.runtime.readback.fallbackReason" class="mt-1 text-xs text-warning" role="status">{{ voice.runtime.readback.fallbackReason }}</p>
+              <button v-if="voice.runtime.readback.fallbackReason" type="button" class="ff-button-secondary mt-2 text-xs"
+                :disabled="captureLocked" @click="voice.setReadbackEngine(voice.runtime.readback.selectedEngine)">Retry selected voice</button>
+            </div>
             <p v-if="voice.voiceTest.feedbackMessage" class="mt-2 text-xs text-muted-fg" role="status">{{ voice.voiceTest.feedbackMessage }}</p>
             <p v-if="voice.runtime.readbackError" class="text-[11px] text-warning" data-voice-readback-error>
-              Last spoken readback failed: {{ voice.runtime.readbackError }} Windows speech uses the default output device.
+              Last spoken readback failed: {{ voice.runtime.readbackError }} Speech uses the default output device.
             </p>
           </div>
           </section>

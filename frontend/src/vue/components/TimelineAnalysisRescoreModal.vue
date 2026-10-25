@@ -131,7 +131,7 @@ function previewUnavailableReason(value) {
         <div id="timeline-analysis-rescore-content" class="timeline-analysis-modal-content">
           <div class="flex flex-wrap items-start justify-between gap-3 border-b border-surface-200/60 pb-4">
             <p class="max-w-3xl text-xs leading-relaxed text-gray-400">
-              Compare recorded scores with results from today's rules and each landing's recorded aircraft profile. Preview changes to touchdown rate, approach stability, TDZ, lateral offset, bounce, and rollout before choosing whether to save them. The original recording and recorded results remain unchanged.
+              Compare touchdown rate, approach stability, TDZ, lateral offset, bounce, and rollout using today’s rules and each landing’s recorded aircraft profile. Preview before saving; the original recording and recorded results remain unchanged.
             </p>
             <div class="flex flex-wrap items-center gap-2">
               <button

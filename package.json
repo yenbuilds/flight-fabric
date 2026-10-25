@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.12.8",
+  "version": "0.13.0",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -67,7 +67,7 @@
     "test:simconnect-sdk": "node --test tests/scripts/test-simconnect-sdk.js",
     "release:simconnect:check": "node scripts/verify-simconnect-sdk.js",
     "test:electron:window-state": "node tests/scripts/test-electron-window-state-runtime.js",
-    "test:voice": "node --test frontend/tests/aircraft/apu-controls.test.js frontend/tests/voice/state-queries.test.js frontend/tests/voice/flight-plan-queries.test.js frontend/tests/voice/command-interpreter.test.js frontend/tests/voice/first-command.test.js frontend/tests/voice/local-readback.test.js frontend/tests/voice/pcm-capture.test.js frontend/tests/voice/push-to-talk-tone.test.js frontend/tests/voice/shortcut-recorder.test.js frontend/tests/voice/voice-controller.test.js frontend/tests/voice/voice-setup-test.test.js frontend/tests/voice/voice-status-relay.test.js tests/scripts/test-generic-nav-voice.js tests/scripts/test-a32nx-approach-voice.js tests/scripts/test-a32nx-atc-voice.js tests/scripts/test-atc-aircraft-families.js tests/scripts/test-approach-aircraft-families.js electron/tests/voice-model-provisioning.test.js electron/tests/voice-runtime.test.js electron/tests/voice-controller-ptt.test.js electron/tests/windows-local-tts.test.js electron/tests/voice-cloud.test.js",
+    "test:voice": "node --test frontend/tests/aircraft/apu-controls.test.js frontend/tests/voice/state-queries.test.js frontend/tests/voice/flight-plan-queries.test.js frontend/tests/voice/command-interpreter.test.js frontend/tests/voice/first-command.test.js frontend/tests/voice/local-readback.test.js frontend/tests/voice/pcm-capture.test.js frontend/tests/voice/push-to-talk-tone.test.js frontend/tests/voice/shortcut-recorder.test.js frontend/tests/voice/voice-controller.test.js frontend/tests/voice/voice-setup-test.test.js frontend/tests/voice/voice-status-relay.test.js tests/scripts/test-generic-nav-voice.js tests/scripts/test-a32nx-approach-voice.js tests/scripts/test-a32nx-atc-voice.js tests/scripts/test-atc-aircraft-families.js tests/scripts/test-approach-aircraft-families.js electron/tests/voice-model-provisioning.test.js electron/tests/voice-runtime.test.js electron/tests/voice-controller-ptt.test.js electron/tests/windows-local-tts.test.js electron/tests/voice-cloud.test.js electron/tests/voice-readback.test.js",
     "test:electron:output-guard": "node --test tests/scripts/test-electron-release-output-failure-guard.js",
     "test:electron:ipc-runtime": "node tests/scripts/test-electron-ipc-runtime.js",
     "test:electron:sqlite": "node tests/scripts/test-electron-sqlite-runtime.js",

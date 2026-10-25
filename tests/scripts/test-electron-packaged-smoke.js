@@ -4,7 +4,7 @@
 const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { ZIPFORMER_MODEL } = require('../../electron/voice-model-manifest');
+const { KOKORO_MODEL, ZIPFORMER_MODEL } = require('../../electron/voice-model-manifest');
 const {
   REQUIRED_PACKAGED_BACKEND_STARTUP_FILES,
   resolvePackagedBackendStartupFile,
@@ -228,10 +228,35 @@ function validatePackagedVoiceRuntime(unpackedExe) {
       const event = await terminal;
       await engine.shutdown();
       if (event.type === 'error') throw new Error(event.message || 'Packaged recognizer failed');
+      // Exercise the shipped TTS model, native addon and worker from app.asar.
+      // This probe stays silent and never opens a microphone or simulator.
+      const tts = require('node:child_process').fork(path.join(resourcesPath, 'app.asar', 'voice-tts-worker.js'),
+        [path.join(resourcesPath, 'models', ${JSON.stringify(KOKORO_MODEL.id)})], {
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+          serialization: 'advanced', stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true,
+        });
+      try {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('Packaged Kokoro timed out')), 20000);
+          tts.on('error', reject);
+          tts.on('exit', code => { clearTimeout(timer); reject(new Error('Packaged Kokoro exited: ' + code)); });
+          tts.on('message', message => {
+            if (message.type === 'ready') tts.send({ type: 'generate', id: 1, text: 'Heading two seven zero set.' });
+            if (message.type === 'error') { clearTimeout(timer); reject(new Error(message.detail || 'Packaged Kokoro failed')); }
+            if (message.type === 'audio') {
+              clearTimeout(timer);
+              const wav = Buffer.from(message.wav);
+              if (wav.length <= 44 || wav.toString('ascii', 0, 4) !== 'RIFF') reject(new Error('Invalid packaged speech audio'));
+              else resolve();
+            }
+          });
+        });
+      } finally { tts.kill(); }
       console.log(${JSON.stringify(marker)} + JSON.stringify({
         modelId: info.modelId,
         ready: info.ready,
         terminalType: event.type,
+        kokoro: 'generated',
       }));
     })().catch((error) => {
       console.error(error && error.stack ? error.stack : String(error));
@@ -611,6 +636,10 @@ if (exists(WIN_UNPACKED, 'win-unpacked exists')) {
     }
   }
   exists(PACKAGED_VOICE_HOTWORDS, 'aviation voice hotwords bundled');
+  if (KOKORO_MODEL.files.every(file => fs.existsSync(path.join(WIN_UNPACKED, 'resources', 'models', KOKORO_MODEL.id, file.name)))) {
+    ok('verified Kokoro model, voices and pronunciation data bundled');
+  } else fail('Kokoro runtime files missing');
+  exists(path.join(WIN_UNPACKED, 'resources', 'legal', 'voice', 'eSpeak-NG-GPL-3.0.txt'), 'Kokoro pronunciation licence bundled');
   if (exists(PACKAGED_PTT_HELPER, 'native push-to-talk helper bundled')) validatePackagedControllerHelper();
   for (const relativePath of REQUIRED_PACKAGED_BACKEND_STARTUP_FILES) {
     exists(

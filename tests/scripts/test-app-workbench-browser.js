@@ -71,6 +71,64 @@ async function browser() {
       assert(await evaluate("return !document.querySelector('.timeline-flight-open') && document.getElementById('tab-timeline').textContent.includes('Waiting for your flight history');"), 'revoked desktop access removes retained history and returns to recovery guidance');
     }
   }
+  async function checkReadbackVoiceSettings() {
+    const { KOKORO_MODEL } = require('../../electron/voice-model-manifest');
+    const voiceChoices = KOKORO_MODEL.voices.filter(voice => voice.listed !== false).map(({ id, label }) => ({ id, label }));
+    const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+    fixtureUrl.search = '?desktop=1';
+    for (const width of [1440, 390, 320]) {
+      win.setContentSize(width, 900);
+      await win.loadURL(fixtureUrl.href);
+      for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
+      await evaluate(`
+        const voice = workbenchTest.voice;
+        const readback = { selectedEngine: 'kokoro', engines: [
+          { id: 'kokoro', label: 'Kokoro (offline neural)' },
+          { id: 'windows-sapi', label: 'Windows TTS' }] };
+        let selectedVoice='af_heart';
+        const voices=${JSON.stringify(voiceChoices)};
+        const info = () => ({ enabled: true, available: true, readback:{...readback,
+          selectedVoice:readback.selectedEngine==='kokoro'?selectedVoice:'', voices:readback.selectedEngine==='kokoro'?voices:[]},
+          pushToTalk: { accelerator: 'Control+Alt+Space', registered: true } });
+        const {createVoiceControlController}=await import('/frontend/src/voice/voice-controller.js');
+        let runtimeListener;
+        window.readbackSettingsController=createVoiceControlController({voiceStore:voice, globalRef:{},
+          readback:{prepare(){},cancel(){}},
+          aircraftControlsStore:{availability:{enabled:false},aircraftCommandCatalogue:{}},
+          api:{getRuntimeInfo:async()=>info(), onRecognitionEvent:()=>()=>{}, onPushToTalk:()=>()=>{},
+            onRuntimeState:listener=>{runtimeListener=listener;return()=>{};},
+            setReadbackEngine:async value=>{readback.selectedEngine=value;runtimeListener(info());return info();},
+            setReadbackVoice:async (engineId,voiceId)=>{if(engineId!=='kokoro')throw Error('Unsupported engine');
+              selectedVoice=voiceId;runtimeListener(info());return info();},
+            setPushToTalkShortcut:async accelerator=>{const pushToTalk={accelerator,registered:true};
+              runtimeListener({...info(),pushToTalk});return pushToTalk;}}});
+        await readbackSettingsController.initialize();
+        await workbenchTest.open('settings');
+        const {focusVoiceSettings}=await import('/frontend/src/vue/settings-navigation.js');
+        await focusVoiceSettings(workbenchTest.tabs);
+        document.getElementById('voice-readback-engine').scrollIntoView({block:'center'});
+      `);
+      assert.equal(await evaluate("return document.getElementById('voice-readback-engine').value;"), 'kokoro');
+      assert.equal(await evaluate("return document.getElementById('voice-readback-voice').value;"), 'af_heart');
+      assert.equal(await evaluate("return document.getElementById('voice-readback-voice').options.length;"), 8);
+      await evaluate("const select=document.getElementById('voice-readback-voice');select.value='bf_emma';select.dispatchEvent(new Event('change',{bubbles:true}));await workbenchTest.nextTick();");
+      assert.equal(await evaluate('return workbenchTest.voice.runtime.readback.selectedVoice;'), 'bf_emma');
+      await evaluate("const select=document.getElementById('voice-readback-engine'); select.value='windows-sapi'; select.dispatchEvent(new Event('change',{bubbles:true})); await workbenchTest.nextTick();");
+      assert.equal(await evaluate('return workbenchTest.voice.runtime.readback.selectedEngine;'), 'windows-sapi');
+      assert.equal(await evaluate("return document.getElementById('voice-readback-voice');"), null);
+      await evaluate("document.getElementById('voice-readback-engine').focus(); await workbenchTest.voice.setShortcut('Control+Alt+V'); await workbenchTest.nextTick();");
+      assert.deepEqual(await evaluate("const select=document.getElementById('voice-readback-engine'); return {visible:!!select?.getClientRects().length,value:select?.value,focused:document.activeElement===select};"),
+        {visible:true,value:'windows-sapi',focused:true}, 'shortcut update retains the usable, focused voice selector');
+      assert.equal(await evaluate('return Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)>innerWidth+1;'), false);
+      await evaluate("await workbenchTest.voice.setReadbackEngine('kokoro');await workbenchTest.nextTick();document.getElementById('voice-readback-engine').scrollIntoView({block:'center'});");
+      assert.equal(await evaluate("return document.getElementById('voice-readback-voice').value;"), 'bf_emma');
+      await capture(`offline-voice-settings-${width}`);
+      await evaluate("workbenchTest.voice.setState('listening'); await workbenchTest.nextTick();");
+      assert.equal(await evaluate("return document.getElementById('voice-readback-engine').disabled;"), true);
+      assert.equal(await evaluate("return document.getElementById('voice-readback-voice').disabled;"), true);
+      await evaluate('await readbackSettingsController.dispose();');
+    }
+  }
   async function checkCloudVoiceSettings() {
     const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
     fixtureUrl.search = '?desktop=1';
@@ -428,6 +486,12 @@ async function browser() {
       app.exit(0);
       return;
     }
+    if (process.env.FF_READBACK_VOICE_ONLY === '1') {
+      await checkReadbackVoiceSettings();
+      assert.deepEqual(errors, [], 'offline voice settings have no renderer errors');
+      console.log('Offline voice selection passed at desktop, 390px and 320px widths.');
+      app.exit(0); return;
+    }
     if (process.env.FF_CLOUD_VOICE_ONLY === '1') {
       await checkCloudVoiceSettings();
       assert.deepEqual(errors, [], 'cloud voice settings have no renderer errors');
@@ -511,8 +575,37 @@ async function browser() {
         await capture(`aircraft-cockpit-workspace-${width}`);
         await pointerActivate('[data-aircraft-view="presets"]',width<760);
         await pointerActivate('[aria-label="Find controls"]',width<760);
+        assert.equal(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace;"),'presets','catalogue search retains the current Aircraft view');
+        await evaluate("const input=document.getElementById('aircraft-find-input');input.value='heading';input.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();");
+        await pointerActivate('[data-aircraft-search-result="flightGuidance.heading.set"] button',width<760);
+        assert.equal(await evaluate("return document.activeElement.closest('[data-command-editor]')?.dataset.commandEditor;"),'flightGuidance.heading.set','real shell opens the exact command editor');
+        assert.equal(await evaluate("return document.querySelector('[data-command-editor=\"flightGuidance.heading.set\"] input').value;"),'','search does not populate a target');
+        await pointerActivate('[aria-label="Close aircraft controls"]',width<760);
+        assert.equal(await evaluate("return document.activeElement.closest('[data-aircraft-search-result]')?.dataset.aircraftSearchResult;"),'flightGuidance.heading.set','real shell restores the result focus');
+        await capture(`aircraft-discovery-workspace-${width}`);
+        if(width===390) {
+          win.setContentSize(width,500);
+          await evaluate("await workbenchTest.nextTick();");
+          await wait(100);
+          await capture('aircraft-discovery-workspace-keyboard');
+          assert(await evaluate("const close=document.querySelector('[aria-label=\"Close Aircraft search\"]').getBoundingClientRect(),input=document.getElementById('aircraft-find-input').getBoundingClientRect();return close.left>=0&&close.right<=innerWidth&&close.bottom<=innerHeight&&input.width>=100;"),'reduced-height phone keeps input and close reachable');
+          assert(await evaluate("return document.querySelector('.aircraft-find__results').getBoundingClientRect().bottom<=document.getElementById('vue-main-root').getBoundingClientRect().bottom;"),'reduced-height result list fits above bottom navigation');
+          await pointerActivate('[data-aircraft-search-result="flightGuidance.heading.set"] button',true);
+          assert.equal(await evaluate("return document.activeElement.closest('[data-command-editor]')?.dataset.commandEditor;"),'flightGuidance.heading.set','reduced-height list can scroll to and open its last result');
+          await pointerActivate('[aria-label="Close aircraft controls"]',true);
+          win.setContentSize(width,900);
+        }
+        await pointerActivate('[data-aircraft-search-mode="page"]',width<760);
+        assert.equal(await evaluate("return document.getElementById('aircraft-find-input').value;"),'heading','cockpit link retains the query');
+        assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','cockpit link returns focus to the query');
         await evaluate("const input=document.getElementById('aircraft-find-input');input.value='altitude';input.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();");
         assert(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace==='controls' && document.querySelector('[data-aircraft-find-current]').getClientRects().length;"),'search reveals a usable cockpit result');
+        await capture(`aircraft-discovery-cockpit-values-${width}`);
+        await pointerActivate('[data-aircraft-search-mode="commands"]',width<760);
+        assert.equal(await evaluate("return document.getElementById('aircraft-find-input').value;"),'altitude','return link retains the cockpit query');
+        assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','return link focuses the query');
+        assert(await evaluate("return cockpitDraft===document.querySelector('input[aria-label=\"Set HEADING\"]') && cockpitDraft.value==='275';"),'both search destinations preserve the existing cockpit draft');
+        assert(await evaluate("return !!document.querySelector('[data-aircraft-search-result=\"flightGuidance.altitude.set\"]');"),'return link restores command results');
         assert.equal(await evaluate("return workbenchTest.sent.filter(message=>message.type==='aircraftControlCommand').length;"),0,'navigation sends no aircraft commands');
       }
       assert.deepEqual(errors,[],'Aircraft workspace has no browser errors');
@@ -1743,6 +1836,7 @@ async function browser() {
     reportPhase('Desktop authorization recovery');
     await checkDesktopAuthorizationRecovery();
     reportPhase('Cloud voice settings');
+    await checkReadbackVoiceSettings();
     await checkCloudVoiceSettings();
     reportPhase('Voice restart guidance');
     await checkVoiceRestartHint();

@@ -199,5 +199,14 @@ export function createLocalReadback({ globalRef = globalThis } = {}) {
     }
   }
 
-  return Object.freeze({ cancel, prepare, speak });
+  function release() {
+    cancel();
+    try { Promise.resolve(api?.releaseReadback?.()).catch(() => {}); } catch {}
+  }
+
+  function setActive(value) {
+    try { Promise.resolve(api?.setReadbackActive?.(value === true)).catch(() => {}); } catch {}
+  }
+
+  return Object.freeze({ cancel, prepare, release, setActive, speak });
 }

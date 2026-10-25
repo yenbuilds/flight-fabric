@@ -64,6 +64,7 @@ export function createVoiceControlController({
   let pushToTalkRetry = null;
   let shortcutRecording = null;
   let recognitionChange = null;
+  let readbackActivity = null;
   const spokenReadback = readback || createLocalReadback({ globalRef });
   const acknowledgementTone = pushToTalkTone || createPushToTalkTone({ globalRef });
   const unsubscribers = [];
@@ -180,9 +181,19 @@ export function createVoiceControlController({
 
   function setSpokenReadbacks(value = true) {
     voiceStore.setSpokenReadbacks?.(value === true);
-    if (value !== true) spokenReadback.cancel?.();
+    if (value !== true) { spokenReadback.cancel?.(); spokenReadback.release?.(); }
+    syncReadbackActivity();
     saveCapturePreferences();
     return true;
+  }
+
+  function syncReadbackActivity() {
+    const next = !disposed && voiceStore.runtime.enabled === true && voiceStore.spokenReadbacks === true;
+    // Runtime updates also report preview preparation. Re-sending Off for each
+    // update would retire a user-requested preview while recognition is off.
+    if (next === readbackActivity) return;
+    readbackActivity = next;
+    spokenReadback.setActive?.(next);
   }
 
   function speakReadback(value) {
@@ -968,6 +979,26 @@ export function createVoiceControlController({
     }
   }
 
+  let readbackSelectionRevision = 0;
+  async function changeReadbackSelection(method, ...args) {
+    if (disposed || !api?.[method]) return false;
+    const revision = ++readbackSelectionRevision;
+    spokenReadback.cancel?.();
+    try {
+      const info = await api[method](...args);
+      if (disposed || revision !== readbackSelectionRevision) return false;
+      // The reply owns only speech output. Recognition may have been disabled
+      // while IPC was pending; never restore its older runtime snapshot.
+      voiceStore.applyReadbackInfo?.(info.readback);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const setReadbackEngine = value => changeReadbackSelection('setReadbackEngine', value);
+  const setReadbackVoice = (engineId, voiceId) => changeReadbackSelection('setReadbackVoice', engineId, voiceId);
+
   async function changeCloudSetting(method, ...args) {
     if (disposed || !api?.[method] || pendingCommand) return false;
     void endShortcutRecording();
@@ -1002,7 +1033,7 @@ export function createVoiceControlController({
       controllerSetup: voiceStore.controllerSetup,
       shortcutRecording: voiceStore.shortcutRecording,
       pushToTalk: info,
-      readback: { lastError: voiceStore.runtime.readbackError },
+      readback: { ...voiceStore.runtime.readback, lastError: voiceStore.runtime.readbackError },
     });
     refreshReadyState();
   }
@@ -1033,6 +1064,7 @@ export function createVoiceControlController({
         if (!current()) return false;
         voiceStore.recognitionSaveFailed = false;
         voiceStore.applyRuntimeInfo(info);
+        syncReadbackActivity();
         // Enabling voice can briefly discover microphone labels. The intro
         // explicitly opts out, and retired requests must never acquire input.
         if (voiceStore.runtime.enabled === true && requestMicrophoneAccess) await refreshInputDevices({ requestAccess: true });
@@ -1114,6 +1146,8 @@ export function createVoiceControlController({
       retryPushToTalk,
       setRecognitionEnabled,
       setMode: value => changeCloudSetting('setMode', value),
+      setReadbackEngine,
+      setReadbackVoice,
       setCloudProvider: value => changeCloudSetting('setCloudProvider', value),
       saveCloudKey: (providerId, value) => changeCloudSetting('saveCloudKey', providerId, value),
       removeCloudKey: providerId => changeCloudSetting('removeCloudKey', providerId),
@@ -1159,6 +1193,7 @@ export function createVoiceControlController({
       const wasMode = voiceStore.runtime.mode;
       const wasCloudSelection = cloudSelectionKey(voiceStore.runtime.cloud);
       voiceStore.applyRuntimeInfo(info);
+      syncReadbackActivity();
       if (shortcutRecording && (voiceStore.runtime.enabled !== true || voiceStore.controllerSetup?.active
           || wasMode !== voiceStore.runtime.mode || wasCloudSelection !== cloudSelectionKey(voiceStore.runtime.cloud)
           || (shortcutRecording.recordingId && !voiceStore.shortcutRecording?.active))) {
@@ -1193,6 +1228,7 @@ export function createVoiceControlController({
     try {
       const info = await api.getRuntimeInfo();
       voiceStore.applyRuntimeInfo(info);
+      syncReadbackActivity();
       if (voiceStore.runtime.enabled === true) await refreshInputDevices();
       refreshReadyState();
       return info.available === true;
@@ -1215,6 +1251,9 @@ export function createVoiceControlController({
       refreshReadyState();
       return;
     }
+    // Synthesis can outlive the completed command. Retire its audio along with
+    // the aircraft context, even when no recognition session remains active.
+    spokenReadback.cancel?.();
     pendingCommand = null;
     resultHeld = false;
     if (active) void cancel('profile-changed');
@@ -1248,6 +1287,7 @@ export function createVoiceControlController({
     await voiceTest.dispose();
     await cancel('shutdown');
     spokenReadback.cancel?.();
+    spokenReadback.release?.();
     void acknowledgementTone.dispose?.();
     for (const unsubscribe of unsubscribers.splice(0)) unsubscribe?.();
     voiceStore.bindRuntime(null);

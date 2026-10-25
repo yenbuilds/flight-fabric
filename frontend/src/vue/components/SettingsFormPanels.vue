@@ -31,14 +31,14 @@ const startupDelaySeconds = computed({
           <h3 class="settings-panel-title">General</h3>
           <HelpTooltip label="Simulator and telemetry panel help">Simulator connection protocol, recording behavior, and advanced diagnostics.</HelpTooltip>
         </div>
-        <p class="settings-section-description">Simulator, recording and app preferences. Save to apply. Any changes that need a restart will be listed when you edit.</p>
+        <p class="settings-section-description">Save to apply. Changes needing a restart are marked.</p>
       </div>
 
       <div class="settings-preferences-stack">
         <div class="settings-runtime-connection">
           <div class="settings-label-row">
             <label for="setting-simconnect-protocol" class="block text-xs text-gray-400 uppercase tracking-wider">Simulator Connection</label>
-            <HelpTooltip label="Simulator connection help">Choose the simulator backend FlightFabric should use. The MSFS path is designed and tested with MSFS 2024; MSFS 2020 is not a supported target. X-Plane support remains experimental and is temporarily unavailable for user selection; its implementation has been retained for future reactivation. Simulator changes take effect after a backend restart.</HelpTooltip>
+            <HelpTooltip label="Simulator connection help">Supports MSFS 2024. MSFS 2020 is unsupported; experimental X-Plane support is currently unavailable. Restart FlightFabric after changing simulators.</HelpTooltip>
           </div>
           <select form="settings-form"
             id="setting-simconnect-protocol"
@@ -63,7 +63,7 @@ const startupDelaySeconds = computed({
           <div class="min-w-0 flex-1">
             <span class="settings-toggle-head">
               <label for="setting-recording-auto-start" class="block text-sm font-medium text-gray-200 cursor-pointer">Automatically start recording flights</label>
-              <HelpTooltip label="Automatic flight recording help">When this is off, FlightFabric still monitors flights live, but it will not automatically start recording when movement is detected. Restart required to apply.</HelpTooltip>
+              <HelpTooltip label="Automatic flight recording help">Live monitoring continues when automatic recording is off. Restart to apply.</HelpTooltip>
             </span>
             <p id="setting-recording-auto-start-help" class="mt-1 text-xs leading-relaxed text-gray-500">Starts recording when a flight is detected. Recordings are stored locally and can be deleted from the Logbook.</p>
           </div>
@@ -114,7 +114,7 @@ const startupDelaySeconds = computed({
 
       <div id="setting-cabin-announcements-warning" class="settings-warning-card mb-4 rounded-lg px-4 py-3">
         <div class="settings-warning-title text-[11px] font-semibold uppercase tracking-[0.14em]" style="font-family: 'B612 Mono', monospace;">Experimental</div>
-        <p class="settings-warning-copy mt-1.5 text-xs leading-relaxed">Phase-triggered PA audio timing can vary and may miss or repeat an announcement. Keep it disabled unless you are evaluating this feature.</p>
+        <p class="settings-warning-copy mt-1.5 text-xs leading-relaxed">Announcement timing can vary; audio may be missed or repeated. Enable only for testing.</p>
       </div>
 
       <div class="settings-option-row flex items-center gap-3">
@@ -122,7 +122,7 @@ const startupDelaySeconds = computed({
         <div class="min-w-0 flex-1">
           <span class="settings-toggle-head">
             <label for="setting-cabin-announcements-enabled" class="block text-sm font-medium text-gray-200 cursor-pointer">Play cabin announcements</label>
-              <HelpTooltip label="Cabin announcements help">Announcements play only in the FlightFabric desktop app on the simulator host. This is a shared app setting, but browser views do not play cabin audio.</HelpTooltip>
+              <HelpTooltip label="Cabin announcements help">Plays on the simulator PC only, not in browser views.</HelpTooltip>
           </span>
         </div>
       </div>

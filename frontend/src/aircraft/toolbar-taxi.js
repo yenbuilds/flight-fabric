@@ -11,7 +11,6 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
   const element = node('section', 'card taxi-section');
   element.id = 'toolbar-taxi';
   element.appendChild(node('h2', 'card-title', TAXI_COPY.title));
-  element.appendChild(node('p', 'muted', 'Experimental · MSFS 2024'));
   const intro = element.appendChild(node('p', 'muted', TAXI_COPY.departureIntro));
   intro.id = 'taxi-intro';
   const fields = element.appendChild(node('div', 'taxi-fields'));
@@ -19,8 +18,10 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
   const mode = select('Journey', 'taxi-mode', [['runway', 'Depart: to runway'], ['stand', 'Arrive: to stand']]);
   const runway = input('Departure runway', 'taxi-runway', 3);
   const stand = select('Stand / gate', 'taxi-stand', [['', 'Load airport stands']]);
-  const departureHelp = element.appendChild(node('p', 'muted', TAXI_COPY.departureHelp));
-  const startHelp = element.appendChild(node('p', 'muted', TAXI_COPY.startHelp));
+  const help = node('details', 'taxi-note muted');
+  help.appendChild(node('summary', '', 'How it works · Experimental'));
+  const departureHelp = help.appendChild(node('p', '', TAXI_COPY.departureHelp));
+  const startHelp = help.appendChild(node('p', '', TAXI_COPY.startHelp));
   startHelp.id = 'taxi-pushback-help';
   const actions = element.appendChild(node('div', 'taxi-actions'));
   const push = button(TAXI_COPY.start, 'taxi-pushback-action', () => pushbackControls.request(pushback.active ? 'stop' : 'start'));
@@ -30,7 +31,7 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
   const load = button('Load stands', 'taxi-load-stands', () => request('parkings'));
   const show = button(TAXI_COPY.showRoute, 'taxi-show-route', () => request('preview'));
   const hide = button(TAXI_COPY.hideRoute, 'taxi-hide-route', () => { invalidate(); pushbackSelected = true; refresh(); });
-  const guidanceHelp = element.appendChild(node('p', 'muted', TAXI_COPY.guidanceHelp));
+  const guidanceHelp = help.appendChild(node('p', '', TAXI_COPY.guidanceHelp));
   guidanceHelp.id = 'taxi-guidance-help';
   show.setAttribute('aria-describedby', guidanceHelp.id);
   const reason = element.appendChild(node('p', 'taxi-reason muted'));
@@ -48,7 +49,8 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
   figure.appendChild(map);
   const caption = figure.appendChild(node('figcaption', 'taxi-caption'));
   const cautions = element.appendChild(node('p', 'taxi-cautions'));
-  element.appendChild(node('p', 'taxi-note muted', 'Routes use simulator scenery and may cross runways. Follow your ATC clearance and check traffic, obstacles and aircraft clearance.'));
+  help.appendChild(node('p', '', 'Check clearance and traffic; follow ATC at runway crossings.'));
+  element.appendChild(help);
   const prefix = 'taxi-' + now() + '-' + Math.random().toString(36).slice(2) + '-';
   let connection = {}, context = '', catalogue = {}, state = {}, route = null, scene = null;
   let timer = null, sequence = 0, revision = 0, lastReply = -Infinity, error = '', standsLoaded = false;

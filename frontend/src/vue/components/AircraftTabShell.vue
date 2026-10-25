@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, provide, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 import { AIRCRAFT_CATEGORY_PROFILE_IDS, FEATURED_AIRCRAFT_PROFILE_IDS, resolveAircraftSpecificTemplate } from '../aircraft-specific/template-registry.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
@@ -70,8 +70,8 @@ function handleViewKeydown(event) {
 }
 function handleSearchExpanded(expanded) {
   searchExpanded.value = expanded;
-  if (expanded) selectAircraftView('controls');
 }
+function handleSearchMode(mode) { if (mode === 'page') selectAircraftView('controls'); }
 watch(() => aircraftSpecific.activeProfileKey || controls.aircraftCommandCatalogue.profileKey, key => {
   if (!key) return;
   if (lastProfileKey && key !== lastProfileKey) {
@@ -155,13 +155,25 @@ const secondaryTools = ref(null);
 const secondaryToolsButton = ref(null);
 const secondaryToolsOpen = ref(false);
 const controlsModalOpen = ref(false);
+const controlsRevealRequest = shallowRef(null);
+let searchReturnTarget = null, searchNavigationRevision = 0, controlsSelectionId = '';
 const controlsButton = ref(null);
 const cduOpen = ref(false), cduButton = ref(null);
 const hasCdu = computed(() => ['fenix-a32x', 'fbw-a32nx', 'pmdg-737', 'pmdg-777'].includes(aircraftSpecific.templateId));
 function closeCdu() { cduOpen.value = false; nextTick(() => cduButton.value?.focus?.({ preventScroll: true })); }
 function closeControlsModal() {
+  const revision = ++searchNavigationRevision;
+  const returnTarget = searchReturnTarget;
+  const fromSearch = searchReturnTarget !== null;
+  searchReturnTarget = null;
   controlsModalOpen.value = false;
-  restoreToolFocus(controlsButton.value);
+  controlsRevealRequest.value = null;
+  controlsSelectionId = '';
+  nextTick(() => {
+    if (revision !== searchNavigationRevision || controlsModalOpen.value || tabs.activeTabId !== 'autopilot') return;
+    if (fromSearch && pageSearch.value?.restoreFocus(returnTarget)) return;
+    restoreToolFocus(controlsButton.value);
+  });
 }
 
 function restoreToolFocus(target) {
@@ -188,9 +200,69 @@ function handleToolsFocusout(event) {
 }
 
 function openControlsModal() {
+  ++searchNavigationRevision;
+  searchReturnTarget = null;
+  controlsRevealRequest.value = null;
+  controlsSelectionId = '';
   closeSecondaryTools();
   controlsModalOpen.value = true;
 }
+
+async function openSearchCommand(request) {
+  const catalogue = controls.aircraftCommandCatalogue;
+  if (request.catalogue !== catalogue || tabs.activeTabId !== 'autopilot') return;
+  const command = request.commandId ? controls.getAircraftCommand(request.commandId) : null;
+  if (request.commandId && !command) return;
+  const revision = ++searchNavigationRevision;
+  closeSecondaryTools();
+  if (command?.kind === 'preset') {
+    await selectAircraftView('presets');
+    if (revision !== searchNavigationRevision || catalogue !== controls.aircraftCommandCatalogue
+      || tabs.activeTabId !== 'autopilot' || aircraftView.value !== 'presets') return;
+    pageSearch.value?.close({ focusLauncher: false });
+    await nextTick();
+    if (revision !== searchNavigationRevision || catalogue !== controls.aircraftCommandCatalogue
+      || tabs.activeTabId !== 'autopilot' || aircraftView.value !== 'presets') return;
+    const target = Array.from(searchableContent.value?.querySelectorAll('[data-aircraft-preset]') || [])
+      .find(element => element.dataset.aircraftPreset === command.id);
+    if (target) {
+      target.scrollIntoView({ block: 'center', behavior: 'instant' });
+      target.focus({ preventScroll: true });
+    }
+    return;
+  }
+  searchReturnTarget = request.returnTarget;
+  controlsSelectionId = command?.id || '';
+  controlsRevealRequest.value = command ? { commandId: command.id, catalogue } : null;
+  controlsModalOpen.value = true;
+}
+
+watch(() => controls.aircraftCommandCatalogue, (catalogue, previous) => {
+  ++searchNavigationRevision;
+  const changedProfile = catalogue.profileKey !== previous.profileKey || catalogue.profileRevision !== previous.profileRevision;
+  const selectionRemoved = controlsSelectionId && !catalogue.commands[controlsSelectionId];
+  const removedEditorOwnsFocus = selectionRemoved
+    && document.activeElement?.closest('[data-command-editor]')?.dataset.commandEditor === controlsSelectionId;
+  if (changedProfile || removedEditorOwnsFocus) {
+    if (controlsModalOpen.value) closeControlsModal();
+  } else {
+    // A replacement invalidates pending reveal work without interrupting an
+    // already open editor for a command that is still advertised. Once the user
+    // browses elsewhere, the original search result no longer owns that editor.
+    if (selectionRemoved) controlsSelectionId = '';
+    controlsRevealRequest.value = null;
+  }
+});
+watch(() => tabs.activeTabId, id => {
+  ++searchNavigationRevision;
+  if (id !== 'autopilot') {
+    controlsModalOpen.value = false;
+    controlsRevealRequest.value = null;
+    searchReturnTarget = null;
+    controlsSelectionId = '';
+  }
+});
+onBeforeUnmount(() => { ++searchNavigationRevision; });
 
 function openVoiceControl() {
   closeSecondaryTools();
@@ -298,6 +370,8 @@ function configureVoice() {
             :target="searchableContent"
             :content-key="`${hasResolvedAircraftTemplate ? 'specific' : 'generic'}:${aircraftSpecific.activeProfileKey || aircraftSpecific.templateId || ''}`"
             @expanded-change="handleSearchExpanded"
+            @mode-change="handleSearchMode"
+            @open-command="openSearchCommand"
           />
           <button v-if="!waitingForAircraft" ref="voiceControlButton" type="button" class="aircraft-integration-guide-button ff-touch-target"
             aria-haspopup="dialog" aria-controls="aircraft-voice-control-modal" :aria-expanded="voiceControlOpen"
@@ -356,7 +430,7 @@ function configureVoice() {
         <AircraftWaitingScene class="mb-4" />
         <p class="aircraft-welcome-status" role="status">{{ status.simConnected ? 'Load an aircraft to get started' : 'Waiting for your simulator' }}</p>
         <h3 id="aircraft-welcome-title" tabindex="-1">Your aircraft controls will appear here</h3>
-        <p class="aircraft-welcome-copy">Load an aircraft in your simulator. FlightFabric will detect it and show its available cockpit controls, presets and voice commands.</p>
+        <p class="aircraft-welcome-copy">Load an aircraft to see its controls, presets and voice commands.</p>
         <button v-if="voice.bridgeAvailable" type="button" class="ff-button-primary aircraft-welcome-voice" data-aircraft-voice-setup @click="configureVoice">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="9" y="2.5" width="6" height="12" rx="3" />
@@ -364,7 +438,7 @@ function configureVoice() {
           </svg>
           <span>{{ voice.settingsAction }}</span>
         </button>
-        <p v-else class="aircraft-welcome-copy">Set up voice control in FlightFabric on your PC. You can view your aircraft here, and use cockpit controls once this device is paired for control.</p>
+        <p v-else class="aircraft-welcome-copy">Set up voice on your PC. View your aircraft here, or pair this device to use cockpit controls.</p>
         <div v-if="featuredAircraft.length" class="aircraft-welcome-featured">
           <h4>Dedicated aircraft controls</h4>
           <ul aria-label="Aircraft with dedicated controls"><li v-for="aircraft in featuredAircraft" :key="aircraft.key">{{ aircraft.name }}</li></ul>
@@ -447,7 +521,7 @@ function configureVoice() {
       @open-guide="openVoiceCommandGuide"
       @open-settings="configureVoice"
     />
-    <AircraftControlsModal :open="controlsModalOpen" @close="closeControlsModal" />
+    <AircraftControlsModal :open="controlsModalOpen" :reveal-request="controlsRevealRequest" @close="closeControlsModal" />
     <AircraftCduModal :open="cduOpen" @close="closeCdu" />
   </div>
 </template>
@@ -573,8 +647,11 @@ function configureVoice() {
 }
 
 .aircraft-page-tool-actions--search-expanded {
-  align-items: flex-start;
+  display: contents;
 }
+
+.aircraft-tab-shell--finding .aircraft-page-tools { flex-wrap: wrap; }
+.aircraft-tab-shell--finding .aircraft-page-title { flex: 1 1 auto; }
 
 .aircraft-page-tool-actions > .aircraft-find {
   min-width: 0;
@@ -612,9 +689,10 @@ function configureVoice() {
 }
 
 .aircraft-page-tool-actions > .aircraft-find--expanded {
-  width: auto;
+  order: 10;
+  width: 100%;
   max-width: none;
-  flex: 1 1 28rem;
+  flex: 1 1 100%;
 }
 
 .aircraft-integration-guide-button,

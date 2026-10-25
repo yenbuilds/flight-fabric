@@ -1,10 +1,20 @@
 import { defineStore } from 'pinia';
+import '../../../../shared/aircraft-search.js';
 import { copyNavRadioReadback } from '../../aircraft/nav-radio.js';
 import { toFiniteNumber } from '../../utils/number.js';
 import {
   getAircraftControlCanonicalCommandId,
   getAircraftControlCommandPendingKey,
 } from '../../aircraft/control-ui.js';
+
+export const AIRCRAFT_COMMAND_GROUP_LABELS = Object.freeze({
+  flightGuidance: 'Autopilot & flight guidance', surfaces: 'Gear, flaps & brakes',
+  navigation: 'Navigation displays', radios: 'Radios', surveillance: 'Transponder',
+  approach: 'Approach', baro: 'Altimeters', lights: 'Exterior lights', cabin: 'Cabin signs',
+  visibility: 'Wipers', systems: 'Aircraft systems', propulsion: 'Thrust',
+});
+
+export const { normalizeAircraftSearchText } = (typeof globalThis !== 'undefined' ? globalThis : window).FlightFabricAircraftSearch;
 
 const DEFAULT_FEEDBACK = Object.freeze({
   actionText: 'No command sent yet.',
@@ -423,7 +433,46 @@ export const useAircraftControlsStore = defineStore('aircraftControls', {
     commandActionBound: false,
   }),
 
+  getters: {
+    commandSearchIndex: state => Object.values(state.aircraftCommandCatalogue.commands || {})
+      .map(command => ({
+        command,
+        label: normalizeAircraftSearchText(command.label),
+        text: normalizeAircraftSearchText([command.description, command.group,
+          AIRCRAFT_COMMAND_GROUP_LABELS[command.group], command.speech?.example,
+          ...(Array.isArray(command.speech?.patterns) ? command.speech.patterns : [])].join(' ')),
+      })),
+  },
+
   actions: {
+    findAircraftCommands(query = '', { includePresets = true, group = '' } = {}) {
+      const needle = normalizeAircraftSearchText(query);
+      return this.commandSearchIndex
+        .filter(({ command, label, text }) => (includePresets || command.kind !== 'preset')
+          && (!group || command.group === group)
+          && (!needle || label.includes(needle) || text.includes(needle)))
+        .map(entry => ({ ...entry, rank: !needle || entry.label === needle ? 0
+          : entry.label.includes(needle) ? 1 : 2 }))
+        .sort((a, b) => a.rank - b.rank || a.command.label.localeCompare(b.command.label)
+          || a.command.id.localeCompare(b.command.id))
+        .map(entry => entry.command);
+    },
+
+    commandVoiceExample(command) {
+      const example = typeof command?.speech?.example === 'string' ? command.speech.example : '';
+      const pattern = Array.isArray(command?.speech?.patterns)
+        ? command.speech.patterns.find(value => typeof value === 'string') : '';
+      return (example || pattern || '').replaceAll('{value}', '[setting]');
+    },
+
+    commandUnavailableReason(commandId) {
+      if (!this.isAircraftCommandSupported(commandId)) return 'This command is no longer available for this aircraft.';
+      if (!this.availability.enabled) return this.availability.reason;
+      if (this.isCommandPending({ type: 'canonical', commandId })) return 'This command is already being applied.';
+      if (Object.values(this.pendingCommands).some(Boolean)) return 'Waiting for the current command.';
+      return '';
+    },
+
     setAvailability({ enabled = false, reason = DEFAULT_AVAILABILITY.reason } = {}) {
       this.availability.enabled = enabled === true;
       this.availability.reason = typeof reason === 'string' && reason.trim()

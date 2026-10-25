@@ -81,7 +81,7 @@ async function main() {
   const { useDebugStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'debug.js'));
   const { useLandingStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'landing.js'));
   const { useTakeoffStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'takeoff.js'));
-  const { useAircraftControlsStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'aircraft-controls.js'));
+  const { useAircraftControlsStore, normalizeAircraftSearchText } = await import(toFrontendUrl('src', 'vue', 'stores', 'aircraft-controls.js'));
   const { useAircraftSpecificStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'aircraft-specific.js'));
   const { useLvarInspectorStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'lvar-inspector.js'));
   const { usePreferencesStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'preferences.js'));
@@ -206,6 +206,46 @@ async function main() {
   });
 
   console.log('\n--- system host store ---\n');
+  await test('aircraft discovery ranks labels, searches catalogue phrases and excludes unsupported inventory', () => {
+    assert.equal(normalizeAircraftSearchText, require('../../shared/aircraft-search.js').normalizeAircraftSearchText,
+      'the app and classic-script toolbar use one normalization implementation');
+    for (const [query, expected] of [['HDG', 'heading'], ['ALT', 'altitude'], ['V / S', 'vertical speed'],
+      ['A/T', 'autothrottle'], ['RWY turnoff', 'runway turn off'], ['landing-lights', 'landing lights'],
+      ['"SET—HEADING"', 'set heading'], ['TRK SPD ENG', 'track speed engine']]) {
+      assert.equal(normalizeAircraftSearchText(query), expected, query);
+    }
+    const controls = useAircraftControlsStore();
+    const commands = [
+      { id: 'flightGuidance.heading.set', label: 'Heading', group: 'flightGuidance', input: { kind: 'number', min: 0, max: 359, step: 1 }, speech: { patterns: ['set heading {value}', 'dial heading {value}'], example: 'set heading two seven zero' } },
+      { id: 'flightGuidance.heading.sync', label: 'Synchronize heading', group: 'flightGuidance', input: { kind: 'none' } },
+      { id: 'configuration.lights.takeoff', label: 'Takeoff lights', group: 'lights', kind: 'preset', description: 'Lighting for departure.', input: { kind: 'none' }, speech: { patterns: ['takeoff lights'] } },
+      { id: 'navigation.mode.set', label: 'Navigation mode', group: 'navigation', description: 'Select heading display.', input: { kind: 'enum', values: ['heading', 'track'] } },
+    ];
+    controls.applyControlCapabilities({ aircraftCommands: { profileKey: 'bundled/msfs/test', profileRevision: 1, commands,
+      inventory: [{ id: 'systems.apu.start', label: 'Unavailable APU', supported: false }] } });
+    const ids = (query, options) => controls.findAircraftCommands(query, options).map(command => command.id);
+    assert.deepEqual(ids('HDG'), ['flightGuidance.heading.set', 'flightGuidance.heading.sync', 'navigation.mode.set']);
+    assert.deepEqual(ids('DIAL heading'), ['flightGuidance.heading.set']);
+    assert.deepEqual(ids('"DIAL—HDG"'), ['flightGuidance.heading.set']);
+    assert.deepEqual(ids('two seven zero'), ['flightGuidance.heading.set'], 'declared examples are searchable');
+    assert.deepEqual(ids('Autopilot & flight guidance'), ['flightGuidance.heading.set', 'flightGuidance.heading.sync']);
+    assert.deepEqual(ids('departure'), ['configuration.lights.takeoff']);
+    assert.deepEqual(ids('departure', { includePresets: false }), []);
+    assert.deepEqual(ids('', { group: 'lights' }), ['configuration.lights.takeoff']);
+    assert.deepEqual(ids('APU'), [], 'unsupported inventory never becomes a search result');
+    assert.equal(new Set(ids('')).size, commands.length);
+    assert.equal(controls.commandVoiceExample(controls.getAircraftCommand('flightGuidance.heading.set')), 'set heading two seven zero');
+    assert.equal(controls.commandUnavailableReason('flightGuidance.heading.set'), 'Waiting for backend connection.');
+    controls.setAvailability({ enabled: true });
+    assert.equal(controls.commandUnavailableReason('flightGuidance.heading.set'), '');
+    controls.setCommandPending({ type: 'canonical', commandId: 'flightGuidance.heading.set' });
+    assert.equal(controls.commandUnavailableReason('flightGuidance.heading.set'), 'This command is already being applied.');
+    controls.applyControlCapabilities({ aircraftCommands: { profileKey: 'bundled/msfs/test', profileRevision: 1, commands: commands.slice(2) } });
+    assert.deepEqual(ids('dial heading'), [], 'same-profile catalogue replacement drops retired commands');
+    controls.resetControlCapabilities();
+    assert.deepEqual(ids(''), [], 'reset cannot retain an old search index');
+  });
+
   await test('system host store stays safe outside Electron', async () => {
     resetStoreTestContext();
 

@@ -356,7 +356,6 @@ onBeforeUnmount(() => {
     </fieldset>
     </div>
     </details>
-    <p v-if="mode === 'runway' && !pushbackActive && departure.data?.pushbackPreview.phase !== 'complete'" class="text-xs text-muted-fg" data-taxi-departure-help>{{ TAXI_COPY.departureHelp }}</p>
     <PushbackControls v-if="mode === 'runway'" :icao="icao" :runway="runway" :disabled="isBusy && !pushbackActive"
       :allow-preview="!controlling && pending !== 'start'" :primary="Boolean(showPushback)"
       @active="pushbackActivity" @preview="receiveDeparture" @complete="send('preview')" />
@@ -368,7 +367,6 @@ onBeforeUnmount(() => {
         <button type="button" data-taxi-release class="ff-button-secondary min-h-[48px] disabled:opacity-50" :disabled="pending === 'release'" @click="send('release')">{{ state.handedOver ? 'Clear' : 'Release controls' }}</button>
       </div>
     </div>
-    <p v-if="!isBusy" class="text-xs text-muted-fg" data-taxi-guidance-help>{{ TAXI_COPY.guidanceHelp }}</p>
     <p v-if="guidanceUnavailable && !isBusy" class="text-sm text-muted-fg">{{ guidanceUnavailable }}</p>
     </div>
     <figure v-if="route && view" class="space-y-2 text-sm text-fg">
@@ -499,7 +497,12 @@ onBeforeUnmount(() => {
       <p v-if="state.active && state.steeringReversed" class="text-warning">The steering axis responded reversed; steering commands are mirrored to match.</p>
     </figure>
     </div>
-    <p class="text-xs text-muted-fg">Routes use simulator scenery and may cross runways. Follow your ATC clearance and check traffic, obstacles and aircraft clearance.</p>
+    <details class="text-xs text-muted-fg">
+      <summary class="min-h-11 cursor-pointer py-3">How it works</summary>
+      <p v-if="mode === 'runway'" data-taxi-departure-help>{{ TAXI_COPY.departureHelp }} {{ TAXI_COPY.startHelp }}</p>
+      <p data-taxi-guidance-help>{{ TAXI_COPY.guidanceHelp }}</p>
+      <p>Check clearance and traffic; follow ATC at runway crossings.</p>
+    </details>
     <div role="status" aria-live="polite" class="text-sm text-fg">
       <p v-if="!route && state.active">{{ state.reason }}</p>
       <p v-if="route && aircraft && Number.isFinite(state.remainingM)">{{ Math.round(state.remainingM) }} m to stop · {{ state.status }}</p>

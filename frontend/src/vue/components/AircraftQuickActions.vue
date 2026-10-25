@@ -163,6 +163,7 @@ function inputPlaceholder(command) {
           :is="takesNumber(command) ? 'form' : 'article'"
           class="aircraft-preset-card flex flex-col gap-3 rounded border border-surface-200 bg-surface-50 p-3"
           :data-aircraft-preset="command.id"
+          tabindex="-1"
           @submit.prevent="takesNumber(command) && applyPreset(command)"
         >
           <div class="min-w-0 flex-1">
@@ -234,6 +235,7 @@ function inputPlaceholder(command) {
               :key="command.id"
               class="aircraft-preset-row flex flex-col gap-2 py-2 first:pt-0 last:pb-0"
               :data-aircraft-preset="command.id"
+              tabindex="-1"
             >
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1">

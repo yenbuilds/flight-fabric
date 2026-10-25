@@ -138,6 +138,7 @@ async function runElectronProbe() {
       saveControllerButton: 'voice:controller-setup-save', clearControllerButton: 'voice:controller-binding-clear',
       retryPushToTalk: 'voice:retry-push-to-talk',
       beginShortcutRecording: 'voice:shortcut-recording-begin',
+      releaseReadback: 'voice:readback-release',
     };
     const controllerCalls = [];
     for (const [method, channel] of Object.entries(controllerMethods)) {
@@ -151,6 +152,33 @@ async function runElectronProbe() {
     }
     const attemptId = '00000000-0000-0000-0000-000000000001';
     const shortcutRequests = [];
+    const readbackRequests = [];
+    const voiceRequests = [];
+    const activityRequests = [];
+    ipcMain.handle('voice:set-readback-active', (event, value) => {
+      if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+        throw new Error('Untrusted Electron IPC sender');
+      }
+      if (typeof value !== 'boolean') throw new TypeError('Invalid speech activity');
+      activityRequests.push(value);
+      return true;
+    });
+    ipcMain.handle('voice:set-readback-voice', (event, value) => {
+      if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+        throw new Error('Untrusted Electron IPC sender');
+      }
+      require(path.join(ROOT, 'electron/voice-readback')).validateReadbackVoice(value?.engineId, value?.voiceId);
+      voiceRequests.push(value);
+      return { checked: true };
+    });
+    ipcMain.handle('voice:set-readback-engine', (event, value) => {
+      if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
+        throw new Error('Untrusted Electron IPC sender');
+      }
+      require(path.join(ROOT, 'electron/voice-readback')).validateReadbackEngine(value);
+      readbackRequests.push(value);
+      return { checked: true };
+    });
     ipcMain.handle('voice:set-push-to-talk-shortcut', (event, value) => {
       if (!isTrustedIpcSender({ event, mainWebContents: trustedWindow.webContents, isFrontendAppUrl, launcherHtmlPath })) {
         throw new Error('Untrusted Electron IPC sender');
@@ -198,6 +226,15 @@ async function runElectronProbe() {
       const beforeRecording = endedRecordings.length;
       await assert.rejects(() => frame.executeJavaScript(`window.electronAPI.voice.endShortcutRecording('${attemptId}')`));
       assert.equal(endedRecordings.length, beforeRecording, 'untrusted pages cannot end shortcut recording');
+      const beforeReadback = readbackRequests.length;
+      const beforeVoice = voiceRequests.length;
+      const beforeActivity = activityRequests.length;
+      await assert.rejects(() => frame.executeJavaScript("window.electronAPI.voice.setReadbackActive(true)"));
+      assert.equal(activityRequests.length, beforeActivity);
+      await assert.rejects(() => frame.executeJavaScript("window.electronAPI.voice.setReadbackEngine('kokoro')"));
+      await assert.rejects(() => frame.executeJavaScript("window.electronAPI.voice.setReadbackVoice('kokoro','af_bella')"));
+      assert.equal(voiceRequests.length, beforeVoice);
+      assert.equal(readbackRequests.length, beforeReadback, 'untrusted pages cannot change spoken voices');
     };
     const queryPermission = (frame, name) => frame.executeJavaScript(
       `navigator.permissions.query({ name: ${JSON.stringify(name)} }).then((result) => result.state)`,
@@ -218,6 +255,23 @@ async function runElectronProbe() {
       await window.electronAPI.voice.setPushToTalkShortcut(null);
     })()`);
     assert.deepEqual(shortcutRequests, ['', null], 'explicit removal crosses the bridge; invalid input cannot become a removal');
+    await trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.setReadbackEngine('windows-sapi', {path:'untrusted'})");
+    assert.deepEqual(readbackRequests, ['windows-sapi'], 'only the bounded engine identifier crosses the preload bridge');
+    await assert.rejects(() => trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.setReadbackEngine('../model')"));
+    await assert.rejects(() => trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.setReadbackEngine('unknown')"));
+    assert.deepEqual(readbackRequests, ['windows-sapi']);
+    await trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.setReadbackVoice('kokoro','am_michael',{path:'ignored'})");
+    assert.deepEqual(voiceRequests, [{ engineId: 'kokoro', voiceId: 'am_michael' }]);
+    for (const args of ["'kokoro','../voice'", "'unknown','af_heart'", "'kokoro','missing'", "null,'af_heart'"]) {
+      await assert.rejects(() => trustedWindow.webContents.executeJavaScript(`window.electronAPI.voice.setReadbackVoice(${args})`));
+    }
+    assert.equal(voiceRequests.length, 1);
+    await trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.setReadbackActive(true, {path:'ignored'})");
+    await trustedWindow.webContents.executeJavaScript("window.electronAPI.voice.setReadbackActive(false)");
+    for (const value of ["'true'", '1', '{}', 'null']) {
+      await assert.rejects(() => trustedWindow.webContents.executeJavaScript(`window.electronAPI.voice.setReadbackActive(${value})`));
+    }
+    assert.deepEqual(activityRequests, [true, false]);
     for (const method of Object.keys(controllerMethods)) {
       assert.deepEqual(await trustedWindow.webContents.executeJavaScript(`window.electronAPI.voice.${method}({devicePath:'untrusted-path'})`), {checked:true});
       assert.deepEqual(controllerCalls.at(-1).args, [], 'controller identities never enter from renderer arguments');

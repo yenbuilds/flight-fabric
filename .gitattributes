@@ -1,5 +1,7 @@
 electron/resources/voice/hotwords.txt text eol=lf
 electron/resources/voice/bpe.vocab text eol=lf
+# Exact upstream pronunciation fixture is checked against the model digest.
+tests/fixtures/voice/espeak-en-us.txt text eol=lf
 .husky/* text eol=lf
 # Generated SVGs are verified byte-for-byte against the canonical generator.
 readme-assets/flightfabric-logo.svg text eol=lf

@@ -50,7 +50,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div data-taxi-pushback class="space-y-2">
-    <p v-if="!active && !completed" class="text-xs text-muted-fg" data-pushback-start-help>{{ TAXI_COPY.startHelp }}</p>
     <button v-if="!completed" type="button" :data-pushback-start="!active ? '' : undefined" :data-pushback-stop="active ? '' : undefined"
       class="min-h-[48px] disabled:opacity-50" :class="active ? 'ff-button-secondary border-warning text-warning' : primary ? 'ff-button-primary' : 'ff-button-secondary'"
       :disabled="active ? pending === 'stop' : !canStart" @keydown="$event.repeat && ['Enter', ' '].includes($event.key) && $event.preventDefault()"

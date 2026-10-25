@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pipeline } = require('node:stream/promises');
-const { VOICE_HOTWORDS, ZIPFORMER_MODEL } = require('./voice-model-manifest');
+const { KOKORO_MODEL, VOICE_HOTWORDS, ZIPFORMER_MODEL } = require('./voice-model-manifest');
 
 function safeModelFilePath(modelDir, filename) {
   if (typeof modelDir !== 'string' || !path.isAbsolute(modelDir)) {
@@ -70,4 +70,33 @@ async function verifyVoiceHotwords(filename, { manifest = VOICE_HOTWORDS } = {})
   return Object.freeze({ bytes: fileInfo.size, verified: true });
 }
 
-module.exports = { safeModelFilePath, sha256File, verifyVoiceHotwords, verifyZipformerModel };
+async function verifyKokoroModel(modelDir, { manifest = KOKORO_MODEL } = {}) {
+  const root = path.resolve(modelDir);
+  const checkedDirectories = new Set();
+  let bytes = 0;
+  for (const entry of manifest.files) {
+    if (!/^[a-zA-Z0-9_!+.,@ ()/-]+$/.test(entry.name)
+        || entry.name.split('/').some(part => !part || part === '..' || part === '.')) {
+      throw new Error('Invalid Kokoro model entry');
+    }
+    const filename = path.resolve(root, entry.name);
+    if (!filename.startsWith(root + path.sep)) throw new Error('Invalid Kokoro model path');
+    let directory = path.dirname(filename);
+    while (!checkedDirectories.has(directory)) {
+      const stat = await fs.promises.lstat(directory);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('Invalid Kokoro model directory');
+      checkedDirectories.add(directory);
+      if (directory === root) break;
+      directory = path.dirname(directory);
+    }
+    const stat = await fs.promises.lstat(filename);
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.size !== entry.bytes
+        || await sha256File(filename) !== entry.sha256) {
+      throw new Error(`Kokoro model failed integrity verification: ${entry.name}`);
+    }
+    bytes += stat.size;
+  }
+  return { verified: true, bytes, id: manifest.id };
+}
+
+module.exports = { safeModelFilePath, sha256File, verifyKokoroModel, verifyVoiceHotwords, verifyZipformerModel };

@@ -816,9 +816,9 @@ async function main() {
     } finally { app.unmount(); }
   });
 
-  await test('all 50 profiles expose a UI editor and voice hint for every supported action command', async () => {
+  await test('all bundled profiles expose discoverable controls, voice hints and preset destinations', async () => {
     for (const entry of lightingLoader.listProfiles()) {
-      let commands;
+      let commands, catalogue;
       const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AircraftCommandBrowser.vue'), () => {
         const profile = lightingLoader.loadProfile(`bundled/${entry.simulator}/${entry.id}`);
         const controls = useAircraftControlsStore();
@@ -827,6 +827,13 @@ async function main() {
             integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } }));
         controls.setAvailability({ enabled: true });
         commands = Object.values(controls.aircraftCommandCatalogue.commands).filter(command => command.kind !== 'preset');
+        catalogue = controls.aircraftCommandCatalogue;
+        for (const command of Object.values(catalogue.commands)) {
+          assert.ok(controls.findAircraftCommands(command.label).some(result => result.id === command.id), `${entry.id}: ${command.id} discoverable by label`);
+          for (const phrase of command.speech?.patterns || []) {
+            assert.ok(controls.findAircraftCommands(phrase).some(result => result.id === command.id), `${entry.id}: ${command.id} discoverable by declared phrase ${phrase}`);
+          }
+        }
       });
       assert.equal(html.includes('data-aircraft-command-browser'), commands.length > 0, entry.id);
       assert.equal((html.match(/data-command-editor=/g) || []).length, commands.length, entry.id);
@@ -835,6 +842,12 @@ async function main() {
         assert.ok(command.speech?.patterns?.length, `${entry.id}: ${command.id} needs a voice hint`);
       }
       assert.doesNotMatch(html, /data-command-editor="configuration\./, 'presets retain their dedicated controls');
+      const presets = await renderComponent(path.join('src', 'vue', 'components', 'AircraftPresets.vue'), () => {
+        useAircraftControlsStore().applyControlCapabilities({ aircraftCommands: { ...catalogue, commands: Object.values(catalogue.commands) } });
+      });
+      for (const command of Object.values(catalogue.commands).filter(command => command.kind === 'preset')) {
+        assert.ok(presets.html.includes(`data-aircraft-preset="${command.id}"`), `${entry.id}: ${command.id} has an existing preset destination`);
+      }
     }
   });
 
@@ -3625,7 +3638,7 @@ async function main() {
     assert.match(html, />Integration guide</, 'the integration guide should use a clear, discoverable launcher label');
     assert.match(html, /aria-controls="aircraft-integration-cheatsheet-modal"/, 'the guide launcher should identify its modal target');
     assert.match(html, /aria-label="Close Aircraft search"/, 'expanded Aircraft search should have an explicit close control');
-    assert.match(html, /placeholder="Find a switch, light, or value\.\.\."/, 'Aircraft search should use task-oriented cockpit copy');
+    assert.match(html, /placeholder="Find controls, presets or voice phrases\.\.\."/, 'Aircraft search starts with catalogue discovery');
     assert.match(html, /aria-label="Previous match"/, 'Aircraft search should expose touch-friendly previous navigation');
     assert.match(html, /aria-label="Next match"/, 'Aircraft search should expose touch-friendly next navigation');
     assert.match(html, /id="controls-diagnostics"/, 'the generic control surface should retain compact diagnostic context');
@@ -4470,8 +4483,8 @@ async function main() {
     assert.match(html, /data-aircraft-quick-actions/, 'the Aircraft page should render its quick-action region');
     assert.match(html, /data-aircraft-preset="configuration.lights.takeoff"/, 'the active takeoff-light preset should be visible');
     assert.match(html, /data-aircraft-preset="configuration.lights.cruise"/, 'a second one-tap preset should render in the shared quick-action grid');
-    assert.equal((html.match(/data-aircraft-preset=/g) || []).length, 2, 'brightness presets keep their slider component instead of a quick-action card');
-    assert.doesNotMatch(html, /data-aircraft-preset="configuration.lighting.cockpit"/, 'parameterized presets should not render a button that can only submit empty input');
+    assert.equal((html.match(/data-aircraft-preset=/g) || []).length, 3, 'all presets, including the dedicated brightness slider, have discovery destinations');
+    assert.match(html, /data-lighting-preset="cockpit" data-aircraft-preset="configuration.lighting.cockpit"/, 'brightness discovery points at its existing typed slider form');
     assert.match(html, />Takeoff lights</, 'the preset should retain its catalogue label');
     assert.match(html, /Runway turnoffs ON/, 'the UI should show the aircraft-specific recipe before execution');
     assert.match(html, /Say “set lights for takeoff”/, 'the same preset should advertise its voice phrase as spoken copy');

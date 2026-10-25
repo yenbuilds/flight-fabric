@@ -1,12 +1,14 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
+import { normalizeAircraftSearchText as normalizeSearchText, useAircraftControlsStore } from '../stores/aircraft-controls.js';
 
 const props = defineProps({
   target: { type: Object, default: null },
   contentKey: { type: String, default: '' },
 });
-const emit = defineEmits(['expanded-change']);
+const emit = defineEmits(['expanded-change', 'mode-change', 'open-command']);
+const controls = useAircraftControlsStore();
 
 const searchRoot = ref(null);
 const searchInput = ref(null);
@@ -15,6 +17,45 @@ const query = ref('');
 const matches = ref([]);
 const currentIndex = ref(-1);
 const expanded = ref(false);
+const mode = ref('commands');
+const resultsHeight = ref('45dvh');
+let focusRevision = 0, matchRevision = 0;
+const commandMatches = computed(() => query.value.trim() ? controls.findAircraftCommands(query.value) : []);
+const catalogueReady = computed(() => Boolean(controls.aircraftCommandCatalogue.profileKey));
+const commandCount = computed(() => Object.keys(controls.aircraftCommandCatalogue.commands).length);
+
+function fitResults() {
+  if (!expanded.value || typeof window === 'undefined') return;
+  const list = searchRoot.value?.querySelector?.('.aircraft-find__results');
+  const main = searchRoot.value?.closest?.('#vue-main-root');
+  if (!list || !main?.getBoundingClientRect) return;
+  const viewport = window.visualViewport;
+  const viewportBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+  const bottom = Math.min(main.getBoundingClientRect().bottom, viewportBottom);
+  resultsHeight.value = `${Math.max(44, Math.floor(bottom - list.getBoundingClientRect().top - 16))}px`;
+}
+
+// Subscribe only while search is open. The real main-region boundary also
+// accounts for the app header/navigation when a phone keyboard reduces space.
+watch(expanded, (open, _previous, onCleanup) => {
+  if (!open || typeof window === 'undefined') return;
+  const main = searchRoot.value?.closest?.('#vue-main-root');
+  window.addEventListener?.('resize', fitResults);
+  window.visualViewport?.addEventListener?.('resize', fitResults);
+  window.visualViewport?.addEventListener?.('scroll', fitResults);
+  main?.addEventListener?.('scroll', fitResults, { passive: true });
+  const observer = typeof ResizeObserver === 'function' && main?.getBoundingClientRect
+    ? new ResizeObserver(fitResults) : null;
+  if (observer) { observer.observe(main); observer.observe(searchRoot.value); }
+  fitResults();
+  onCleanup(() => {
+    observer?.disconnect();
+    window.removeEventListener?.('resize', fitResults);
+    window.visualViewport?.removeEventListener?.('resize', fitResults);
+    window.visualViewport?.removeEventListener?.('scroll', fitResults);
+    main?.removeEventListener?.('scroll', fitResults);
+  });
+}, { flush: 'post' });
 
 const RESULT_TARGET_SELECTOR = [
   '[data-aircraft-control-group]',
@@ -42,32 +83,47 @@ const RESULT_TARGET_SELECTOR = [
 ].join(',');
 
 const resultText = computed(() => {
+  if (mode.value === 'commands') {
+    if (!catalogueReady.value) return 'Waiting for the aircraft command catalogue';
+    if (!commandCount.value) return 'No commands are advertised for this aircraft';
+    if (!query.value.trim()) return 'Find a control, preset or voice phrase';
+    return commandMatches.value.length ? `${commandMatches.value.length} matching commands`
+      : 'No matching commands for this aircraft';
+  }
   if (!query.value.trim()) return 'Find any control or value';
   if (matches.value.length === 0) return 'No matches';
   return `${currentIndex.value + 1} of ${matches.value.length}`;
 });
 
 const resultDetail = computed(() => {
+  if (mode.value === 'commands') return '';
   if (!query.value.trim() || matches.value.length > 0) return '';
   return 'Try a switch name, abbreviation, or system.';
 });
 
-function normalizeSearchText(value) {
-  return String(value || '')
-    .normalize('NFKD')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .toLowerCase()
-    .replace(/\brwy\b/g, 'runway')
-    .replace(/\bhdg\b/g, 'heading')
-    .replace(/\btrk\b/g, 'track')
-    .replace(/\bspd\b/g, 'speed')
-    .replace(/\bv\s*\/\s*s\b/g, 'vertical speed')
-    .replace(/\balt\b/g, 'altitude')
-    .replace(/\beng\b/g, 'engine')
-    .replace(/\ba\s*\/\s*t\b/g, 'autothrottle')
-    .replace(/\bturnoff\b/g, 'turn off')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+function selectMode(value) {
+  if (!['commands', 'page'].includes(value) || value === mode.value) return;
+  const previousFocus = typeof document === 'undefined' ? null : document.activeElement;
+  const ownedFocus = searchRoot.value?.contains(previousFocus);
+  const revision = ++focusRevision;
+  mode.value = value;
+  emit('mode-change', value);
+  nextTick(() => {
+    // The navigation link changes with the search destination. Do not strand keyboard
+    // users on the document, or override focus already moved by another action.
+    if (ownedFocus && revision === focusRevision && expanded.value && aircraftPageIsActive() && !modalDialogIsOpen()
+      && (document.activeElement === previousFocus || document.activeElement === document.body)) {
+      searchInput.value?.focus?.({ preventScroll: true });
+    }
+  });
+}
+
+function openCommand(command, event) {
+  // Snapshot the catalogue at activation; the workspace rechecks ownership
+  // before opening anything after Vue has rendered the destination.
+  if (command && controls.getAircraftCommand(command.id) !== command) return;
+  emit('open-command', { commandId: command?.id || '',
+    catalogue: controls.aircraftCommandCatalogue, returnTarget: event?.currentTarget || searchInput.value });
 }
 
 function clearMatchMarkers() {
@@ -168,7 +224,7 @@ function markCurrentMatch({ scroll = false, behavior = 'smooth' } = {}) {
 
 function refreshMatches({ scroll = false } = {}) {
   clearMatchMarkers();
-  if (!query.value.trim()) return;
+  if (!expanded.value || mode.value !== 'page' || !aircraftPageIsActive() || !query.value.trim()) return;
 
   matches.value = collectMatches();
   for (const element of matches.value) {
@@ -190,15 +246,21 @@ function moveMatch(direction) {
 }
 
 function clearSearch({ focus = false } = {}) {
+  const revision = ++focusRevision;
+  ++matchRevision;
   query.value = '';
   clearMatchMarkers();
-  if (focus) nextTick(() => searchInput.value?.focus?.({ preventScroll: true }));
+  if (focus) nextTick(() => {
+    if (revision === focusRevision && expanded.value && aircraftPageIsActive() && !modalDialogIsOpen()) searchInput.value?.focus?.({ preventScroll: true });
+  });
 }
 
 function expandSearch({ select = false } = {}) {
+  const revision = ++focusRevision;
   expanded.value = true;
   emit('expanded-change', true);
   nextTick(() => {
+    if (revision !== focusRevision || !expanded.value || !aircraftPageIsActive() || modalDialogIsOpen()) return;
     searchInput.value?.focus?.({ preventScroll: true });
     if (select) searchInput.value?.select?.();
   });
@@ -206,9 +268,13 @@ function expandSearch({ select = false } = {}) {
 
 function collapseSearch({ focusLauncher = true } = {}) {
   clearSearch();
+  const revision = ++focusRevision;
   expanded.value = false;
+  mode.value = 'commands';
   emit('expanded-change', false);
-  if (focusLauncher) nextTick(() => searchLauncher.value?.focus?.({ preventScroll: true }));
+  if (focusLauncher) nextTick(() => {
+    if (revision === focusRevision && !expanded.value && aircraftPageIsActive() && !modalDialogIsOpen()) searchLauncher.value?.focus?.({ preventScroll: true });
+  });
 }
 
 function searchOwnsFocus() {
@@ -219,14 +285,19 @@ function searchOwnsFocus() {
 }
 
 function handleSearchKeydown(event) {
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
   if (event.key === 'Enter') {
     event.preventDefault();
-    moveMatch(event.shiftKey ? -1 : 1);
+    if (mode.value === 'page' && !event.repeat) moveMatch(event.shiftKey ? -1 : 1);
   } else if (event.key === 'Escape') {
     event.preventDefault();
     if (query.value.trim()) clearSearch({ focus: true });
     else collapseSearch();
   }
+}
+
+function handlePanelKeydown(event) {
+  if (event.key === 'Escape') handleSearchKeydown(event);
 }
 
 function aircraftPageIsActive() {
@@ -255,22 +326,49 @@ function handleDocumentKeydown(event) {
 }
 
 useDocumentEvent('keydown', handleDocumentKeydown);
-watch(query, () => {
-  nextTick(() => refreshMatches({ scroll: Boolean(query.value.trim()) }));
+watch([query, mode], () => {
+  const revision = ++matchRevision;
+  clearMatchMarkers();
+  nextTick(() => {
+    if (revision !== matchRevision) return;
+    refreshMatches({ scroll: Boolean(query.value.trim()) });
+    fitResults();
+  });
 });
 
-watch(() => props.contentKey, () => {
+watch([() => props.contentKey, () => `${controls.aircraftCommandCatalogue.profileKey}:${controls.aircraftCommandCatalogue.profileRevision}`], () => {
   collapseSearch({ focusLauncher: searchOwnsFocus() });
 });
 
-onBeforeUnmount(clearMatchMarkers);
-defineExpose({ open: () => expandSearch(), close: collapseSearch });
+watch(() => controls.aircraftCommandCatalogue, async catalogue => {
+  const previousFocus = typeof document === 'undefined' ? null : document.activeElement;
+  const id = previousFocus?.closest?.('[data-aircraft-search-result]')?.dataset.aircraftSearchResult;
+  if (!id || !searchRoot.value?.contains(previousFocus) || catalogue.commands[id]) return;
+  const revision = ++focusRevision;
+  await nextTick();
+  if (revision === focusRevision && expanded.value && aircraftPageIsActive() && !modalDialogIsOpen()
+    && (document.activeElement === previousFocus || document.activeElement === document.body)) {
+    searchInput.value?.focus?.({ preventScroll: true });
+  }
+});
+
+onBeforeUnmount(() => { ++focusRevision; ++matchRevision; clearMatchMarkers(); });
+defineExpose({ open: () => expandSearch(), close: collapseSearch,
+  restoreFocus: target => {
+    if (!expanded.value || !aircraftPageIsActive() || modalDialogIsOpen()) return false;
+    const destination = target?.isConnected && searchRoot.value?.contains(target) && target.getClientRects().length
+      ? target : searchInput.value;
+    destination?.focus?.({ preventScroll: true });
+    return Boolean(destination);
+  },
+});
 </script>
 
 <template>
   <div
     ref="searchRoot"
     class="aircraft-find"
+    :style="{ '--aircraft-search-results-height': resultsHeight }"
     :class="{
       'aircraft-find--expanded': expanded,
     }"
@@ -300,10 +398,11 @@ defineExpose({ open: () => expandSearch(), close: collapseSearch });
       id="aircraft-find-panel"
       v-show="expanded"
       class="aircraft-find__panel"
+      @keydown="handlePanelKeydown"
     >
-      <div class="aircraft-find__row">
+      <div class="aircraft-find__row" :class="{ 'aircraft-find__row--commands': mode === 'commands' }">
         <div class="aircraft-find__field">
-          <label class="sr-only" for="aircraft-find-input">Find a cockpit control or value</label>
+          <label class="sr-only" for="aircraft-find-input">Find a control, preset or value</label>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="m21 21-4.35-4.35m2.35-5.4A7.75 7.75 0 1 1 3.5 11.25a7.75 7.75 0 0 1 15.5 0Z" />
           </svg>
@@ -316,7 +415,7 @@ defineExpose({ open: () => expandSearch(), close: collapseSearch });
             enterkeyhint="search"
             autocomplete="off"
             spellcheck="false"
-            placeholder="Find a switch, light, or value..."
+            :placeholder="mode === 'commands' ? 'Find controls, presets or voice phrases...' : 'Find a switch, light, or value...'"
             aria-describedby="aircraft-find-status"
             @keydown="handleSearchKeydown"
           >
@@ -332,7 +431,7 @@ defineExpose({ open: () => expandSearch(), close: collapseSearch });
           </button>
         </div>
 
-        <div class="aircraft-find__navigation" aria-label="Search result navigation">
+        <div v-show="mode === 'page'" class="aircraft-find__navigation" aria-label="Search result navigation">
           <button
             type="button"
             aria-label="Previous match"
@@ -364,18 +463,36 @@ defineExpose({ open: () => expandSearch(), close: collapseSearch });
         </button>
       </div>
 
-      <div
-        id="aircraft-find-status"
-        class="aircraft-find__status"
-        :class="{ 'aircraft-find__status--empty': query && matches.length === 0 }"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <span>{{ resultText }}</span>
-        <span v-if="resultDetail" class="aircraft-find__detail">{{ resultDetail }}</span>
-        <span v-else-if="query && matches.length" class="aircraft-find__detail">Enter for next</span>
+      <div class="aircraft-find__summary">
+        <div
+          id="aircraft-find-status"
+          class="aircraft-find__status"
+          :class="{ 'aircraft-find__status--empty': query && (mode === 'commands' ? !commandMatches.length : !matches.length) }"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span>{{ resultText }}</span>
+          <span v-if="resultDetail" class="aircraft-find__detail">{{ resultDetail }}</span>
+          <span v-else-if="mode === 'page' && query && matches.length" class="aircraft-find__detail">Enter for next</span>
+        </div>
+        <button v-if="mode === 'commands'" type="button" class="aircraft-find__link aircraft-find__switch" data-aircraft-search-mode="page" @click="selectMode('page')">Find cockpit values</button>
+        <button v-else type="button" class="aircraft-find__link aircraft-find__switch" data-aircraft-search-mode="commands" @click="selectMode('commands')">Back to controls and presets</button>
       </div>
+      <template v-if="mode === 'commands'">
+        <button v-if="!query.trim()" type="button" class="aircraft-find__link" @click="openCommand(null, $event)">Open Control library</button>
+        <ul v-else-if="commandMatches.length" class="aircraft-find__results" aria-label="Matching commands and presets">
+          <li v-for="command in commandMatches" :key="command.id" :data-aircraft-search-result="command.id">
+            <div class="aircraft-find__result-copy">
+              <div class="aircraft-find__result-heading"><h3>{{ command.label }}</h3><span>{{ command.kind === 'preset' ? 'Preset' : 'Control' }}</span></div>
+              <p v-if="command.description">{{ command.description }}</p>
+              <p v-if="controls.commandVoiceExample(command)" class="aircraft-find__voice">Say “{{ controls.commandVoiceExample(command) }}”</p>
+              <p v-if="controls.commandUnavailableReason(command.id)" class="aircraft-find__reason">{{ controls.commandUnavailableReason(command.id) }}</p>
+            </div>
+            <button type="button" class="aircraft-find__link" :aria-label="`${command.kind === 'preset' ? 'Show preset' : 'Open in Control library'}: ${command.label}`" @click="openCommand(command, $event)">{{ command.kind === 'preset' ? 'Show preset' : 'Open in Control library' }}</button>
+          </li>
+        </ul>
+      </template>
     </div>
   </div>
 </template>
@@ -405,11 +522,29 @@ defineExpose({ open: () => expandSearch(), close: collapseSearch });
   padding: 0.6rem;
   border: 1px solid rgb(var(--border) / 0.82);
   border-radius: var(--ff-radius-card, 0.5rem);
-  background: rgb(var(--panel) / 0.94);
+  background: rgb(var(--panel));
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.04);
   backdrop-filter: blur(16px);
   pointer-events: auto;
 }
+
+.aircraft-find__summary { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; }
+.aircraft-find__summary .aircraft-find__status { flex: 1 1 auto; }
+.aircraft-find__link { min-height: 2.75rem; padding: .5rem .7rem; border-radius: 4px; font-size: .8125rem; text-align: left; color: rgb(var(--foreground)); }
+.aircraft-find__link { color: rgb(var(--primary)); text-decoration: underline; text-underline-offset: .2rem; }
+.aircraft-find__switch { max-width: 100%; padding-inline: .15rem; color: rgb(var(--muted-foreground)); }
+.aircraft-find__link:hover { background: rgb(var(--primary) / .08); }
+.aircraft-find__link:focus-visible { outline: 2px solid rgb(var(--primary)); outline-offset: 2px; }
+.aircraft-find__results { margin: 0; padding: 0 .25rem; list-style: none; max-height: min(24rem, 45dvh, var(--aircraft-search-results-height, 45dvh)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.aircraft-find__results li { display: flex; align-items: center; gap: 1rem; padding: .75rem .25rem; border-top: 1px solid rgb(var(--border) / .6); }
+.aircraft-find__result-copy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.aircraft-find__result-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem; }
+.aircraft-find__result-heading h3 { color: rgb(var(--foreground)); font-size: .875rem; font-weight: 600; }
+.aircraft-find__result-heading span { color: rgb(var(--muted-foreground)); font-size: .6875rem; }
+.aircraft-find__results p { margin: .25rem 0 0; color: rgb(var(--muted-foreground)); font-size: .75rem; line-height: 1.5; }
+.aircraft-find__results .aircraft-find__voice { color: rgb(var(--foreground)); }
+.aircraft-find__results .aircraft-find__reason { color: rgb(var(--warning)); }
+.aircraft-find__results .aircraft-find__link { flex: 0 0 auto; max-width: 12rem; }
 
 .aircraft-find__launcher {
   display: inline-flex;
@@ -630,6 +765,8 @@ defineExpose({ open: () => expandSearch(), close: collapseSearch });
 }
 
 @media (max-width: 640px) {
+  .aircraft-find__results li { align-items: stretch; flex-direction: column; gap: .25rem; }
+  .aircraft-find__results .aircraft-find__link { align-self: flex-start; max-width: 100%; }
   .aircraft-find {
     width: max-content;
     margin-inline: 0;
@@ -673,6 +810,7 @@ defineExpose({ open: () => expandSearch(), close: collapseSearch });
 }
 
 @media (max-width: 480px) {
+  .aircraft-find__row.aircraft-find__row--commands { display: flex; }
   .aircraft-find__row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

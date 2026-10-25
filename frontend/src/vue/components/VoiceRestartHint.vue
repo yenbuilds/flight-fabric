@@ -12,7 +12,7 @@ const voice = useVoiceControlStore();
         @click="voice.retryPushToTalk">{{ voice.runtime.pttRetrying ? 'Retrying…' : 'Retry push-to-talk' }}</button>
     </div>
     <p v-if="voice.restartHintVisible" :class="voice.pushToTalkRetryVisible ? 'mt-2' : ''" data-voice-restart-hint role="status">
-      If voice still won't start, choose Quit FlightFabric in the system tray, then reopen it. Closing the window only hides it.
+      Choose Quit FlightFabric in the system tray, then reopen. Closing the window only hides it.
     </p>
   </div>
 </template>

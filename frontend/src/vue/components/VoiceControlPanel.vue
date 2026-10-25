@@ -99,7 +99,7 @@ const emit = defineEmits(['open-settings']);
           <span>{{ voice.statusText }}</span>
         </div>
         <button v-if="voice.bridgeAvailable" type="button" class="ff-button-secondary mt-3 text-xs" data-voice-settings-link @click="emit('open-settings')">{{ voice.settingsAction }}</button>
-        <p v-if="!voice.bridgeAvailable" class="mt-2 text-xs text-muted-fg">Speak into the microphone connected to your simulator PC. This device is your phrase reference.</p>
+        <p v-if="!voice.bridgeAvailable" class="mt-2 text-xs text-muted-fg">Speak into the microphone connected to your simulator PC.</p>
         <p v-else-if="recognitionOff" class="mt-2 text-xs text-muted-fg">Enable voice control in Settings to talk.</p>
         <p v-else-if="voice.setupTask" class="mt-2 text-xs text-muted-fg">{{ voice.setupTask.detail }}</p>
         <VoiceRestartHint />
@@ -152,12 +152,12 @@ const emit = defineEmits(['open-settings']);
           <li v-for="example in queryExamples.slice(3)" :key="example">{{ example }}</li>
         </ul>
       </details>
-      <p class="mt-1">Replies use fresh aircraft data. Enable spoken readbacks to hear the answer.</p>
+      <p class="mt-1">Replies use fresh aircraft data. Turn on spoken feedback to hear them.</p>
     </div>
     <div v-if="flightPlanQueriesAvailable" class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg" data-flight-plan-query-guide>
       <p class="font-semibold">Ask about the flight plan</p>
       <p class="mt-1">{{ flightPlanExamples.join(' · ') }}</p>
-      <p class="mt-1">Reads the airports, runways, SID, STAR, transitions and planned altitude from the OFP loaded on the SimBrief tab.</p>
+      <p class="mt-1">Answers use the flight plan loaded in SimBrief.</p>
     </div>
     <div v-if="examples.length" class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3 text-xs">
       <span class="mr-1 text-muted-fg">Try saying</span>
@@ -173,13 +173,13 @@ const emit = defineEmits(['open-settings']);
       Development mode: speak any phrase to inspect its transcription. Commands will not be sent.
     </p>
     <p v-else class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg">
-      No voice commands are exposed by the active aircraft configuration.
+      No voice commands are exposed for this aircraft.
     </p>
 
     <p v-if="voice.runtime.mode === 'cloud' && voice.cloudUsage" class="mt-3 text-[11px] text-muted-fg">Last {{ voice.runtime.cloud.providerLabel }} request: {{ voice.cloudUsage.inputTokens }} input tokens · {{ voice.cloudUsage.outputTokens }} output tokens. Check your provider account for billed usage.</p>
     <details v-if="voice.bridgeAvailable" class="setup-details mt-3 text-xs text-muted-fg">
       <summary>About microphone use</summary>
-      <p>After release, the microphone remains active briefly to preserve the end of your speech, then closes after buffered audio is flushed. {{ voice.runtime.mode === 'cloud' ? `Cloud preview sends the audio and supported aircraft controls to ${voice.runtime.cloud.providerLabel} using your API key.` : 'Audio remains local and is not saved.' }}</p>
+      <p>After release, the microphone remains active briefly, then closes after buffered audio is flushed. {{ voice.runtime.mode === 'cloud' ? `Cloud preview sends the audio and supported aircraft controls to ${voice.runtime.cloud.providerLabel} using your API key.` : 'Audio remains local and is not saved.' }}</p>
     </details>
   </section>
 </template>

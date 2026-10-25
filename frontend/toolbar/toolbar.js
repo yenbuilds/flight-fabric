@@ -1624,15 +1624,17 @@
 
   function renderCommandList(container, commands) {
     clear(container);
-    var query = state.voiceSearch.trim().toLowerCase();
+    var query = state.voiceSearch.trim();
+    var normalize = FlightFabricAircraftSearch.normalizeAircraftSearchText;
+    var needle = normalize(query);
     var groups = {};
     var order = [];
     var count = 0;
     commands.forEach(function (command) {
       var groupId = command.kind === 'preset' ? 'presets' : command.group;
       if (query) {
-        var haystack = (command.label + ' ' + command.patterns.join(' ') + ' ' + command.description + ' ' + (GROUP_LABELS[groupId] || groupId)).toLowerCase();
-        if (haystack.indexOf(query) < 0) return;
+        var haystack = normalize(command.label + ' ' + command.patterns.join(' ') + ' ' + command.description + ' ' + (GROUP_LABELS[groupId] || groupId));
+        if (haystack.indexOf(needle) < 0) return;
       }
       if (!groups[groupId]) { groups[groupId] = []; order.push(groupId); }
       groups[groupId].push(command);

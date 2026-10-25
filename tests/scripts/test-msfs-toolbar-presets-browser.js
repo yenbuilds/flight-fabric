@@ -140,6 +140,24 @@ async function checkNativeInputBridge(win) {
   await until(page, `return document.querySelector('${nav} input').disabled;`);
   await until(page, `return !document.querySelector('${nav} input').disabled;`);
   assert.equal(await count(), initialCount + 3, 'Space applies exactly once');
+  // Search uses native input through the loader/iframe, just like preset fields.
+  await click('#tab-button-voice');
+  await click('#voice-search');
+  const beforeSearch = await count();
+  for (const [query, label] of [['HDG', 'Selected heading'], ['ALT', 'Selected altitude'],
+    ['V/S', 'Selected vertical speed'], ['landing-lights', 'Landing lights'], ['RWY turn off', 'Runway turnoff lights']]) {
+    await page("const input=document.getElementById('voice-search');input.select();");
+    for (const char of query) { key('keyDown', char); key('char', char); key('keyUp', char); }
+    await until(page, `return document.getElementById('voice-search').value === ${JSON.stringify(query)};`);
+    assert(await page(`return Array.from(document.querySelectorAll('.command-label')).some(el => el.textContent.includes(${JSON.stringify(label)}));`), query + ' finds ' + label);
+    assert.equal(await page("return document.activeElement.id;"), 'voice-search', 'filtering keeps native input focus');
+    assert.equal(await root('return keyboardClaimed;'), true, 'search retains simulator keyboard capture');
+  }
+  assert.equal(await count(), beforeSearch, 'search sends no commands');
+  await page("document.getElementById('voice-search').select();");
+  key('keyDown', 'Backspace'); key('keyUp', 'Backspace');
+  await until(page, "return document.getElementById('voice-search').value === ''; ");
+  await click('#tab-button-flight');
   await page(`document.querySelector('#content').scrollTop = 0;`);
   await wait(80); // The scroll reset must paint before injecting the next wheel.
   mouse('mouseMove', 15, 300); mouse('mouseWheel', 15, 300, { deltaY: -300, deltaX: 0 });
@@ -428,6 +446,7 @@ async function main() {
     }
     if (url.pathname === '/fixture/stale') { stale = true; return json({ ok: true }); }
     if (url.pathname === '/shared/app-settings-shared.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end(fs.readFileSync(path.join(ROOT, 'shared/app-settings-shared.js'))); }
+    if (url.pathname === '/shared/aircraft-search.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end(fs.readFileSync(path.join(ROOT, 'shared/aircraft-search.js'))); }
     const asset = assets[url.pathname];
     if (!asset) { res.statusCode = 404; return res.end(); }
     res.setHeader('Content-Type', asset[1]); res.end(assetBytes.get(url.pathname));

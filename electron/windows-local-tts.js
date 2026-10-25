@@ -87,6 +87,20 @@ function createWindowsLocalTts({
     }
   }
 
+  function playAudio(value) {
+    if (!Buffer.isBuffer(value) || value.length < 44 || value.length > 1440044
+        || value.toString('ascii', 0, 4) !== 'RIFF') throw new TypeError('Invalid local speech audio');
+    if (!available) return false;
+    cancel();
+    // Audio is binary stdin, never shell code, a command argument or a file.
+    return launch([
+      "$ErrorActionPreference='Stop'",
+      '$stream=New-Object IO.MemoryStream',
+      '$player=$null',
+      'try{[Console]::OpenStandardInput().CopyTo($stream);$stream.Position=0;$player=New-Object Media.SoundPlayer($stream);$player.PlaySync()}finally{if($player){$player.Dispose()};$stream.Dispose()}',
+    ].join(';'), '', value);
+  }
+
   function speak(value) {
     const text = normalizeReadbackText(value);
     if (!available) return false;
@@ -102,7 +116,10 @@ function createWindowsLocalTts({
       '$voice=New-Object -ComObject SAPI.SpVoice',
       'try{[void]$voice.Speak($text)}finally{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($voice)}',
     ].join(';');
+    return launch(script, utterance);
+  }
 
+  function launch(script, utterance, audio = null) {
     try {
       const child = spawnProcess(executable, [
         '-NoLogo',
@@ -113,7 +130,7 @@ function createWindowsLocalTts({
       ], {
         env: { ...process.env, [READBACK_ENV_KEY]: utterance },
         shell: false,
-        stdio: ['ignore', 'ignore', 'pipe'],
+        stdio: [audio ? 'pipe' : 'ignore', 'ignore', 'pipe'],
         windowsHide: true,
       });
       activeChild = child;
@@ -124,14 +141,16 @@ function createWindowsLocalTts({
       });
       let failedToStart = false;
       child.once?.('error', (error) => {
-        if (activeChild === child) activeChild = null;
+        if (activeChild !== child) return;
+        activeChild = null;
         failedToStart = true;
         setLastError(`PowerShell could not start: ${error?.message || error}`);
       });
       // 'close' rather than 'exit': stderr can still be delivering the SAPI
       // error text when 'exit' fires.
       child.once?.('close', (code) => {
-        if (activeChild === child) activeChild = null;
+        if (activeChild !== child) return;
+        activeChild = null;
         // A readback replaced or cancelled on purpose is not a failure, and a
         // spawn failure was already reported through 'error'.
         if (child.killed === true || failedToStart) return;
@@ -143,6 +162,14 @@ function createWindowsLocalTts({
         const detail = errorMessage(stderr);
         setLastError(`Readback exited with code ${code}${detail ? `: ${detail}` : ''}`);
       });
+      if (audio) {
+        child.stdin.on('error', () => {
+          if (activeChild !== child) return;
+          setLastError('Local speech audio could not be played.');
+          cancel();
+        });
+        child.stdin.end(audio);
+      }
       return true;
     } catch (error) {
       activeChild = null;
@@ -151,7 +178,7 @@ function createWindowsLocalTts({
     }
   }
 
-  return Object.freeze({ cancel, getInfo, speak });
+  return Object.freeze({ cancel, getInfo, playAudio, speak });
 }
 
 module.exports = {

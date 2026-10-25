@@ -423,11 +423,11 @@ var FlightFabricToolbarTaxi = (() => {
   // frontend/src/aircraft/taxi-presentation.js
   var TAXI_COPY = Object.freeze({
     title: "Pushback & taxi",
-    departureIntro: "FlightFabric automatically pushes your aircraft back, turns it to face the taxi route for your runway, and stops.",
+    departureIntro: "Automatic pushback, then manual taxi.",
     arrivalIntro: "Choose a stand or gate, then follow the route while taxiing manually.",
-    departureHelp: "Your airport\u2019s taxiways and departure runway determine the pushback direction. The preview shows the path and final nose direction.",
-    startHelp: "Check the preview, release the parking brake, then choose Start pushback to move the aircraft.",
-    guidanceHelp: "Show taxi route displays guidance for you to follow while taxiing manually.",
+    departureHelp: "The runway determines your pushback direction.",
+    startHelp: "Check the path and release the parking brake before starting.",
+    guidanceHelp: "Follow the taxi route manually.",
     start: "Start pushback",
     showRoute: "Show taxi route",
     refreshRoute: "Refresh taxi route",
@@ -606,7 +606,6 @@ var FlightFabricToolbarTaxi = (() => {
     const element = node("section", "card taxi-section");
     element.id = "toolbar-taxi";
     element.appendChild(node("h2", "card-title", TAXI_COPY.title));
-    element.appendChild(node("p", "muted", "Experimental \xB7 MSFS 2024"));
     const intro = element.appendChild(node("p", "muted", TAXI_COPY.departureIntro));
     intro.id = "taxi-intro";
     const fields = element.appendChild(node("div", "taxi-fields"));
@@ -614,8 +613,10 @@ var FlightFabricToolbarTaxi = (() => {
     const mode = select("Journey", "taxi-mode", [["runway", "Depart: to runway"], ["stand", "Arrive: to stand"]]);
     const runway = input("Departure runway", "taxi-runway", 3);
     const stand = select("Stand / gate", "taxi-stand", [["", "Load airport stands"]]);
-    const departureHelp = element.appendChild(node("p", "muted", TAXI_COPY.departureHelp));
-    const startHelp = element.appendChild(node("p", "muted", TAXI_COPY.startHelp));
+    const help = node("details", "taxi-note muted");
+    help.appendChild(node("summary", "", "How it works \xB7 Experimental"));
+    const departureHelp = help.appendChild(node("p", "", TAXI_COPY.departureHelp));
+    const startHelp = help.appendChild(node("p", "", TAXI_COPY.startHelp));
     startHelp.id = "taxi-pushback-help";
     const actions = element.appendChild(node("div", "taxi-actions"));
     const push = button(TAXI_COPY.start, "taxi-pushback-action", () => pushbackControls.request(pushback.active ? "stop" : "start"));
@@ -632,7 +633,7 @@ var FlightFabricToolbarTaxi = (() => {
       pushbackSelected = true;
       refresh();
     });
-    const guidanceHelp = element.appendChild(node("p", "muted", TAXI_COPY.guidanceHelp));
+    const guidanceHelp = help.appendChild(node("p", "", TAXI_COPY.guidanceHelp));
     guidanceHelp.id = "taxi-guidance-help";
     show.setAttribute("aria-describedby", guidanceHelp.id);
     const reason = element.appendChild(node("p", "taxi-reason muted"));
@@ -662,7 +663,8 @@ var FlightFabricToolbarTaxi = (() => {
     figure.appendChild(map);
     const caption = figure.appendChild(node("figcaption", "taxi-caption"));
     const cautions = element.appendChild(node("p", "taxi-cautions"));
-    element.appendChild(node("p", "taxi-note muted", "Routes use simulator scenery and may cross runways. Follow your ATC clearance and check traffic, obstacles and aircraft clearance."));
+    help.appendChild(node("p", "", "Check clearance and traffic; follow ATC at runway crossings."));
+    element.appendChild(help);
     const prefix = "taxi-" + now() + "-" + Math.random().toString(36).slice(2) + "-";
     let connection = {}, context = "", catalogue = {}, state = {}, route = null, scene = null;
     let timer = null, sequence = 0, revision = 0, lastReply = -Infinity, error = "", standsLoaded = false;
