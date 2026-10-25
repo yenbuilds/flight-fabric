@@ -10,7 +10,7 @@
     &nbsp;&middot;&nbsp;
     <a href="RELEASE_NOTES.md">What's new</a>
   </p>
-  <p><strong><span data-release-channel>Public alpha</span></strong> · v<span data-release-version>0.12.8</span> · Windows 64-bit · Free</p>
+  <p><strong><span data-release-channel>Public alpha</span></strong> · v<span data-release-version>0.13.0</span> · Windows 64-bit · Free</p>
   <p data-release-note>Still in development. Expect bugs and incomplete aircraft support.</p>
 </div>
 
@@ -79,7 +79,7 @@ FlightFabric. On a managed PC, ask your administrator.
 
 If you want to verify your download, you can compare its SHA-256 checksum with
 the value GitHub shows beside the installer on the
-<a data-release-notes href="https://github.com/yenbuilds/flight-fabric/releases/tag/v0.12.8">release page</a>.
+<a data-release-notes href="https://github.com/yenbuilds/flight-fabric/releases/tag/v0.13.0">release page</a>.
 This is optional and is not required to install the app.
 
 </details>
