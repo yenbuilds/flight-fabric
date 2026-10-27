@@ -105,7 +105,8 @@ async function main(): Promise<void> {
   let landingFinalSeen = false;
   let aircraftChangeEmitted = false;
 
-  eventBus.on('landing:early', () => {
+  eventBus.on('telemetry:landing', (payload: Record<string, any>) => {
+    if (payload.final !== false) return;
     touchdownAccepted = true;
     console.log('TEST:touchdown_accepted');
   });

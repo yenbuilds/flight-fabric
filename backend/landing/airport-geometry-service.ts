@@ -444,7 +444,6 @@ function findNearbyAirport(
 }
 
 module.exports = {
-  createOurAirportsProvider,
   findNearbyAirport,
   findRunwayByPosition,
   getActiveAirportGeometryProvider,
@@ -452,7 +451,6 @@ module.exports = {
   getAirport,
   getDatabaseStats,
   getRunway,
-  normalizeRunwayGeometry,
   registerAirportGeometryProvider,
   resetAirportGeometryProviders,
 };

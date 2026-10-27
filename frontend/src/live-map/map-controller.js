@@ -727,7 +727,6 @@ export function createLiveMapController({
 
   return {
     cleanup,
-    ensureMap,
     getLastPosition: () => lastPosition,
     getDistanceNm,
     getInitialBearingDeg,

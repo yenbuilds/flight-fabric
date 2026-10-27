@@ -53,11 +53,11 @@ async function browser() {
     await evaluate("navigatorTest.key(document.activeElement, 'ArrowDown'); await navigatorTest.settle();");
     assert.equal(await evaluate("return document.querySelector('#app-navigator-query').getAttribute('aria-activedescendant');"), 'navigator-result-livemap', 'down wraps to first');
     await evaluate("navigatorTest.query('aircraft controls'); await navigatorTest.settle(); navigatorTest.guard(true); navigatorTest.key(document.activeElement, 'Enter'); await navigatorTest.settle();");
-    assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), 'flight', 'unsaved-change guard blocks search navigation');
+    assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), 'livemap', 'unsaved-change guard blocks search navigation');
     assert.equal(await evaluate('return document.activeElement.id;'), 'app-navigator-query', 'blocked navigation retains query focus');
     assert.equal(await evaluate('return navigatorTest.shell.navigatorOpen;'), true);
     await evaluate("navigatorTest.guard(false); navigatorTest.key(document.activeElement, 'Enter', { isComposing: true }); await navigatorTest.settle();");
-    assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), 'flight', 'IME confirmation does not activate a result');
+    assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), 'livemap', 'IME confirmation does not activate a result');
     await evaluate("navigatorTest.key(document.activeElement, 'Enter'); await navigatorTest.settle();");
     assert.equal(await evaluate('return navigatorTest.tabs.activeTabId;'), 'autopilot', 'approved navigation uses the requested destination');
     assert.equal(await evaluate('return document.activeElement.id;'), 'vue-main-root', 'navigation moves focus into the working surface');
@@ -118,21 +118,15 @@ async function browser() {
     await evaluate("document.activeElement.blur(); navigatorTest.shell.openNavigator(); await navigatorTest.settle(); navigatorTest.shell.closeNavigator(); await navigatorTest.settle();");
     assert.equal(await evaluate('return document.activeElement.id;'), 'open-search', 'touch/programmatic opening without focused button uses a visible return control');
 
-    await evaluate("document.querySelector('#mobile-more-sheet').hidden = false; document.querySelector('#more-help').focus(); document.querySelector('#more-help').click(); document.querySelector('#mobile-more-sheet').hidden = true; await navigatorTest.settle();");
-    assert.equal(await evaluate("return document.activeElement.hasAttribute('data-navigator-close');"), true, 'help gets a meaningful initial focus');
-    const sourceLink = await evaluate("const link = document.getElementById('footer-source-link'); return { href: link?.href, label: link?.textContent, visible: Boolean(link?.getClientRects().length), restricted: Boolean(link?.closest('[inert]')) }; ");
-    assert.equal(sourceLink.href, 'https://github.com/yenbuilds/flight-fabric/releases', 'Help links to the corresponding source for remote users');
-    assert.match(sourceLink.label, /source/i);
-    assert(sourceLink.visible && !sourceLink.restricted, 'the source link remains accessible through mobile Help');
-    await evaluate("navigatorTest.shell.openNavigator(); await navigatorTest.settle();");
-    assert.equal(await evaluate('return document.activeElement.id;'), 'app-navigator-query', 'switching help to search focuses the new content');
+    await evaluate("document.querySelector('#mobile-more-sheet').hidden = false; document.querySelector('#more-search').focus(); document.querySelector('#more-search').click(); document.querySelector('#mobile-more-sheet').hidden = true; await navigatorTest.settle();");
+    assert.equal(await evaluate('return document.activeElement.id;'), 'app-navigator-query', 'search opened from More focuses its input');
     await evaluate("navigatorTest.key(document.activeElement, 'Escape'); await navigatorTest.settle();");
-    assert.equal(await evaluate('return document.activeElement.id;'), 'mobile-more-btn', 'closing help returns to More when its sheet was dismissed');
+    assert.equal(await evaluate('return document.activeElement.id;'), 'mobile-more-btn', 'closing search returns to More when its sheet was dismissed');
 
     await evaluate("document.querySelector('#open-search').focus(); navigatorTest.shell.openNavigator(); navigatorTest.shell.closeNavigator(); await navigatorTest.settle();");
     assert.equal(await evaluate('return document.activeElement.id;'), 'open-search', 'rapid open/close does not steal focus');
-    await evaluate("navigatorTest.shell.openNavigator(); await navigatorTest.settle(); navigatorTest.shell.closeNavigator(); navigatorTest.shell.openNavigator('help'); await navigatorTest.settle();");
-    assert.equal(await evaluate("return document.activeElement.hasAttribute('data-navigator-close');"), true, 'rapid close/reopen stays inside the latest dialog');
+    await evaluate("navigatorTest.shell.openNavigator(); await navigatorTest.settle(); navigatorTest.shell.closeNavigator(); navigatorTest.shell.openNavigator(); await navigatorTest.settle();");
+    assert.equal(await evaluate('return document.activeElement.id;'), 'app-navigator-query', 'rapid close/reopen stays inside the latest dialog');
     await evaluate("navigatorTest.shell.closeNavigator(); await navigatorTest.settle(); navigatorTest.shell.sidebarCollapsed = false; navigatorTest.shell.toggleSidebar();");
     assert.equal(await evaluate("return localStorage.getItem('ff_sidebar_collapsed_v1');"), 'yes', 'sidebar choice persists synchronously');
     await new Promise(resolve => { win.webContents.once('did-finish-load', resolve); win.reload(); });
@@ -162,11 +156,11 @@ async function main() {
         response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:*");
         response.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
           <style>[hidden]{display:none!important}.app-navigator-backdrop{position:fixed;inset:0;background:#222}.app-navigator{padding:20px}svg{width:20px;height:20px}.app-navigator-results{max-height:350px;overflow:auto}button,input{min-height:32px}#editable-child{display:inline-block}#app{min-width:0}</style></head><body>
-          <div class="app-workbench"><button id="open-search" aria-label="Search views and tools">Search</button><button id="open-help">Help</button>
+          <div class="app-workbench"><button id="open-search" aria-label="Search views and tools">Search</button>
           <button id="mobile-more-btn">More</button><main id="vue-main-root" tabindex="-1">Flight workspace</main>
           <input id="typing"><textarea id="text-area"></textarea><select id="select"><option>A</option></select>
           <div contenteditable=""><span id="editable-child" tabindex="0">Edit here</span></div><div id="plaintext" contenteditable="plaintext-only">Edit here</div>
-          <div id="slider" role="slider" tabindex="0">Slider</div><div id="mobile-more-sheet" hidden><button id="more-help">Help</button></div></div>
+          <div id="slider" role="slider" tabindex="0">Slider</div><div id="mobile-more-sheet" hidden><button id="more-search">Search</button></div></div>
           <section id="other-dialog" role="dialog" aria-modal="true" data-cdu-modal hidden><button id="cdu-key">CDU key</button></section>
           <div id="navigator-app"></div><script type="module" src="/tests/fixtures/app-navigator-browser.js"></script></body></html>`);
       });

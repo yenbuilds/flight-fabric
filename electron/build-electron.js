@@ -4,10 +4,9 @@
  * 1. Loads release profile to determine included files
  * 2. Copies backend JavaScript (filtered by profile)
  * 3. Copies frontend files (filtered by profile)
- * 4. Builds dashboard executable (if requested)
- * 5. Packages with electron-builder
+ * 4. Packages with electron-builder
  * 
- * Usage: node build-electron.js [--profile=user] [--with-dashboard]
+ * Usage: node build-electron.js [--profile=user]
  */
 
 const fs = require('fs');
@@ -57,8 +56,6 @@ const TAILWIND_CONFIG = path.join(ROOT, 'tailwind.config.js');
 const TAILWIND_INPUT = path.join(FRONTEND_SRC, 'tailwind-input.css');
 const TAILWIND_OUTPUT = path.join(FRONTEND_DIST, 'tailwind.css');
 const TAILWIND_CLI = path.join(ELECTRON_DIR, 'node_modules', 'tailwindcss', 'lib', 'cli.js');
-const DASHBOARD_DIR = path.join(ROOT, 'tools', 'flight-dashboard');
-const DASHBOARD_DIST = path.join(DASHBOARD_DIR, 'dist', 'flight-dashboard');
 const BACKEND_PACKAGE_JSON = path.join(BACKEND_SOURCE, 'package.json');
 const BACKEND_PACKAGE_LOCK = path.join(BACKEND_SOURCE, 'package-lock.json');
 const BACKEND_NODE_MODULES = path.join(BACKEND_SOURCE, 'node_modules');
@@ -90,13 +87,11 @@ const PACKAGED_RUST_SIDECAR_BINARY = path.join(
   RUST_SIDECAR_BINARY_NAME
 );
 const args = process.argv.slice(2);
-const withDashboard = args.includes('--with-dashboard');
 const skipNativeRebuild = args.includes('--skip-native-rebuild');
 const NODE_BIN_DIR = path.dirname(process.execPath);
 const NPM_CLI = process.env.npm_execpath || path.join(NODE_BIN_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js');
 const NPX_CLI = path.join(NODE_BIN_DIR, 'node_modules', 'npm', 'bin', 'npx-cli.js');
 const CARGO_BIN = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
-const PYINSTALLER_BIN = process.platform === 'win32' ? 'pyinstaller.exe' : 'pyinstaller';
 
 function runNpm(args, options) {
   execFileSync(process.execPath, [NPM_CLI, ...args], options);
@@ -1473,63 +1468,7 @@ function ensureCleanElectronOutput() {
 }
 
 /**
- * Step 2: Build Dashboard executable (optional)
- * 
- * Uses PyInstaller to bundle the Streamlit dashboard.
- * Requires: pip install pyinstaller streamlit pandas plotly boto3 folium streamlit-folium
- */
-function buildDashboard() {
-  if (!withDashboard) {
-    log('Skipping dashboard build (use --with-dashboard to enable)');
-    return;
-  }
-
-  const specFile = path.join(DASHBOARD_DIR, 'flight-dashboard.spec');
-  const launcherFile = path.join(DASHBOARD_DIR, 'dashboard_launcher.py');
-  
-  if (!fs.existsSync(specFile)) {
-    error('Dashboard spec file not found: ' + specFile);
-    log('Continuing without dashboard...');
-    return;
-  }
-
-  if (!fs.existsSync(launcherFile)) {
-    error('Dashboard launcher not found: ' + launcherFile);
-    log('Continuing without dashboard...');
-    return;
-  }
-
-  log('Building dashboard executable with PyInstaller...');
-  
-  try {
-    // Check PyInstaller is available
-    execFileSync(PYINSTALLER_BIN, ['--version'], { stdio: 'pipe' });
-  } catch {
-    error('PyInstaller not installed. Run: pip install pyinstaller');
-    log('Continuing without dashboard...');
-    return;
-  }
-
-  try {
-    execFileSync(PYINSTALLER_BIN, ['--clean', 'flight-dashboard.spec'], {
-      cwd: DASHBOARD_DIR,
-      stdio: 'inherit',
-    });
-    
-    const exePath = path.join(DASHBOARD_DIST, 'flight-dashboard.exe');
-    if (fs.existsSync(exePath)) {
-      log('Dashboard executable built: ' + exePath);
-    } else {
-      error('Dashboard executable not found after build');
-    }
-  } catch (err) {
-    error('Dashboard build failed: ' + err.message);
-    log('Continuing without dashboard...');
-  }
-}
-
-/**
- * Step 3: Install every owned JavaScript dependency tree exactly.
+ * Step 2: Install every owned JavaScript dependency tree exactly.
  *
  * Version checks alone cannot detect a locally modified same-version package.
  * Recreate each tree from its committed lockfile before compiling or copying
@@ -1590,7 +1529,7 @@ function syncElectronVersion() {
 }
 
 /**
- * Step 4: Build with electron-builder
+ * Step 3: Build with electron-builder
  */
 function buildElectron() {
   log('Building Electron app...');
@@ -1616,7 +1555,7 @@ function buildElectron() {
 }
 
 /**
- * Step 5: Verify build output against release/security rules.
+ * Step 4: Verify build output against release/security rules.
  */
 function verifyReleaseOutput() {
   log('Private release verifier is not included in the public source mirror; skipping private release verification.');
@@ -1662,7 +1601,6 @@ async function main() {
   log('=== FlightFabric Electron Build ===');
   log(`Root: ${ROOT}`);
   log(`Profile: ${profileName}`);
-  log(`Options: ${withDashboard ? '--with-dashboard' : ''}`);
 
   if (profileName === 'user' && skipNativeRebuild) {
     throw new Error('--skip-native-rebuild is not allowed for the user release profile');
@@ -1688,7 +1626,6 @@ async function main() {
   buildBackendRuntime();
   await copyBackend(simConnectSdk);
   buildFrontendBundle();
-  buildDashboard();
   logSigningMode();
   buildTailwindCss();
   buildElectron();

@@ -16,7 +16,7 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
     await click('#tab-button-' + id);
     assert.equal(await active(), 'tab-button-' + id, 'clicked tab retains focus');
     assert.equal(await page(`return document.querySelector('#tab-${id}').hidden;`), false);
-    assert.equal(await root('return keyboardClaimed;'), true, 'tab navigation retains native capture');
+    await until(root, 'return keyboardClaimed;', false);
   };
   const type = text => {
     for (const char of text) { const code = char === ' ' ? 'Space' : char; key('keyDown', code); key('char', char); key('keyUp', code); }
@@ -25,6 +25,33 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
     const directory = path.resolve(__dirname, '../../.tmp/toolbar-readability/after');
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, name + '.png'), (await win.webContents.capturePage()).toPNG());
+  };
+  const dragPageScrollbar = async id => {
+    await tab(id);
+    await page(`document.getElementById('content').scrollTop = 0;`);
+    await wait(100);
+    const box = await bounds('#content');
+    const metrics = await page(`const n = document.getElementById('content');
+      return { height: n.clientHeight, total: n.scrollHeight, gutter: n.offsetWidth - n.clientWidth,
+        barWidth: getComputedStyle(n, '::-webkit-scrollbar').width };`);
+    assert.ok(metrics.total > metrics.height, id + ' fixture has enough content to drag');
+    assert.equal(metrics.barWidth, '16px', id + ' has an explicitly styled scrollbar');
+    assert.ok(metrics.gutter >= 16, id + ' reserves a visible scrollbar track');
+    const thumb = Math.max(36, metrics.height * metrics.height / metrics.total);
+    const x = box.x + box.width - metrics.gutter / 2;
+    const top = box.y + thumb / 2, bottom = box.y + metrics.height - thumb / 2;
+    const drag = async (from, to) => {
+      mouse('mouseMove', x, from);
+      mouse('mouseDown', x, from, { button: 'left', clickCount: 1 });
+      mouse('mouseMove', x, to, { modifiers: ['leftbuttondown'] });
+      mouse('mouseUp', x, to, { button: 'left', clickCount: 1 });
+      await wait(100);
+    };
+    await drag(top, bottom);
+    await until(page, `const n = document.getElementById('content'); return n.scrollTop >= n.scrollHeight - n.clientHeight - 2;`);
+    await drag(bottom, top);
+    await until(page, `return document.getElementById('content').scrollTop <= 2;`);
+    await until(root, 'return keyboardClaimed;', false);
   };
 
   for (const width of [1200, 375, 320]) {
@@ -50,7 +77,7 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
       // Leave sections open so narrow tables and long reports are exercised.
       if (before !== 'true') { key('keyDown', 'Enter'); key('char', '\r'); key('keyUp', 'Enter'); }
       assert.equal(await active(), 'section-toggle-' + id);
-      assert.equal(await root('return keyboardClaimed;'), true);
+      await until(root, 'return keyboardClaimed;', false);
     }
     const refreshed = await emit('plan');
     await until(page, `return document.querySelector('#tab-plan').textContent.includes('${refreshed.callsign}');`);
@@ -96,14 +123,11 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
     await until(page, `return document.querySelector('#tab-voice').textContent.includes('No commands match.');`);
     key('keyDown', 'A', ['control']); key('keyUp', 'A', ['control']); press('Backspace');
     await until(page, `return document.querySelector('#voice-search').value;`, '');
+    assert.equal(await root('return keyboardClaimed;'), true, 'typing, selection and Backspace stay captured');
     assert.equal(await page(`return document.querySelector('#${system}').getAttribute('aria-expanded');`), 'true', 'clearing search retains the chosen system');
     await click('#' + system);
-    await until(page, `return document.querySelector('#section-toggle-voice-questions-plan') !== null;`);
-    await click('#section-toggle-voice-questions-plan');
-    assert.equal(await page(`return document.querySelector('#section-voice-questions-plan').hidden;`), false);
-    press('Space');
-    await until(page, `return document.querySelector('#section-voice-questions-plan').hidden;`);
-    assert.equal(await root('return keyboardClaimed;'), true, 'typing, selection and Backspace stay captured');
+    assert.equal(await page(`return /Try saying|Questions you can ask/.test(document.querySelector('#tab-voice').textContent);`), false);
+    await until(root, 'return keyboardClaimed;', false);
     assert.equal(await page('return document.documentElement.scrollWidth > innerWidth;'), false, 'Voice fits ' + width);
 
     await require('./toolbar-taxi-browser')({ win, page, root, click, key, press, until, width });
@@ -114,7 +138,7 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
       await click('#' + id);
       assert.equal(await active(), id, 'changing a setting preserves focus on ' + id);
       assert.equal(await page(`return document.querySelector('#${id}').getAttribute('aria-pressed');`), 'true');
-      assert.equal(await root('return keyboardClaimed;'), true);
+      await until(root, 'return keyboardClaimed;', false);
       if (id.startsWith('setting-scale-')) {
         const expected = { 'setting-scale-s': 18, 'setting-scale-m': 21, 'setting-scale-l': 24 }[id];
         assert.equal(await page(`return parseFloat(getComputedStyle(document.body).fontSize);`), expected);
@@ -145,7 +169,7 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
     await click('#settings-button'); await click('#settings-reset');
     assert.equal(await active(), 'settings-reset');
     assert.deepEqual(await page(`const p = JSON.parse(localStorage.getItem('ff_toolbar_prefs_v1')); return [p.theme,p.scale,p.density,p.timeZone,p.weightUnit,p.defaultTab];`),
-      ['dark', 'l', 'comfortable', 'utc', 'plan', 'flight']);
+      ['dark', 's', 'comfortable', 'utc', 'plan', 'flight']);
     await click('#settings-sheet button[data-close-settings]');
     assert.equal(await active(), 'settings-button', 'close button restores focus');
     await click('#settings-button');
@@ -154,6 +178,10 @@ module.exports = async function checkToolbarSections({ win, page, root, click, b
     mouse('mouseUp', sheet.x + 3, sheet.y + 3, { button: 'left', clickCount: 1 });
     await until(page, `return document.querySelector('#settings-sheet').classList.contains('hidden');`);
     assert.equal(await active(), 'settings-button', 'scrim close restores focus');
+
+    win.setContentSize(width, 420); await wait(100);
+    for (const id of ['flight', 'plan', 'voice', 'taxi']) await dragPageScrollbar(id);
+    win.setContentSize(width, 900); await wait(100);
     await tab('flight');
     assert.equal(await count(), initialWrites, 'navigation, search and Settings never execute an aircraft command');
     assert.deepEqual(await root('return parentInputs;'), parentInputs, 'all section input stays inside the iframe');

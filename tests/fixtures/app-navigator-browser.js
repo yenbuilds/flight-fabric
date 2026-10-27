@@ -24,8 +24,7 @@ const phoneSection = voiceSection.cloneNode(); phoneSection.id = 'settings-phone
 document.getElementById('vue-main-root').appendChild(phoneSection);
 createApp({ render: () => h(AppNavigator) }).use(pinia).mount('#navigator-app');
 document.getElementById('open-search').onclick = () => shell.openNavigator();
-document.getElementById('open-help').onclick = () => shell.openNavigator('help');
-document.getElementById('more-help').onclick = () => shell.openNavigator('help');
+document.getElementById('more-search').onclick = () => shell.openNavigator();
 let releaseGuard = () => {};
 window.navigatorTest = {
   shell, tabs, voice,

@@ -70,6 +70,13 @@ function projectPreExecutionCatalogue(definition, expectedData = module.exports.
     assert.equal(half.expectedValue, 75, 'reviewed 777 HALF lever readback');
     half.expectedValue = 50;
   }
+  // 2026-10-27 NG3 SDK mode prerequisite; retain the original event/readback oracle.
+  if (definition.id === 'pmdg-737') {
+    assertAndRemove(projected.actions['mcp.mach.set'].guard, 'requires', [{
+      fieldId: 'mcp.speed', freshness: 'field', min: 0, max: 9.99,
+      failureHint: 'Select Mach mode in the MCP speed window before setting a Mach target.',
+    }], 'reviewed 737 Mach mode prerequisite');
+  }
   return projected;
 }
 

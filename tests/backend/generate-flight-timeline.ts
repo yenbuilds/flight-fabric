@@ -486,7 +486,6 @@ function replayFlightWithTimeline(flightData: AnyRecord, options: AnyRecord = {}
     timeline.setSimTime(timestampMs);
     timeline.addMarker('go_around', payload);
     currentApproachScorer = resetGoAroundScoringState({
-      resetStability: stabilityRunner.resetStability,
       landingRunner,
       createCurrentApproachScorer,
     });
@@ -551,11 +550,6 @@ function replayFlightWithTimeline(flightData: AnyRecord, options: AnyRecord = {}
       lastPhase = currentPhase;
     }
     
-    // ═══════════════════════════════════════════════════════════════════════
-    // STABILITY RUNNER (production)
-    // ═══════════════════════════════════════════════════════════════════════
-    const stabResult = stabilityRunner.runStability(frame);
-
     // Mirror the live current-approach collection path. The shared go-around
     // reset listener above is invoked synchronously by the production phase
     // runner, before any climb frame can reach this scorer.
@@ -601,7 +595,6 @@ function replayFlightWithTimeline(flightData: AnyRecord, options: AnyRecord = {}
     };
     const landingCtx = {
       phase: currentPhase,
-      stability: stabResult,
     };
     landingRunner.update(frame, broadcast, timeCtx, landingCtx);
     

@@ -411,15 +411,12 @@ export function shouldResetCurrentApproachScorerForParked({
  * go-around to leak first-attempt state into the eventual landing score.
  */
 export function resetGoAroundScoringState<T>({
-  resetStability,
   landingRunner,
   createCurrentApproachScorer,
 }: {
-  resetStability: () => void;
   landingRunner: { reset: () => void };
   createCurrentApproachScorer: () => T;
 }): T {
-  resetStability();
   landingRunner.reset();
   return createCurrentApproachScorer();
 }

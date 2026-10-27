@@ -40,7 +40,6 @@ function resolveWithinRoot(rootDir: string | null | undefined, relativePath: str
 }
 
 module.exports = {
-  comparePathForContainment,
   isPathInside,
   resolveWithinRoot,
 };

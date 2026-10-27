@@ -900,20 +900,20 @@ test('PMDG 737 IAS and Mach requests share in-flight and cooldown guards', async
   const sdkSnapshot: any = {
     adapterId: 'clientdata-manifest',
     status: 'running',
-    normalized: { automation: { ap: { selected: { iasMach: 250 } } } },
+    normalized: { automation: { ap: { selected: { iasMach: 0.76 } } } },
     snapshotSequence: 1,
     updatedAt: new Date().toISOString(),
   };
   const events: Array<{ name: string; value: number }> = [];
-  let signalIasDispatched: () => void = () => {};
-  const iasDispatched = new Promise<void>((resolve) => { signalIasDispatched = resolve; });
+  let signalMachDispatched: () => void = () => {};
+  const machDispatched = new Promise<void>((resolve) => { signalMachDispatched = resolve; });
   const bridge = {
     getSnapshot() {
       return { source: 'mock-sidecar' };
     },
     async sendEvent(name, value) {
       events.push({ name, value });
-      if (name === '#84134') signalIasDispatched();
+      if (name === '#84135') signalMachDispatched();
       return { ok: true };
     },
   };
@@ -936,34 +936,34 @@ test('PMDG 737 IAS and Mach requests share in-flight and cooldown guards', async
     request: { actionId, value },
   });
 
-  const iasRequest = provider.executeAircraftControlAction(
+  const machRequest = provider.executeAircraftControlAction(
+    action,
+    options('mcp.mach.set', 0.78),
+  );
+  await machDispatched;
+
+  const overlappingIas = await provider.executeAircraftControlAction(
     action,
     options('mcp.ias.set', 260),
   );
-  await iasDispatched;
+  assert.equal(overlappingIas.ok, false);
+  assert.equal(overlappingIas.code, 'action_in_progress');
+  assert.deepEqual(events, [{ name: '#84135', value: 78 }],
+    'overlapping IAS request must not reach the shared selector');
 
-  const overlappingMach = await provider.executeAircraftControlAction(
-    action,
-    options('mcp.mach.set', 0.78),
-  );
-  assert.equal(overlappingMach.ok, false);
-  assert.equal(overlappingMach.code, 'action_in_progress');
-  assert.deepEqual(events, [{ name: '#84134', value: 260 }],
-    'overlapping Mach request must not reach the shared selector');
-
-  sdkSnapshot.normalized.automation.ap.selected.iasMach = 260;
+  sdkSnapshot.normalized.automation.ap.selected.iasMach = 0.78;
   sdkSnapshot.snapshotSequence += 1;
   sdkSnapshot.updatedAt = new Date().toISOString();
-  const iasResult = await iasRequest;
-  assert.equal(iasResult.ok, true);
-  assert.equal(iasResult.confirmedValue, 260);
+  const machResult = await machRequest;
+  assert.equal(machResult.ok, true);
+  assert.equal(machResult.confirmedValue, 0.78);
 
-  const coolingDownMach = await provider.executeAircraftControlAction(
+  const coolingDownIas = await provider.executeAircraftControlAction(
     action,
-    options('mcp.mach.set', 0.78),
+    options('mcp.ias.set', 260),
   );
-  assert.equal(coolingDownMach.ok, false);
-  assert.equal(coolingDownMach.code, 'action_cooldown');
+  assert.equal(coolingDownIas.ok, false);
+  assert.equal(coolingDownIas.code, 'action_cooldown');
   assert.equal(events.length, 1, 'cross-mode cooldown must not dispatch a second selector write');
 });
 

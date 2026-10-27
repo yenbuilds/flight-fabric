@@ -177,6 +177,7 @@ useDocumentEvent('keydown', onKeydown);
         class="mobile-more-item w-full px-4 py-3 text-left text-sm" data-phone-setup-navigation
         @click="openPhoneSettings(tabs)">Connect a phone or tablet</button>
       <SupportLink class="mobile-support-link" />
+      <a id="mobile-source-link" class="mobile-more-item block w-full px-4 py-3 text-left text-sm" href="https://github.com/yenbuilds/flight-fabric/releases" target="_blank" rel="noopener noreferrer">Source code (AGPL)</a>
       <button
         v-for="tab in tabs.mobileNavigationMoreTabs"
         :key="tab.id"
@@ -190,7 +191,6 @@ useDocumentEvent('keydown', onKeydown);
         <TabIcon :kind="tab.icon" class="w-5 h-5 text-gray-400" />
         <span class="text-sm font-medium">{{ tab.label }}</span>
       </button>
-      <button type="button" class="mobile-more-item w-full px-4 py-3 text-left text-sm" @click="shell.openNavigator('help'); tabs.closeMoreSheet()">Help &amp; shortcuts</button>
     </div>
   </div>
 </template>

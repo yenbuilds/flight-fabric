@@ -2761,7 +2761,7 @@ test('guidance observation feedback leaves unrelated commands and parent presets
   }
   assert.equal(flightGuidanceObservationFailureText(result, { control: 'aircraft-specific',
     operation: 'execute', target: 'afds.approach.engage' }),
-  'Approach selection not confirmed. Check the flight mode annunciator.');
+  'Approach selection not confirmed. Check the flight mode annunciator before trying again.');
 });
 
 test('heading and approach feedback separates unconfirmed selection from rejection in buttons and voice', async () => {
@@ -2819,7 +2819,9 @@ test('heading and approach feedback separates unconfirmed selection from rejecti
         assert.equal(toasts.at(-1)[0], uncertain || code === 'sent_unconfirmed' ? 'warning' : ok ? 'success' : 'error');
         assert.equal(harness.voiceStore.status, uncertain ? 'error' : ok ? 'sent' : 'failed');
         if (uncertain) {
-          const text = `${label === 'Approach' ? 'Approach selection' : label} not confirmed. Check the flight mode annunciator.`;
+          const text = label === 'Approach'
+            ? 'Approach selection not confirmed. Check the flight mode annunciator before trying again.'
+            : `${label} not confirmed. Check the flight mode annunciator.`;
           assert.equal(harness.spokenReadbacks.at(-1), text);
           assert.equal(controls.feedback.actionText, text);
           assert.doesNotMatch(harness.voiceStore.statusText, /Could not send|before failure/);
@@ -3249,6 +3251,7 @@ test('aircraft changes and disconnects retire queued speech without disturbing r
         children.push(child); return child;
       },
     });
+    speech.select('kokoro');
     const h = createHarness({ readback: speech });
     t.after(async () => { await h.controller.dispose(); speech.dispose(); });
     await h.controller.initialize();

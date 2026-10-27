@@ -298,22 +298,6 @@ function buildInflightStats(summary) {
       toneClass: 'text-sky-300',
     });
   }
-  const dutchRoll = summary?.dutch_roll || summary?.dutchRoll;
-  if (dutchRoll?.detected === true) {
-    const confidence = String(dutchRoll.confidence || 'possible').toLowerCase();
-    const confidenceLabel = confidence.charAt(0).toUpperCase() + confidence.slice(1);
-    const durationSeconds = Number.isFinite(Number(dutchRoll.max_duration_ms))
-      ? Math.round(Number(dutchRoll.max_duration_ms) / 1000)
-      : null;
-    stats.push({
-      key: 'dutch-roll',
-      label: 'Dutch Roll',
-      value: durationSeconds !== null
-        ? `Possible (${confidenceLabel}, ${durationSeconds}s)`
-        : `Possible (${confidenceLabel})`,
-      toneClass: 'text-sky-300',
-    });
-  }
   return stats;
 }
 

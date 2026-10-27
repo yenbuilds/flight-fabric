@@ -620,7 +620,6 @@ function projectFlightSummary(message: ServerMessage): ServerMessage {
     'go_around_count',
     'overspeed_count',
     'violations',
-    'dutch_roll',
     'holding',
     'insights',
     'departure_icao',

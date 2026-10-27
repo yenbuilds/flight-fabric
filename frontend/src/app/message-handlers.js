@@ -172,7 +172,6 @@ export function createAppMessageHandler({
   landingController,
   takeoffStore = null,
   telemetryWarnings,
-  statusIndicators,
   lvarInspector,
   appSettingsController,
   updateEngines,
@@ -300,12 +299,6 @@ export function createAppMessageHandler({
         break;
       case 'runwayContext':
         break;
-      case 'assists':
-        if (!statusStore) statusIndicators?.updateAssistsIndicator(message.data);
-        break;
-      case 'surface':
-        if (!statusStore) statusIndicators?.updateSurfaceIndicator(message.value);
-        break;
       case 'landing':
         landingController.handleLandingMessage(message);
         break;
@@ -360,11 +353,7 @@ export function createAppMessageHandler({
         }
         break;
       case 'flightRecording':
-        if (!statusStore) statusIndicators?.updateRecordingIndicator(message);
         desktopIntegration?.setRecordingBadge?.(message);
-        break;
-      case 'vreSampling':
-        if (!statusStore) statusIndicators?.updateVreSamplingIndicator(message);
         break;
       case 'startFlightResult':
         handleStartFlightResult(flightRecordingActionDeps, message);
@@ -401,32 +390,5 @@ export function createAppMessageHandler({
         handleCabinAnnouncement(cabinAnnouncementDeps, message);
         break;
     }
-  };
-}
-
-export function createStatusIndicatorsController({
-  statusStore = null,
-} = {}) {
-  function updateVreSamplingIndicator(message) {
-    statusStore?.updateVreSampling?.(message);
-  }
-
-  function updateAssistsIndicator(data) {
-    statusStore?.updateAssists?.(data);
-  }
-
-  function updateSurfaceIndicator(surface) {
-    statusStore?.updateSurface?.(surface);
-  }
-
-  function updateRecordingIndicator(message) {
-    statusStore?.updateRecording?.(message);
-  }
-
-  return {
-    updateAssistsIndicator,
-    updateRecordingIndicator,
-    updateVreSamplingIndicator,
-    updateSurfaceIndicator,
   };
 }

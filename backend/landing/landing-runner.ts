@@ -1,9 +1,9 @@
-// landing-runner.js
+// landing-runner.ts
 // Encapsulates touchdown detection, grading, and logging.
 // Preserves behavior by mirroring WOW transition logic and payloads.
 
-// This module emits 'landing:touchdown' events via eventBus.
-// Subscribers write to their respective stores.
+// Emits landing:final for recording and retrospective approach scoring.
+// Immediate touchdown feedback uses the landing WebSocket broadcast.
 
 const config = require('../core/config') as ConfigModule;
 const { gradeLandingForProfile, buildLandingRateScoringContext } = require('./landing') as LandingModule;
@@ -66,14 +66,12 @@ type AnyRecord = Record<string, any>;
 type BroadcastFn = (payload: AnyRecord) => void;
 type TimeContext = {
   nowEpochMs?: number;
-  nowIso?: string;
   flightStartEpochMs?: number | null;
   flightStartIso?: string;
 };
 type LandingRunnerContext = AnyRecord & {
   phase?: string | null;
   xwind_kts?: number | null;
-  stability?: AnyRecord | null;
 };
 type LandingRunner = {
   update: (frame: AnyRecord, broadcast?: BroadcastFn | null, timeCtx?: TimeContext, ctx?: LandingRunnerContext) => void;
@@ -88,7 +86,6 @@ type ConfigModule = {
     touchdownMinIasKts: number;
     touchdownMinVsFpm?: number;
     touchdownMinAirborneRaFt?: number;
-    minAirbornePeakRaFt?: number;
   };
   telemetry: {
     schemaVersion: number;
@@ -348,9 +345,6 @@ function buildLandingPayload(input: AnyRecord): AnyRecord {
   const flightElapsedMs = (timeCtx.flightStartEpochMs && nowEpochMs)
     ? Math.max(0, nowEpochMs - timeCtx.flightStartEpochMs)
     : null;
-  const ultimateStabilityGateStable = normalizeBooleanLike(
-    ts.ultimate_stability_gate_stable ?? ts.ultimate_stability_gateStable,
-  );
 
   return {
     // Identity (schema v2)
@@ -436,30 +430,31 @@ function buildLandingPayload(input: AnyRecord): AnyRecord {
     stability: ts.stability ?? null,
     stability_score: null, // Not captured at touchdown time
 
-    // Ultimate stability (retrospective)
-    ultimate_stability_score: ts.ultimate_stability_score ?? null,
-    ultimate_stability_verdict: ts.ultimate_stability_verdict ?? ts.ultimateStabilityVerdict ?? null,
-    ultimate_stability_samples: ts.ultimate_stability_samples ?? null,
-    ultimate_stability_gate_stable: ultimateStabilityGateStable,
-    ultimate_stability_gate_failures: ts.ultimate_stability_gateFailures ?? null,
-    ultimate_stability_breakdown: ts.ultimate_stability_breakdown ?? null,
-    ultimate_stability_context: ts.ultimate_stability_context ?? ts.ultimateStabilityContext ?? null,
-    ultimate_stability_gear_ok_pct: ts.ultimate_stability_gear_ok_pct ?? null,
-    ultimate_stability_flaps_ok_pct: ts.ultimate_stability_flaps_ok_pct ?? null,
-    ultimate_stability_spoilers_ok_pct: ts.ultimate_stability_spoilers_ok_pct ?? null,
-    ultimate_stability_config_ok_pct: ts.ultimate_stability_config_ok_pct ?? null,
-    ultimate_stability_speed_ok_pct: ts.ultimate_stability_speed_ok_pct ?? null,
-    ultimate_stability_speed_trend_ok_pct: ts.ultimate_stability_speed_trend_ok_pct ?? null,
-    ultimate_stability_vs_ok_pct: ts.ultimate_stability_vs_ok_pct ?? null,
-    ultimate_stability_glidepath_ok_pct: ts.ultimate_stability_glidepath_ok_pct ?? null,
-    ultimate_stability_glidepath_below_ok_pct: ts.ultimate_stability_glidepath_below_ok_pct ?? null,
-    ultimate_stability_glidepath_above_ok_pct: ts.ultimate_stability_glidepath_above_ok_pct ?? null,
-    ultimate_stability_thrust_ok_pct: ts.ultimate_stability_thrust_ok_pct ?? null,
-    ultimate_stability_thrust_not_idle_ok_pct: ts.ultimate_stability_thrust_not_idle_ok_pct ?? null,
-    ultimate_stability_thrust_stable_ok_pct: ts.ultimate_stability_thrust_stable_ok_pct ?? null,
-    ultimate_stability_pitch_ok_pct: ts.ultimate_stability_pitch_ok_pct ?? null,
-    ultimate_stability_bank_ok_pct: ts.ultimate_stability_bank_ok_pct ?? null,
-    ultimate_stability_lateral_offset_ok_pct: ts.ultimate_stability_lateral_offset_ok_pct ?? null,
+    // The current-approach scorer in simbridge-core enriches these fields
+    // before recording landing:final. Preserve the provisional payload shape.
+    ultimate_stability_score: null,
+    ultimate_stability_verdict: null,
+    ultimate_stability_samples: null,
+    ultimate_stability_gate_stable: null,
+    ultimate_stability_gate_failures: null,
+    ultimate_stability_breakdown: '',
+    ultimate_stability_context: null,
+    ultimate_stability_gear_ok_pct: null,
+    ultimate_stability_flaps_ok_pct: null,
+    ultimate_stability_spoilers_ok_pct: null,
+    ultimate_stability_config_ok_pct: null,
+    ultimate_stability_speed_ok_pct: null,
+    ultimate_stability_speed_trend_ok_pct: null,
+    ultimate_stability_vs_ok_pct: null,
+    ultimate_stability_glidepath_ok_pct: null,
+    ultimate_stability_glidepath_below_ok_pct: null,
+    ultimate_stability_glidepath_above_ok_pct: null,
+    ultimate_stability_thrust_ok_pct: null,
+    ultimate_stability_thrust_not_idle_ok_pct: null,
+    ultimate_stability_thrust_stable_ok_pct: null,
+    ultimate_stability_pitch_ok_pct: null,
+    ultimate_stability_bank_ok_pct: null,
+    ultimate_stability_lateral_offset_ok_pct: null,
 
     // Surface data (snake_case - canonical names)
     surface_raw: ts.surface_raw ?? null,
@@ -687,31 +682,6 @@ function captureTouchdownSnapshot(input: {
     assists: cloneAssistSnapshot(frame.assists),
     phaseAtTouchdown,
   };
-}
-
-function emitRejectedTouchdown(input: {
-  reason: string;
-  criteria: AnyRecord;
-  nowEpochMs: number;
-  vsFpm: number | null;
-  iasKts: number | null;
-}): void {
-  const { reason, criteria, nowEpochMs, vsFpm, iasKts } = input;
-  try {
-    eventBus.emit('landing:touchdown', {
-      _rejected: true,
-      _rejectionReason: reason,
-      _rejectionCriteria: criteria,
-      timestampMs: nowEpochMs,
-      timestampIso: new Date(nowEpochMs).toISOString(),
-      vs_fpm: vsFpm,
-      ias_kts: iasKts,
-      grade: 'REJECTED',
-    });
-  } catch (e) {
-    const errorMessage = e instanceof Error ? e.message : String(e);
-    Debug.log('landing', 'Failed to emit rejected touchdown event', { error: errorMessage });
-  }
 }
 
 function createDefaultTouchdownDistanceData(bounceScoring: AnyRecord): AnyRecord {
@@ -989,23 +959,6 @@ function calculateCenterlineDeviation(runwayData: AnyRecord | null, touchdownSum
   return roundedHeadingDifferenceDegrees(acftHdg, runwayTrueHeadingDeg);
 }
 
-function normalizeBooleanLike(value: unknown): boolean | null {
-  if (typeof value === 'boolean') return value;
-  if (value === 1 || value === '1') return true;
-  if (value === 0 || value === '0') return false;
-  return null;
-}
-
-function normalizeGateFailures(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map(String).map((failure) => failure.trim()).filter(Boolean);
-  }
-  if (typeof value === 'string' && value.trim()) {
-    return value.split('|').map((failure) => failure.trim()).filter(Boolean);
-  }
-  return [];
-}
-
 function roundSignedMagnitude(value: unknown): number | null {
   const numeric = finiteNumberOrNull(value);
   if (numeric == null) return null;
@@ -1080,22 +1033,13 @@ function buildFinalLandingBroadcast(input: {
       bounceDistanceFt: touchdownDistanceData.bounce_distance_ft,
       bounceCount: touchdownSummary.bounceCount,
     },
+    // Approach stability arrives separately after the final landing event.
     ultimateStability: {
-      score: touchdownSummary.ultimate_stability_score ?? null,
-      verdict:
-        touchdownSummary.ultimate_stability_verdict
-        ?? touchdownSummary.ultimateStabilityVerdict
-        ?? null,
-      scoringContext:
-        touchdownSummary.ultimate_stability_context
-        ?? touchdownSummary.ultimateStabilityContext
-        ?? null,
-      gateStable: normalizeBooleanLike(
-        touchdownSummary.ultimate_stability_gate_stable ?? touchdownSummary.ultimate_stability_gateStable,
-      ),
-      gateFailures: normalizeGateFailures(
-        touchdownSummary.ultimate_stability_gate_failures ?? touchdownSummary.ultimate_stability_gateFailures,
-      ),
+      score: null,
+      verdict: null,
+      scoringContext: null,
+      gateStable: null,
+      gateFailures: [],
     },
     crosswind: roundSignedMagnitude(touchdownSummary.xwind_kts),
     windSpeed: touchdownSummary.wind_speed_kts != null ? Math.round(touchdownSummary.wind_speed_kts) : null,
@@ -1133,7 +1077,7 @@ function createLandingRunner(): LandingRunner {
   let rolloutActive = false;
   let rolloutDeadline = 0;
   let rolloutFinalizeDeadline = 0;
-  let touchdownSummary: AnyRecord | null = null; // { vs_fpm, ias_kts, ra_ft, alt_msl_ft, lights, grade, gforce }
+  let touchdownSummary: AnyRecord | null = null;
   let excursionDetected = false;
   let excursionFilter = new RunwayExcursionFilter();
   let lastRunwayLike: boolean | null = null;
@@ -1182,85 +1126,6 @@ function createLandingRunner(): LandingRunner {
     bounceAirborneDistanceFt = 0;
     lastGroundAltitudeFt = null;
     lastGroundRadioHeightFt = null;
-  }
-
-  function encodeUltimateStabilityBreakdown(ultimateScore: AnyRecord | null | undefined): string {
-    if (!ultimateScore || typeof ultimateScore !== 'object') return '';
-
-    const parts: string[] = [];
-
-    const breakdown = ultimateScore.breakdown && typeof ultimateScore.breakdown === 'object'
-      ? ultimateScore.breakdown
-      : null;
-
-    if (breakdown) {
-      const keys = Object.keys(breakdown).sort();
-      for (const k of keys) {
-        const v = breakdown[k];
-        if (v == null) continue;
-        parts.push(`${k}=${v}`);
-      }
-    }
-
-    if (Number.isFinite(ultimateScore.samples)) {
-      parts.push(`samples=${ultimateScore.samples}`);
-    }
-    if (typeof ultimateScore.gateStable === 'boolean') {
-      parts.push(`gateStable=${ultimateScore.gateStable ? 1 : 0}`);
-    }
-    if (Array.isArray(ultimateScore.gateFailures) && ultimateScore.gateFailures.length > 0) {
-      parts.push(`gateFailures=${ultimateScore.gateFailures.map(String).join('|')}`);
-    }
-
-    return parts.join(';');
-  }
-
-  function getUltimateStabilityFlatFields(ultimateScore: AnyRecord | null | undefined): AnyRecord {
-    const breakdown = ultimateScore && ultimateScore.breakdown && typeof ultimateScore.breakdown === 'object'
-      ? ultimateScore.breakdown
-      : null;
-
-    const pct = (key: string): number | null => {
-      if (!breakdown) return null;
-      const v = breakdown[key];
-      return Number.isFinite(v) ? v : null;
-    };
-
-    return {
-      ultimate_stability_verdict:
-        ultimateScore && typeof ultimateScore.verdict === 'string'
-          ? ultimateScore.verdict
-          : null,
-      ultimate_stability_samples:
-        ultimateScore && Number.isFinite(ultimateScore.samples)
-          ? ultimateScore.samples
-          : null,
-      ultimate_stability_gate_stable:
-        ultimateScore && typeof ultimateScore.gateStable === 'boolean'
-          ? ultimateScore.gateStable
-          : null,
-      ultimate_stability_gateFailures:
-        ultimateScore && Array.isArray(ultimateScore.gateFailures) && ultimateScore.gateFailures.length > 0
-          ? ultimateScore.gateFailures.map(String).join('|')
-          : null,
-
-      ultimate_stability_gear_ok_pct: pct('gear_ok'),
-      ultimate_stability_flaps_ok_pct: pct('flaps_ok'),
-      ultimate_stability_spoilers_ok_pct: pct('spoilers_ok'),
-      ultimate_stability_config_ok_pct: pct('config_ok'),
-      ultimate_stability_speed_ok_pct: pct('speed_ok'),
-      ultimate_stability_speed_trend_ok_pct: pct('speed_trend_ok'),
-      ultimate_stability_vs_ok_pct: pct('vs_ok'),
-      ultimate_stability_glidepath_ok_pct: pct('glidepath_ok'),
-      ultimate_stability_glidepath_below_ok_pct: pct('glidepath_below_ok'),
-      ultimate_stability_glidepath_above_ok_pct: pct('glidepath_above_ok'),
-      ultimate_stability_thrust_ok_pct: pct('thrust_ok'),
-      ultimate_stability_thrust_not_idle_ok_pct: pct('thrust_not_idle_ok'),
-      ultimate_stability_thrust_stable_ok_pct: pct('thrust_stable_ok'),
-      ultimate_stability_pitch_ok_pct: pct('pitch_ok'),
-      ultimate_stability_bank_ok_pct: pct('bank_ok'),
-      ultimate_stability_lateral_offset_ok_pct: pct('lateral_offset_ok'),
-    };
   }
 
   function selectTouchdownVsFpm({ display, vs, lastVS, nowEpochMs }: {
@@ -1443,14 +1308,14 @@ function createLandingRunner(): LandingRunner {
    * Update landing runner with current frame. Emits landing log on touchdown.
    * @param {object} frame - current normalized frame (with frame.display for display units)
    * @param {(obj:any)=>void} broadcast - WS broadcast fn
-   * @param {{ nowEpochMs?:number, nowIso?:string, flightStartEpochMs?:number|null, flightStartIso?:string }=} timeCtx
+   * @param {{ nowEpochMs?:number, flightStartEpochMs?:number|null, flightStartIso?:string }=} timeCtx
    */
   function update(frame: AnyRecord, broadcast?: BroadcastFn | null, timeCtx?: TimeContext, ctx: LandingRunnerContext = {}): void {
     if (!frame || typeof frame !== 'object') return;
     const emit: BroadcastFn = typeof broadcast === 'function' ? broadcast : () => {};
 
-    const { wow, vs, ra, ias, alt_msl, lights, surface, gs, display } = frame;
-    const { phase, xwind_kts, stability } = ctx;
+    const { wow, vs, ra, ias, alt_msl, surface, gs, display } = frame;
+    const { phase, xwind_kts } = ctx;
 
     const nowEpochMsCurrent = (timeCtx && typeof timeCtx.nowEpochMs === 'number') ? timeCtx.nowEpochMs : timeSource.now();
 
@@ -1585,20 +1450,7 @@ function createLandingRunner(): LandingRunner {
           vs_fpm: vs_fpm_check,
           reason: 'IAS too low and no descent rate',
         });
-        // Emit rejected touchdown event for audit trail (annotate-don't-reject pattern)
-        // Raw data is preserved; downstream can filter by _rejected flag
-        emitRejectedTouchdown({
-          reason: 'teleport_or_load',
-          criteria: {
-            ias_kts: ias_kts_check,
-            vs_fpm: vs_fpm_check,
-            minIasKts: minIasKts,
-            minVsFpm: minVsFpm,
-          },
-          nowEpochMs,
-          vsFpm: vs_fpm_check,
-          iasKts: ias_kts_check,
-        });
+
         // Don't process this as a real touchdown - skip downstream logic
         return;
       }
@@ -1624,16 +1476,7 @@ function createLandingRunner(): LandingRunner {
           ias_kts: ias_kts_check,
           vs_fpm: vs_fpm_check,
         });
-        emitRejectedTouchdown({
-          reason: 'takeoff_settling',
-          criteria: {
-            peak_ra_ft: peakRaFt,
-            min_required_ra_ft: minAirborneRaFt,
-          },
-          nowEpochMs,
-          vsFpm: vs_fpm_check,
-          iasKts: ias_kts_check,
-        });
+
         return;
       }
 
@@ -1699,12 +1542,9 @@ function createLandingRunner(): LandingRunner {
             bounceVsSource: bounceVsSelection.source,
           }, bounceAssessment);
         }
-        
+
         // Keep rollout monitoring state from the first touchdown
       } else {
-      const nowIso = (timeCtx && typeof timeCtx.nowIso === 'string') ? timeCtx.nowIso : new Date(nowEpochMs).toISOString();
-      const flightStartEpochMs = (timeCtx && typeof timeCtx.flightStartEpochMs === 'number') ? timeCtx.flightStartEpochMs : null;
-      const flightStartIso = (timeCtx && typeof timeCtx.flightStartIso === 'string') ? timeCtx.flightStartIso : '';
 
       // Use display units from frame (pre-converted by telemetry provider)
       // Fall back to manual conversion when formatted display data is unavailable.
@@ -1750,14 +1590,6 @@ function createLandingRunner(): LandingRunner {
       const stableStr = '--';
       const breakdown = null;
 
-      const ultimateScore = stability && stability.ultimateScore ? stability.ultimateScore : null;
-      const ultimateStabilityScore =
-        ultimateScore && Number.isFinite(ultimateScore.overall) ? ultimateScore.overall
-          : ultimateScore && Number.isFinite(ultimateScore.score) ? ultimateScore.score
-            : null;
-      const ultimateStabilityBreakdown = encodeUltimateStabilityBreakdown(ultimateScore);
-      const ultimateStabilityFlat = getUltimateStabilityFlatFields(ultimateScore);
-
       Debug.log('landing', 'Touchdown detected', { vs_fpm: vs_fpm, ias_kts: ias_kts, ra_ft: ra_ft, grade: grade.grade, gforce, vs_source: vsSelection.source });
 
       // Capture FIRST touchdown data for bounce analysis
@@ -1768,7 +1600,7 @@ function createLandingRunner(): LandingRunner {
       bounceAirborneDistanceFt = 0;
       worstBounceGforce = gforce;
       const firstPosition = getTouchdownPosition(frame);
-      
+
       firstTouchdown = {
         lat: firstPosition.lat_deg,
         lon: firstPosition.lon_deg,
@@ -1797,43 +1629,6 @@ function createLandingRunner(): LandingRunner {
         });
       } catch {}
 
-      // Build early touchdown summary for event bus emission
-      const earlyTouchdownSummary = {
-        vs_fpm,
-        ias_kts,
-        ra_ft,
-        alt_msl_ft: alt_msl,
-        ...touchdownSnapshot,
-        stability: stableStr,
-        ultimate_stability_score: ultimateStabilityScore,
-        ultimate_stability_breakdown: ultimateStabilityBreakdown,
-        landing_rate_context: landingRateContext,
-        ...ultimateStabilityFlat,
-        gforce,
-      };
-
-      // Emit early touchdown event (landing_final: false)
-      // Subscribers can use this for crash investigation and pre-rollout analysis.
-      try {
-        const earlyPayload = buildLandingPayload({
-          touchdownSummary: earlyTouchdownSummary,
-          ctx,
-          finalGrade: grade,
-          touchdownDistanceData: {},
-          nowEpochMs,
-          nowIso,
-          timeCtx: { flightStartIso, flightStartEpochMs },
-          phase,
-          excursionDetected: false,
-          userId: getUserId(),
-          sessionId: getSessionId(),
-          schemaVersion: config.telemetry.schemaVersion,
-        });
-        // Mark as early (not final) - used by subscribers to decide storage destination
-        earlyPayload.landing_final = false;
-        eventBus.emit('landing:early', earlyPayload);
-      } catch {}
-
       // Start rollout monitoring window for runway excursion detection
       rolloutActive = true;
       const rolloutWindowMs = Math.max(ROLLOUT_WINDOW_MS, 0);
@@ -1852,16 +1647,12 @@ function createLandingRunner(): LandingRunner {
         ias_kts,
         ra_ft,
         alt_msl_ft: alt_msl,
-        lights,
         grade,
         landing_rate_context: landingRateContext,
         gforce,
         runway_occupancy_s: null,
         stability: stableStr,
         breakdown,
-        ultimate_stability_score: ultimateStabilityScore,
-        ultimate_stability_breakdown: ultimateStabilityBreakdown,
-        ...ultimateStabilityFlat,
         // Capture frame data at touchdown for final event payload and CSV recording
         ...touchdownSnapshot,
         // Surface contamination inputs captured at touchdown (used downstream by
@@ -1932,7 +1723,7 @@ function createLandingRunner(): LandingRunner {
       ) {
         rolloutAnalysisSamples.push(buildLiveRolloutAnalysisSample(frame, ctx, now));
       }
-      
+
       // Require a sustained, explicit transition from the runway to an unpaved
       // or water surface above the taxi threshold. Unknown/paved exits cannot
       // establish an excursion from this telemetry.
@@ -2060,7 +1851,7 @@ function createLandingRunner(): LandingRunner {
         // FINAL TOUCHDOWN: Emit via event bus
         // Subscribers (CSV?) receive the same canonical payload.
         // =================================================================
-        
+
         const finalPayload = buildLandingPayload({
           touchdownSummary,
           ctx,

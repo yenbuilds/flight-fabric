@@ -113,21 +113,20 @@ async function runBrowser() {
     for (const profileId of ['fbw-a32nx', 'fenix-a319', 'fenix-a320', 'fenix-a321']) {
       await windowRef.loadURL(`${process.env.FF_BARO_CONTROLS_TEST_URL}?profile=${profileId}&guide=1`);
       for (let attempt = 0; attempt < 100; attempt++) {
-        if (await evaluate('return Boolean(document.querySelector("[data-more-state-queries]"));')) break;
+        if (await evaluate('return Boolean(document.querySelector("[data-voice-control-panel]"));')) break;
         await wait(50);
       }
-      assert.equal(await evaluate('return document.querySelector("[data-more-state-queries]").open;'), false);
+      assert.equal(await evaluate('return Boolean(document.querySelector("[data-more-state-queries]"));'), false);
       for (const width of [320, 768]) {
         windowRef.setContentSize(width, 1000); await wait(100);
-        await evaluate('await baroTest.scenario(); document.querySelector("[data-more-state-queries]").open = true; await baroTest.settle();');
+        await evaluate('await baroTest.scenario(); await baroTest.settle();');
         const guide = await evaluate(`return { overflow: document.documentElement.scrollWidth > innerWidth,
-          text: document.querySelector('[data-state-query-guide]').textContent };`);
-        assert.equal(guide.overflow, false, `${profileId} expanded questions at ${width}`);
-        assert.match(guide.text, /what is captain qnh/); assert.match(guide.text, /are both altimeters on std/);
-        assert.match(guide.text, /what is the autobrake setting/);
-        assert.deepEqual(await evaluate('return baroTest.sent;'), [], 'opening the question guide never dispatches a command');
+          text: document.querySelector('[data-voice-control-panel]').textContent };`);
+        assert.equal(guide.overflow, false, `${profileId} compact voice panel at ${width}`);
+        assert.doesNotMatch(guide.text, /Ask about the aircraft|Ask about the flight plan|Try saying/);
+        assert.deepEqual(await evaluate('return baroTest.sent;'), [], 'opening the voice panel never dispatches a command');
         await windowRef.webContents.capturePage(); await wait(100);
-        fs.writeFileSync(path.join(OUTPUT, `query-guide-${profileId}-${width}.png`), (await windowRef.webContents.capturePage()).toPNG());
+        fs.writeFileSync(path.join(OUTPUT, `voice-panel-${profileId}-${width}.png`), (await windowRef.webContents.capturePage()).toPNG());
       }
     }
     assert.deepEqual(errors, []);

@@ -2509,6 +2509,14 @@ integration:
         cooldownMs: 450
         groupId: pmdg737.mcp.speed
         retry: never
+        # NG3 SDK: MCP_IASMach < 10 means Mach; MACH_SET works only if active.
+        # mcp.speed is rounded to two decimals and unavailable for a blank window.
+        requires:
+          - fieldId: mcp.speed
+            freshness: field
+            min: 0
+            max: 9.99
+            failureHint: Select Mach mode in the MCP speed window before setting a Mach target.
       routes:
         - id: pmdg737.mcp.mach.set.sdk
           transport: sdk

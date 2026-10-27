@@ -84,7 +84,7 @@ function createVoiceRuntime({
   let shortcutError = '';
   let shortcut = DEFAULT_PUSH_TO_TALK_SHORTCUT;
   let storedSettings = {};
-  let readbackSelection = 'kokoro';
+  let readbackSelection = 'windows-sapi';
   let readbackVoices = {};
   let readbackOwner = null;
   let recognitionEnabled = false;
@@ -206,8 +206,8 @@ function createVoiceRuntime({
     }
     // Retain unknown preferences as inert data across saves, including retired settings.
     storedSettings = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    try { readbackSelection = validateReadbackEngine(storedSettings.readbackEngine || 'kokoro'); }
-    catch { readbackSelection = 'kokoro'; }
+    try { readbackSelection = validateReadbackEngine(storedSettings.readbackEngine || 'windows-sapi'); }
+    catch { readbackSelection = 'windows-sapi'; }
     readback.select?.(readbackSelection);
     readbackVoices = {};
     for (const definition of READBACK_ENGINES.filter(engine => engine.defaultVoice)) {

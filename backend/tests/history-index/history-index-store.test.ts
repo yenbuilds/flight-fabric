@@ -301,6 +301,30 @@ test('history index store replaces one source transactionally', (t) => {
   });
 });
 
+test('history index flight timestamps survive JSON storage and fall back to source time', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  withTempStore((store, tmpRoot) => {
+    const timestamp = '2026-07-09T12:00:00.000Z';
+    const mtimeMs = Date.parse('2026-07-09T14:00:00.000Z');
+    store.replaceSourceIndex({
+      source: { filePath: sourcePath(tmpRoot, 'timestamps.csv'), mtimeMs, sizeBytes: 1000 },
+      flights: [
+        { flightId: 'date', payload: { timestamp: new Date(timestamp) } },
+        { flightId: 'string', payload: { timestamp } },
+        { flightId: 'missing', payload: {} },
+        { flightId: 'null', payload: { timestamp: null } },
+      ],
+    });
+
+    const flights = new Map(store.queryFlights().flights.map((flight) => [flight.flightId, flight.timestamp]));
+    assert.equal(flights.get('date'), timestamp);
+    assert.equal(flights.get('string'), timestamp);
+    assert.equal(flights.get('missing'), new Date(mtimeMs).toISOString());
+    assert.equal(flights.get('null'), new Date(mtimeMs).toISOString());
+  });
+});
+
 test('history index normalizes retired spoiler penalties before persistence', (t) => {
   if (skipIfNoSqlite(t)) return;
 
@@ -359,6 +383,23 @@ test('history index normalizes retired spoiler penalties before persistence', (t
     assert.equal(landing.payload.stabilityBreakdown.config_ok, 100);
     assert.equal(landing.payload.stabilityBreakdown.spoilers_ok, 100);
     assert.equal(store.queryLogbookStats().trends.aircraft[0].avgStabilityScore, 89);
+
+    const withoutBreakdown = store.replaceSourceIndex({
+      source: { filePath: sourcePath(tmpRoot, 'legacy-spoiler-without-breakdown.csv'), mtimeMs: 100, sizeBytes: 1000 },
+      landings: [{
+        landingId: 'legacy-spoiler-without-breakdown',
+        timestampMs: 3000,
+        timestamp: '2026-07-30T02:51:46.468Z',
+        gateStable: false,
+        stabilityScore: 90,
+        stabilityGateFailures: ['spoilers_moved_after_gate'],
+      }],
+    });
+    const normalized = store.queryLatestLandingForSource(withoutBreakdown.source.sourceId);
+    assert.equal(normalized.stabilityScore, 90);
+    assert.equal(normalized.stabilityVerdict, 'stable');
+    assert.equal(normalized.gateStable, true);
+    assert.deepEqual(normalized.stabilityGateFailures, []);
   });
 });
 
@@ -973,6 +1014,43 @@ test('history index store computes logbook stats from indexed columns without lo
     assert.equal(noVerdictAirport.avgStabilityScore, null);
     assert.equal(noVerdictAirport.trendStability, null);
   });
+});
+
+test('history index trends require three observed values and preserve each metric direction', (t) => {
+  if (skipIfNoSqlite(t)) return;
+
+  const cases = [
+    { name: 'missing', vs: [null, null, null], stability: [null, null, null], expected: [null, null] },
+    { name: 'two observed', vs: [-300, null, -200], stability: [80, null, 90], expected: [null, null] },
+    { name: 'improving', vs: [-300, -250, -200], stability: [80, 85, 90], expected: ['improving', 'improving'] },
+    { name: 'regressing', vs: [-200, -250, -300], stability: [90, 85, 80], expected: ['regressing', 'regressing'] },
+    { name: 'steady', vs: [-200, -200, -200], stability: [90, 90, 90], expected: ['stable', 'stable'] },
+    { name: 'opposite directions', vs: [-300, -250, -200], stability: [90, 85, 80], expected: ['improving', 'regressing'] },
+  ];
+  for (const fixture of cases) {
+    withTempStore((store, tmpRoot) => {
+      const startMs = Date.parse('2026-07-09T12:00:00.000Z');
+      store.replaceSourceIndex({
+        source: { filePath: sourcePath(tmpRoot, 'trends.csv'), mtimeMs: startMs, sizeBytes: 1000 },
+        landings: fixture.vs.map((vsFpm, index) => ({
+          landingId: `landing-${index}`,
+          timestampMs: startMs + index * 86400000,
+          timestamp: new Date(startMs + index * 86400000).toISOString(),
+          aircraft: '737-800',
+          icao: 'YSSY',
+          runway: '16R',
+          vsFpm,
+          stabilityScore: fixture.stability[index],
+        })),
+      });
+
+      const trends = store.queryLogbookStats().trends;
+      for (const kind of ['aircraft', 'airports', 'runways']) {
+        assert.deepEqual([trends[kind][0].trendVs, trends[kind][0].trendStability], fixture.expected,
+          `${fixture.name}: ${kind}`);
+      }
+    });
+  }
 });
 
 test('history index trend labels are independent of sample count for equal window changes', (t) => {

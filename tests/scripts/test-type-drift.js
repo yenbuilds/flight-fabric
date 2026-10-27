@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 // test-type-drift.js
-// Static-analysis guard: runtime object shapes vs JSDoc typedefs in types.js.
+// Static-analysis guard: runtime shapes vs the remaining legacy JSDoc registry,
+// plus settings-default, editor and onboarding regressions.
 //
 // Each test reads one or more source files that PRODUCE an object, extracts the
 // actual field names / enum values with a regex, then verifies they all appear
-// in the corresponding @typedef in backend/core/types.js.
+// in the corresponding @typedef in backend/core/types.ts.
+// Wire contracts already covered by test-package-drift.js use the real types in
+// packages/telemetry-types/src/messages.ts; do not duplicate them here.
 //
 // When to update this file:
 //   - When adding a new field to a runtime object shape (add a test or extend an
 //     existing one to cover the new field).
 //   - When renaming a field (update the regression guard, add new positive assertion).
-//   - When adding a new @typedef to types.js that has a clear single-source-of-truth
-//     file (add a new test block).
+//   - Add new contract types beside their owner or in packages/telemetry-types,
+//     with checks against those types rather than expanding the legacy registry.
 //
 // What this does NOT cover:
 //   - Optional fields that are conditionally present and not in any single object
@@ -100,9 +103,9 @@ function stripComments(source) {
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
-// ─── types.js helpers ──────────────────────────────────────────────────────
+// ─── Legacy registry helpers ───────────────────────────────────────────────
 
-const TYPES_SOURCE = read('backend/core/types.js');
+const TYPES_SOURCE = read('backend/core/types.ts');
 
 /**
  * Return the Set of @property names documented in a specific @typedef block.
@@ -111,7 +114,7 @@ const TYPES_SOURCE = read('backend/core/types.js');
 function getTypedefProperties(typedefName) {
   const typedefRe = new RegExp(`@typedef \\{Object\\} ${typedefName}\\b`);
   const match = typedefRe.exec(TYPES_SOURCE);
-  assert(match, `typedef ${typedefName} not found in types.js`);
+  assert(match, `typedef ${typedefName} not found in types.ts`);
   const start = match.index;
   const end = TYPES_SOURCE.indexOf('*/', start);
   assert(end !== -1, `typedef ${typedefName} block is not closed`);
@@ -133,7 +136,7 @@ function getTypedefProperties(typedefName) {
 function getPropertyUnionValues(typedefName, propertyName) {
   const typedefRe = new RegExp(`@typedef \\{Object\\} ${typedefName}\\b`);
   const match = typedefRe.exec(TYPES_SOURCE);
-  assert(match, `typedef ${typedefName} not found in types.js`);
+  assert(match, `typedef ${typedefName} not found in types.ts`);
   const start = match.index;
   const end = TYPES_SOURCE.indexOf('*/', start);
   const block = TYPES_SOURCE.slice(start, end);
@@ -211,8 +214,8 @@ test('LandingEvent.grade union exactly matches runtime grade strings in landing.
 
   const missing = [...runtimeGrades].filter(g => !documented.has(g));
   const extra   = [...documented].filter(g => !runtimeGrades.has(g));
-  assert(missing.length === 0, `runtime grades missing from types.js: ${missing.join(', ')}`);
-  assert(extra.length   === 0, `types.js grades not in landing.js: ${extra.join(', ')}`);
+  assert(missing.length === 0, `runtime grades missing from types.ts: ${missing.join(', ')}`);
+  assert(extra.length   === 0, `types.ts grades not in landing.js: ${extra.join(', ')}`);
 });
 
 test('LandingEvent documents vs_fpm (not the bare "vs" field)', () => {
@@ -238,8 +241,8 @@ test('FlapState.source union exactly matches runtime source strings in flaps.js'
 
   const missing = [...runtimeSources].filter(s => !documented.has(s));
   const extra   = [...documented].filter(s => !runtimeSources.has(s));
-  assert(missing.length === 0, `FlapState sources in flaps.js missing from types.js: ${missing.join(', ')}`);
-  assert(extra.length   === 0, `FlapState sources in types.js not in flaps.js: ${extra.join(', ')}`);
+  assert(missing.length === 0, `FlapState sources in flaps.js missing from types.ts: ${missing.join(', ')}`);
+  assert(extra.length   === 0, `FlapState sources in types.ts not in flaps.js: ${extra.join(', ')}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -259,7 +262,7 @@ test('StabilityBreakdown documents all _ok fields produced by stability-runner.j
   const missing = [...runtimeFields].filter(f => !documented.has(f));
   assert(
     missing.length === 0,
-    `StabilityBreakdown fields in stability-runner not in types.js: ${missing.join(', ')}`,
+    `StabilityBreakdown fields in stability-runner not in types.ts: ${missing.join(', ')}`,
   );
 });
 
@@ -277,7 +280,7 @@ test('GearState documents all fields returned by decodeGearState in helpers.js',
   const missing = [...runtimeFields].filter(f => !documented.has(f));
   assert(
     missing.length === 0,
-    `GearState fields from decodeGearState not in types.js: ${missing.join(', ')}`,
+    `GearState fields from decodeGearState not in types.ts: ${missing.join(', ')}`,
   );
 });
 
@@ -290,7 +293,7 @@ test('GearState documents broadcast-time fields added by computeGearBroadcastSta
   const missing = [...runtimeFields].filter(f => !documented.has(f));
   assert(
     missing.length === 0,
-    `GearState broadcast fields in computeGearBroadcastState not in types.js: ${missing.join(', ')}`,
+    `GearState broadcast fields in computeGearBroadcastState not in types.ts: ${missing.join(', ')}`,
   );
 });
 
@@ -428,42 +431,6 @@ function getRuntimePayloadFields(payload) {
   return new Set(Object.keys(payload).filter((field) => field !== 'type'));
 }
 
-/**
- * Scan `src` for broadcast({ ... }) calls and return the field set from the
- * first call whose body contains `msgTypeRef`. Returns null if not found.
- * Handles multi-line and single-line objects, and shorthand properties.
- * Excludes the `type` field.
- */
-function getBroadcastFieldsByType(src, msgTypeRef) {
-  let searchFrom = 0;
-  while (true) {
-    const idx = src.indexOf('broadcast({', searchFrom);
-    if (idx === -1) break;
-    const fromBc = src.slice(idx);
-    const openIdx = fromBc.indexOf('{');
-    let depth = 0;
-    let closeIdx = -1;
-    for (let i = openIdx; i < fromBc.length; i++) {
-      if (fromBc[i] === '{') depth++;
-      else if (fromBc[i] === '}') { depth--; if (depth === 0) { closeIdx = i; break; } }
-    }
-    if (closeIdx === -1) break;
-    const body = fromBc.slice(openIdx + 1, closeIdx);
-    if (body.includes(msgTypeRef)) {
-      const fields = new Set();
-      const isMultiLine = body.includes('\n');
-      const re = isMultiLine ? /^\s+(\w+)\s*[,:]/gm : /\b(\w+)\s*:/g;
-      let m;
-      while ((m = re.exec(body)) !== null) {
-        if (m[1] !== 'type') fields.add(m[1]);
-      }
-      return fields;
-    }
-    searchFrom = idx + 11;
-  }
-  return null;
-}
-
 function getObjectFieldsForContainingText(src, opener, matchText, excludeFields = ['type']) {
   let searchFrom = 0;
   while (true) {
@@ -525,104 +492,6 @@ function getUnionObjectFieldsForContainingText(src, opener, matchText, excludeFi
   return found ? union : null;
 }
 
-test('AutopilotState fields exactly match sendAutopilot broadcast object (bidirectional)', () => {
-  const runtimeFields = getRuntimePayloadFields(
-    broadcastersRuntime.buildAutopilotBroadcastPayload(
-      {
-        apMaster: true,
-        apFdActive: true,
-        athrArmed: true,
-        athrActive: true,
-        apHdgHold: true,
-        apNavHold: true,
-        apLnavHold: true,
-        apLocHold: true,
-        apAltHold: true,
-        apVsHold: true,
-        apVnavHold: true,
-        apLvlChgHold: true,
-        apExpedHold: true,
-        apApprHold: true,
-        apSpeedHold: true,
-        apHdgTargetDeg: 180,
-        apAltTargetFt: 3000,
-        apVsTargetFpm: -700,
-        apSpeedTargetKts: 150,
-        apMachTarget: 0.78,
-      },
-      { apReliable: true, athrReliable: true, reason: 'test' },
-    ),
-  );
-  const documented = getTypedefProperties('AutopilotState');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `broadcast fields not in AutopilotState typedef: ${missing.join(', ')}`);
-  assert(extra.length   === 0, `AutopilotState typedef fields not in broadcast: ${extra.join(', ')}`);
-});
-
-test('AttitudeState fields exactly match sendAttitude broadcast object (bidirectional)', () => {
-  const runtimeFields = getRuntimePayloadFields(
-    broadcastersRuntime.buildAttitudeBroadcastPayload({
-      valid: true,
-      pitchDeg: 2,
-      bankDeg: -1,
-      pitchRad: 0.034,
-      bankRad: -0.017,
-      pitchSource: 'simconnect',
-      bankSource: 'simconnect',
-      pitchRaw: 0.034,
-      bankRaw: -0.017,
-      pitchDegPrimary: 2,
-      bankDegPrimary: -1,
-      pitchModePrimary: 'primary',
-      bankModePrimary: 'primary',
-    }),
-  );
-  const documented = getTypedefProperties('AttitudeState');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `broadcast fields not in AttitudeState typedef: ${missing.join(', ')}`);
-  assert(extra.length   === 0, `AttitudeState typedef fields not in broadcast: ${extra.join(', ')}`);
-});
-
-test('AltitudeData fields exactly match MSG.ALTITUDE broadcast in sendBasicStreams (bidirectional)', () => {
-  const runtimeFields = getRuntimePayloadFields(
-    broadcastersRuntime.buildAltitudeBroadcastPayload({
-      vsFeetPerMin: -700,
-      iasKnots: 145,
-      gsKnots: 150,
-      alt_msl_ft: 3000,
-      raFeet: 1200,
-      pressureAltFt: 3200,
-      xwind: 15,
-      lights: {},
-      hdgMag: 180,
-      hdgTrue: 185,
-    }),
-  );
-  const documented = getTypedefProperties('AltitudeData');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `MSG.ALTITUDE broadcast fields not in AltitudeData typedef: ${missing.join(', ')}`);
-  assert(extra.length   === 0, `AltitudeData typedef fields not in MSG.ALTITUDE broadcast: ${extra.join(', ')}`);
-});
-
-test('EnvironmentData fields exactly match sendEnvironment broadcast object (bidirectional)', () => {
-  const runtimeFields = getRuntimePayloadFields(
-    broadcastersRuntime.buildEnvironmentBroadcastPayload({
-      cabinAltFt: 7200,
-      cabinAltRateFpm: 300,
-      cabinAltTargetFt: 6500,
-      oatC: 7,
-    }),
-  );
-  const documented = getTypedefProperties('EnvironmentData');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `broadcast fields not in EnvironmentData typedef: ${missing.join(', ')}`);
-  assert(extra.length   === 0, `EnvironmentData typedef fields not in broadcast: ${extra.join(', ')}`);
-});
-
 test('SimState fields exactly match publishSimState const object in simbridge-core.js (bidirectional)', () => {
   const runtimeFields = extractBroadcastFields(SIMBRIDGE_CORE_SRC, 'const simState = {');
   const documented = getTypedefProperties('SimState');
@@ -630,25 +499,6 @@ test('SimState fields exactly match publishSimState const object in simbridge-co
   const extra   = [...documented].filter(f => !runtimeFields.has(f));
   assert(missing.length === 0, `simState object fields not in SimState typedef: ${missing.join(', ')}`);
   assert(extra.length   === 0, `SimState typedef fields not in simState object: ${extra.join(', ')}`);
-});
-
-test('UltimateStabilityScoreData fields exactly match MSG.ULTIMATE_STABILITY_SCORE broadcast (bidirectional)', () => {
-  // Use getBroadcastFieldsByType to avoid matching the Debug.log object that follows the broadcast.
-  const runtimeFields = getBroadcastFieldsByType(SIMBRIDGE_CORE_SRC, 'MSG.ULTIMATE_STABILITY_SCORE');
-  const documented = getTypedefProperties('UltimateStabilityScoreData');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `ULTIMATE_STABILITY_SCORE broadcast fields not in typedef: ${missing.join(', ')}`);
-  assert(extra.length   === 0, `UltimateStabilityScoreData typedef fields not in broadcast: ${extra.join(', ')}`);
-});
-
-test('VreSamplingData fields exactly match MSG.VRE_SAMPLING broadcast (bidirectional)', () => {
-  const runtimeFields = getBroadcastFieldsByType(SIMBRIDGE_CORE_SRC, 'MSG.VRE_SAMPLING');
-  const documented = getTypedefProperties('VreSamplingData');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `VRE_SAMPLING broadcast fields not in typedef: ${missing.join(', ')}`);
-  assert(extra.length   === 0, `VreSamplingData typedef fields not in broadcast: ${extra.join(', ')}`);
 });
 
 test('FlightViolationPayload fields exactly match MSG.FLIGHT_VIOLATION payload object (bidirectional)', () => {
@@ -865,7 +715,7 @@ test('AppSettings section fields exactly match buildAppSettingsMessage() nested 
     const documented = getTypedefProperties(typedefName);
     const missing = [...runtimeFields].filter(f => !documented.has(f));
     const extra   = [...documented].filter(f => !runtimeFields.has(f));
-    assert(missing.length === 0, `${typedefName} fields missing from types.js: ${missing.join(', ')}`);
+    assert(missing.length === 0, `${typedefName} fields missing from types.ts: ${missing.join(', ')}`);
     assert(extra.length === 0, `${typedefName} typedef fields not present in buildAppSettingsMessage: ${extra.join(', ')}`);
   }
 });
@@ -1183,17 +1033,6 @@ test('FuelMessage fields exactly match sendFuel broadcast object (bidirectional)
   assert(extra.length === 0, `FuelMessage typedef fields not in sendFuel payload: ${extra.join(', ')}`);
 });
 
-test('PositionMessage fields exactly match sendPosition broadcast object (bidirectional)', () => {
-  const runtimeFields = getRuntimePayloadFields(
-    broadcastersRuntime.buildPositionBroadcastPayload({ lat: 47.45, lon: -122.31, hdg: 165 }),
-  );
-  const documented = getTypedefProperties('PositionMessage');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `sendPosition fields not in PositionMessage typedef: ${missing.join(', ')}`);
-  assert(extra.length === 0, `PositionMessage typedef fields not in sendPosition payload: ${extra.join(', ')}`);
-});
-
 test('SurfaceState fields exactly match normalized surface object shape (bidirectional)', () => {
   const src = stripComments(read('backend/telemetry-provider/simconnect-telemetry-provider.js'));
   const fnIdx = src.indexOf('_decodeSurfaceType(type, wow, onAnyRunway) {');
@@ -1223,17 +1062,6 @@ test('SurfaceMessage fields exactly match sendSurface broadcast object (bidirect
   const extra   = [...documented].filter(f => !runtimeFields.has(f));
   assert(missing.length === 0, `sendSurface fields not in SurfaceMessage typedef: ${missing.join(', ')}`);
   assert(extra.length === 0, `SurfaceMessage typedef fields not in sendSurface payload: ${extra.join(', ')}`);
-});
-
-test('ControlsMessage fields exactly match sendControls broadcast object (bidirectional)', () => {
-  const runtimeFields = getRuntimePayloadFields(
-    broadcastersRuntime.buildControlsBroadcastPayload({ yokeX: 12, yokeY: -4, rudderPedalPct: 6 }),
-  );
-  const documented = getTypedefProperties('ControlsMessage');
-  const missing = [...runtimeFields].filter(f => !documented.has(f));
-  const extra   = [...documented].filter(f => !runtimeFields.has(f));
-  assert(missing.length === 0, `sendControls fields not in ControlsMessage typedef: ${missing.join(', ')}`);
-  assert(extra.length === 0, `ControlsMessage typedef fields not in sendControls payload: ${extra.join(', ')}`);
 });
 
 test('EnginesData documents all runtime fields from engine payload builders', () => {

@@ -295,12 +295,12 @@ var FlightFabricToolbarTaxi = (() => {
     const detail = p.phase === "complete" ? " \xB7 Taxi manually to the holding point for runway " + p.runway + "." : " \xB7 " + remaining + (p.phase === "preview" ? " m reverse" : " m remaining") + " \xB7 Final nose direction " + heading + " \xB7 Then taxi manually to runway " + p.runway + ".";
     return (!fresh ? "Reference only \xB7 Live position unavailable. " : "") + stage + detail;
   }
-  function renderPushbackMap(root, data, fresh = true) {
+  function renderPushbackMap(root, data, fresh = true, formatText = String) {
     var _a;
     root.setAttribute("viewBox", "0 0 360 300");
     root.setAttribute("role", "img");
     root.setAttribute("focusable", "false");
-    root.setAttribute("aria-label", pushbackCaption(data, fresh));
+    root.setAttribute("aria-label", formatText(pushbackCaption(data, fresh)));
     root.setAttribute("data-pushback-map", "");
     const preview = data == null ? void 0 : data.pushbackPreview, points = preview == null ? void 0 : preview.points;
     if (!Array.isArray(points) || points.length < 2 || !points.every(point) || !Number.isFinite(preview.headingDeg)) {
@@ -311,7 +311,7 @@ var FlightFabricToolbarTaxi = (() => {
     let view = views2.get(root);
     if (!view || view.id !== preview.id || view.sceneKey !== ((_a = data.scene) == null ? void 0 : _a.key) || !root.contains(view.background)) {
       while (root.firstChild) root.removeChild(root.firstChild);
-      view = buildMap(root, data);
+      view = buildMap(root, data, formatText);
       views2.set(root, view);
     }
     const completed = preview.phase === "complete", color = completed ? green : amber;
@@ -320,7 +320,7 @@ var FlightFabricToolbarTaxi = (() => {
     view.ahead.setAttribute("points", view.coordinates(completed ? [] : progress.ahead));
     view.finish.setAttribute("stroke", color);
     view.title.setAttribute("fill", fresh ? color : "var(--taxi-aircraft, #e8eef5)");
-    view.title.textContent = !fresh ? "Reference only" : completed ? "Pushback complete" : preview.phase === "connecting" ? "Connecting tug" : preview.phase === "pushing" ? "Pushing back" : preview.phase === "stopping" ? "Stopping\u2026" : "Pushback preview";
+    view.title.textContent = formatText(!fresh ? "Reference only" : completed ? "Pushback complete" : preview.phase === "connecting" ? "Connecting tug" : preview.phase === "pushing" ? "Pushing back" : preview.phase === "stopping" ? "Stopping\u2026" : "Pushback preview");
     const remaining = Number.isFinite(preview.remainingM) ? preview.remainingM : preview.lengthM;
     view.distance.textContent = !fresh ? "" : completed ? "Ready to taxi" : Math.round(remaining) + (preview.phase === "preview" ? " m reverse" : " m left");
     view.distance.setAttribute("fill", completed ? green : "var(--taxi-aircraft, #e8eef5)");
@@ -348,7 +348,7 @@ var FlightFabricToolbarTaxi = (() => {
       view.aircraft = null;
     }
   }
-  function buildMap(root, data) {
+  function buildMap(root, data, formatText) {
     var _a, _b, _c;
     const preview = data.pushbackPreview, points = preview.points;
     const finish = points[points.length - 1], taxi = (((_a = data.route) == null ? void 0 : _a.points) || []).filter(point);
@@ -367,7 +367,7 @@ var FlightFabricToolbarTaxi = (() => {
     const svg = (tag, attrs, text) => {
       const node = root.ownerDocument.createElementNS("http://www.w3.org/2000/svg", tag);
       Object.keys(attrs).forEach((key) => node.setAttribute(key, String(attrs[key])));
-      if (text !== void 0) node.textContent = text;
+      if (text !== void 0) node.textContent = formatText(text);
       root.appendChild(node);
       return node;
     };
@@ -602,7 +602,7 @@ var FlightFabricToolbarTaxi = (() => {
   }
 
   // frontend/src/aircraft/toolbar-taxi.js
-  function createTaxiPanel({ document, send, setTimeout, clearTimeout, now = Date.now }) {
+  function createTaxiPanel({ document, send, setTimeout, clearTimeout, now = Date.now, formatText = String }) {
     const element = node("section", "card taxi-section");
     element.id = "toolbar-taxi";
     element.appendChild(node("h2", "card-title", TAXI_COPY.title));
@@ -614,7 +614,7 @@ var FlightFabricToolbarTaxi = (() => {
     const runway = input("Departure runway", "taxi-runway", 3);
     const stand = select("Stand / gate", "taxi-stand", [["", "Load airport stands"]]);
     const help = node("details", "taxi-note muted");
-    help.appendChild(node("summary", "", "How it works \xB7 Experimental"));
+    help.appendChild(node("summary", "", "How it works"));
     const departureHelp = help.appendChild(node("p", "", TAXI_COPY.departureHelp));
     const startHelp = help.appendChild(node("p", "", TAXI_COPY.startHelp));
     startHelp.id = "taxi-pushback-help";
@@ -667,6 +667,8 @@ var FlightFabricToolbarTaxi = (() => {
     element.appendChild(help);
     const prefix = "taxi-" + now() + "-" + Math.random().toString(36).slice(2) + "-";
     let connection = {}, context = "", catalogue = {}, state = {}, route = null, scene = null;
+    let manualRouteRequested = false;
+    let routeError = "";
     let timer = null, sequence = 0, revision = 0, lastReply = -Infinity, error = "", standsLoaded = false;
     const pending = /* @__PURE__ */ new Map();
     let departure = { data: null, fresh: false }, pushbackSelected = true, planDefault = {};
@@ -688,7 +690,7 @@ var FlightFabricToolbarTaxi = (() => {
         pushbackSelected = true;
       }
       if (phase === "complete" && previous !== "complete") {
-        invalidate();
+        if (!manualRouteRequested) invalidate();
         pushbackSelected = false;
       }
       updatePushback();
@@ -722,7 +724,7 @@ var FlightFabricToolbarTaxi = (() => {
     function node(tag, className, text) {
       const n = document.createElement(tag);
       n.className = className || "";
-      if (text !== void 0) n.textContent = text;
+      if (text !== void 0) n.textContent = formatText(text);
       return n;
     }
     function field(label, control, id) {
@@ -767,6 +769,8 @@ var FlightFabricToolbarTaxi = (() => {
       route = null;
       scene = null;
       error = "";
+      routeError = "";
+      manualRouteRequested = false;
     }
     function reset() {
       invalidate();
@@ -822,6 +826,8 @@ var FlightFabricToolbarTaxi = (() => {
       if (operation !== "status" && (!validAirport() || has("preview") || has("parkings") || pushback.active)) return;
       if (operation === "preview" && (!fresh() || state.canGuide !== true || !validDestination())) return;
       if (operation === "preview") {
+        manualRouteRequested = true;
+        routeError = "";
         route = null;
         scene = null;
         pushbackSelected = false;
@@ -846,6 +852,7 @@ var FlightFabricToolbarTaxi = (() => {
         state = {};
         lastReply = -Infinity;
         error = "Taxi guidance connection lost.";
+        if (operation === "preview") routeError = error;
       }
       updatePushback();
       refresh();
@@ -857,6 +864,7 @@ var FlightFabricToolbarTaxi = (() => {
         if (now() - p.at >= (p.operation === "status" ? 2e3 : 12e3)) {
           pending.delete(id);
           if (p.operation !== "status") error = "Taxi guidance request timed out. Try again.";
+          if (p.operation === "preview") routeError = error;
         }
       });
       request("status");
@@ -903,6 +911,7 @@ var FlightFabricToolbarTaxi = (() => {
       pending.delete(message.requestId);
       if (message.ok !== true) {
         error = message.error || "Taxi guidance unavailable.";
+        if (p.operation === "preview") routeError = error;
         if (p.operation === "status") {
           state = {};
           lastReply = -Infinity;
@@ -954,26 +963,27 @@ var FlightFabricToolbarTaxi = (() => {
       push.hidden = !pushback.active && (mode.control.value !== "runway" || pushback.completed);
       push.disabled = pushback.active ? pushback.pending === "stop" : !pushback.canStart;
       push.setAttribute("aria-describedby", pushback.active ? "taxi-pushback-reason" : "taxi-pushback-help taxi-pushback-reason");
-      push.textContent = pushback.active ? pushback.pending === "stop" ? "Stopping\u2026" : "Stop pushback" : TAXI_COPY.start;
+      push.textContent = pushback.active ? pushback.pending === "stop" ? "Stopping..." : "Stop pushback" : TAXI_COPY.start;
       push.className = "button taxi-pushback-action" + (pushback.active ? " taxi-pushback-stop" : "");
       pushbackReason.hidden = !pushback.active && mode.control.value !== "runway";
       pushbackReason.className = "taxi-reason " + (pushback.completed ? "taxi-complete" : "muted");
-      pushbackReason.textContent = (pushback.active && pushback.fresh && Number.isFinite(pushback.state.remainingM) ? Math.round(pushback.state.remainingM) + " m remaining \xB7 Runway " + pushback.state.runway + ". " : "") + (pushback.reason || "");
+      pushbackReason.textContent = formatText((pushback.active && pushback.fresh && Number.isFinite(pushback.state.remainingM) ? Math.round(pushback.state.remainingM) + " m remaining \xB7 Runway " + pushback.state.runway + ". " : "") + (pushback.reason || ""));
       runway.wrapper.hidden = mode.control.value === "stand";
       stand.wrapper.hidden = mode.control.value !== "stand";
       load.hidden = mode.control.value !== "stand";
       load.disabled = !enabled() || !validAirport() || busy;
       show.disabled = !enabled() || !fresh() || !state.canGuide || !validAirport() || !validDestination() || busy;
-      show.textContent = has("preview") ? "Finding route\u2026" : route || ((_a = departure.data) == null ? void 0 : _a.pushbackPreview.phase) === "complete" ? TAXI_COPY.refreshRoute : TAXI_COPY.showRoute;
-      load.textContent = has("parkings") ? "Loading stands\u2026" : "Load stands";
-      hide.hidden = !route && !has("preview");
+      show.textContent = has("preview") ? "Finding route..." : route || ((_a = departure.data) == null ? void 0 : _a.pushbackPreview.phase) === "complete" ? TAXI_COPY.refreshRoute : TAXI_COPY.showRoute;
+      load.textContent = has("parkings") ? "Loading stands..." : "Load stands";
+      hide.hidden = !manualRouteRequested;
       hide.textContent = departure.data ? "Back to pushback" : TAXI_COPY.hideRoute;
-      const unavailable = !connection.connected ? "Connect FlightFabric to view taxi guidance." : !enabled() ? "Taxi guidance is unavailable on this connection." : !fresh() ? "Waiting for fresh aircraft position on the ground." : state.guidanceUnavailableReason || "";
+      const unavailable = !connection.connected ? "Connect FlightFabric to view taxi guidance." : !enabled() ? "Taxi guidance is unavailable on this connection." : !fresh() ? "Waiting for fresh aircraft position on the ground." : state.guidanceUnavailableReason === "Taxi guidance needs an aircraft on the ground with the flight running." ? "" : state.guidanceUnavailableReason || "";
       const completed = departure.fresh && ((_b = departure.data) == null ? void 0 : _b.pushbackPreview.phase) === "complete";
-      reason.textContent = (pushbackSelected && departure.data ? "" : error) || unavailable || (has("preview") || has("parkings") ? "Loading airport guidance\u2026" : completed && !pushback.completed ? TAXI_COPY.complete : "");
-      reason.className = "taxi-reason " + (completed && !error && !unavailable && !busy ? "taxi-complete" : "muted");
+      const failure = routeError || error;
+      reason.textContent = formatText((pushbackSelected && departure.data ? "" : failure) || unavailable || (has("preview") || has("parkings") ? "Loading airport guidance..." : completed && !pushback.completed ? TAXI_COPY.complete : ""));
+      reason.className = "taxi-reason " + (completed && !failure && !unavailable && !busy ? "taxi-complete" : "muted");
       reason.hidden = !reason.textContent;
-      const displayRoute = route || ((_c = departure.data) == null ? void 0 : _c.route);
+      const displayRoute = route || (!manualRouteRequested || pushbackSelected ? (_c = departure.data) == null ? void 0 : _c.route : null);
       figure.hidden = !displayRoute;
       cautions.hidden = !displayRoute;
       pushbackView.hidden = !departure.data;
@@ -984,8 +994,8 @@ var FlightFabricToolbarTaxi = (() => {
       if (!displayRoute || !connection.visible) return;
       if (pushing) {
         map.removeAttribute("data-taxi-map");
-        renderPushbackMap(map, departure.data, departure.fresh);
-        caption.textContent = pushbackCaption(departure.data, departure.fresh);
+        renderPushbackMap(map, departure.data, departure.fresh, formatText);
+        caption.textContent = formatText(pushbackCaption(departure.data, departure.fresh));
         cautions.hidden = true;
         return;
       }
@@ -1001,7 +1011,7 @@ var FlightFabricToolbarTaxi = (() => {
       const arrived = a && Math.hypot(end.x - a.x, end.z - a.z) <= 5;
       const remaining = a && !offRoute ? progress.ahead.reduce((sum, p, i, points) => sum + (i ? Math.hypot(p.x - points[i - 1].x, p.z - points[i - 1].z) : 0), progress.distanceM) : null;
       const destination = route2.kind === "stand" ? route2.label : "holding point before runway " + route2.runway;
-      caption.textContent = !a ? "Reference only \xB7 Live aircraft position unavailable." : offRoute ? "Off route \xB7 Check your position or show a new route." : arrived ? route2.kind === "stand" ? "At " + destination : "At holding point \xB7 Hold short of runway " + route2.runway : Math.round(remaining) + " m to " + destination;
+      caption.textContent = formatText(!a ? "Reference only \xB7 Live aircraft position unavailable." : offRoute ? "Off route \xB7 Check your position or show a new route." : arrived ? route2.kind === "stand" ? "At " + destination : "At holding point \xB7 Hold short of runway " + route2.runway : Math.round(remaining) + " m to " + destination);
       if (a && route2 === ((_a = departure.data) == null ? void 0 : _a.route) && departure.data.pushbackPreview.phase !== "complete") caption.textContent = "Taxi route after pushback to runway " + route2.runway + ". You control the aircraft.";
       cautions.textContent = [
         route2.runwayTravelM > 1 ? "Includes " + Math.round(route2.runwayTravelM) + " m along an intervening runway." : "",

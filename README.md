@@ -102,8 +102,8 @@ end of your speech, then closes after buffered audio is flushed. Audio is not
 saved, logged, or sent over the network. FlightFabric can also read command
 results aloud using a voice already installed in Windows.
 
-Voice commands are available for FlyByWire A32NX, iniBuilds A350-900 and
-A350-1000, PMDG 737, PMDG 777, and Fenix A319, A320, and A321 aircraft. Depending
+Voice commands are available for FlyByWire A32NX, iniBuilds A350,
+PMDG 737, PMDG 777, and Fenix A32X aircraft. Depending
 on the aircraft, you can set flight guidance values and modes, operate common
 surfaces and lights, and use useful presets. FlightFabric checks which aircraft
 is loaded and shows the commands that work with it.
@@ -114,11 +114,11 @@ These aircraft have their own detailed controls and voice commands:
 
 | Aircraft family | Detailed controls | Voice commands |
 | --- | :---: | :---: |
-| FlyByWire Airbus A32NX | Yes | Yes |
-| Fenix Airbus A319, A320, A321 | Yes | Yes |
-| iniBuilds Airbus A350-900, A350-1000 | Yes | Yes |
-| PMDG Boeing 737-600, 737-700, 737-800, 737-900 | Yes | Yes |
-| PMDG Boeing 777-300ER, 777-200ER, 777-200LR, 777F | Yes | Yes |
+| FlyByWire A32NX | Yes | Yes |
+| Fenix Airbus A32X | Yes | Yes |
+| iniBuilds Airbus A350 | Yes | Yes |
+| PMDG Boeing 737 | Yes | Yes |
+| PMDG Boeing 777 | Yes | Yes |
 
 The A32NX integration uses FlyByWire's documented events for flight guidance
 values and checks the result against fresh aircraft data.

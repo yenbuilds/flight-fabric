@@ -7,7 +7,7 @@ const SETUP_DISMISSED_KEY = 'ff_voice_setup_dismissed_v1';
 
 function readbackInfo(info) {
   return {
-    selectedEngine: String(info.selectedEngine || 'kokoro').slice(0, 40),
+    selectedEngine: String(info.selectedEngine || 'windows-sapi').slice(0, 40),
     selectedVoice: String(info.selectedVoice || '').slice(0, 40),
     preparing: info.preparing === true,
     voices: (Array.isArray(info.voices) ? info.voices : []).slice(0, 64)
@@ -30,7 +30,7 @@ const DEFAULT_RUNTIME = Object.freeze({
   modelBundled: true,
   modelId: '',
   readbackError: '',
-  readback: { selectedEngine: 'kokoro', engines: [], selectedVoice: '', voices: [], preparing: false, fallbackReason: '' },
+  readback: { selectedEngine: 'windows-sapi', engines: [], selectedVoice: '', voices: [], preparing: false, fallbackReason: '' },
   shortcut: '',
   shortcutError: '',
   shortcutRegistered: false,

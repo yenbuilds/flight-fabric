@@ -178,6 +178,5 @@ export function createTimelinePageController({
     loadTimeline,
     selectTimelineRowByOriginalIndex,
     showEmpty,
-    showEventDetail,
   };
 }

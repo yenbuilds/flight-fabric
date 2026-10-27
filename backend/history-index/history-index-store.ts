@@ -233,9 +233,7 @@ function readFlightRow(row: AnyRecord): AnyRecord {
   const fuelBurnGal = normalizeFuelBurnGal(row.fuel_burn_gal);
   const csvMtimeMs = nullableNumber(payload?.csvMtimeMs) ?? nullableNumber(payload?.mtimeMs);
   const csvSizeBytes = nullableNumber(payload?.csvSizeBytes) ?? nullableNumber(payload?.sizeBytes);
-  const timestamp = payload?.timestamp instanceof Date
-    ? payload.timestamp.toISOString()
-    : nullableString(payload?.timestamp);
+  const timestamp = nullableString(payload?.timestamp);
   return {
     ...(payload && typeof payload === 'object' ? payload : {}),
     flightId: row.flight_id,
@@ -314,15 +312,6 @@ function normalizeLandingStabilityForStorage(landing: LandingIndexInput): {
     breakdown: payload?.stabilityBreakdown,
     verdict: nullableString(landing.stabilityVerdict),
   });
-  if (!stability) {
-    return {
-      gateStable,
-      stabilityScore,
-      stabilityGateFailures,
-      payloadJson: JSON.stringify(landing.payload || landing),
-    };
-  }
-
   const normalizedPayload: AnyRecord = {
     ...(payload || landing),
     gateStable: stability.gateStable,
@@ -383,7 +372,6 @@ function readLandingRow(row: AnyRecord): AnyRecord {
           gateStable: dbBool(row.gate_stable),
           gateFailures: stabilityGateFailures,
           breakdown: payload?.stabilityBreakdown,
-          availability: payload?.stabilityAvailability,
         })
     );
   const gateStable = stability?.gateStable ?? dbBool(row.gate_stable);
@@ -477,20 +465,18 @@ function linearSlope(values: Array<number | null | undefined>): number | null {
     numerator += (index - xMean) * (valid[index] - yMean);
     denominator += (index - xMean) * (index - xMean);
   }
-  const raw = denominator === 0 ? 0 : numerator / denominator;
+  const raw = numerator / denominator;
   // Express the fitted slope across the full window so sample count does not change the label.
   const windowChange = raw * (length - 1);
   const magnitude = Math.abs(yMean);
   return magnitude > 0.001 ? windowChange / magnitude : windowChange;
 }
 
-function linearTrend(values: Array<number | null | undefined>, metric: string): 'improving' | 'regressing' | 'stable' | null {
+function linearTrend(values: Array<number | null | undefined>): 'improving' | 'regressing' | 'stable' | null {
   const slope = linearSlope(values);
   if (slope === null) return null;
   const threshold = 0.03;
-  if (metric === 'vs') return slope > threshold ? 'improving' : slope < -threshold ? 'regressing' : 'stable';
-  if (metric === 'stability') return slope > threshold ? 'improving' : slope < -threshold ? 'regressing' : 'stable';
-  return 'stable';
+  return slope > threshold ? 'improving' : slope < -threshold ? 'regressing' : 'stable';
 }
 
 function createHistoryIndexStore(db: AnyRecord) {
@@ -1340,8 +1326,8 @@ function createHistoryIndexStore(db: AnyRecord) {
         trendVs: linearTrend(trendRows.map((trendRow: AnyRecord) => {
           const vsFpm = nullableNumber(trendRow.vs_fpm);
           return vsFpm !== null && vsFpm < 0 ? vsFpm : null;
-        }), 'vs'),
-        trendStability: linearTrend(trendRows.map((trendRow: AnyRecord) => nullableNumber(trendRow.stability_score)), 'stability'),
+        })),
+        trendStability: linearTrend(trendRows.map((trendRow: AnyRecord) => nullableNumber(trendRow.stability_score))),
         latestTimestampMs: nullableInteger(row.latest_timestamp_ms),
       };
     });

@@ -181,11 +181,16 @@ function page({ storage = new Map(), takeoffScoringEnabled } = {}) {
   return { api: context.panel, timer, sockets, requests, messages, storage, window, document, nodes, reloads };
 }
 
-function taxiFixture() {
+function taxiFixture({ trackMaps = false } = {}) {
   const timer = fakeClock(), nodes = [], requests = [], departureRequests = [], pushbackRequests = [];
   const create = tag => { const n = new Element(tag); n.value = ''; n.ownerDocument = document; nodes.push(n); return n; };
   const document = { createElement: create, createElementNS: (_ns, tag) => create(tag) };
-  const context = {}; vm.runInNewContext(read('frontend/toolbar/taxi.js'), context);
+  const resourceMaps = [];
+  class ResourceMap extends Map {
+    constructor(...args) { super(...args); this.peak = this.size; resourceMaps.push(this); }
+    set(key, value) { super.set(key, value); this.peak = Math.max(this.peak || 0, this.size); return this; }
+  }
+  const context = trackMaps ? { Map: ResourceMap } : {}; vm.runInNewContext(read('frontend/toolbar/taxi.js'), context);
   const panel = context.FlightFabricToolbarTaxi.createTaxiPanel({ document, send: m => { (m.type === 'pushback' ? pushbackRequests : m.pushback ? departureRequests : requests).push(m); return true; },
     now: () => timer.now, setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout });
   const connection = { visible: true, connected: true, scope: 'toolbar-presets', simState: { simconnectConnected: true },
@@ -202,7 +207,7 @@ function taxiFixture() {
     get('taxi-show-route').fire('click');
     reply(requests.at(-1), { preview: route, scene, sceneKey: 1, aircraft: { x: 0, z: 10, headingDeg: 0 } });
   }
-  return { panel, timer, nodes, requests, departureRequests, pushbackRequests, connection, get, reply, preview, route, scene,
+  return { panel, timer, nodes, requests, departureRequests, pushbackRequests, connection, get, reply, preview, route, scene, resourceMaps,
     figure: () => nodes.find(n => n.tag === 'figure'), caption: () => nodes.find(n => n.tag === 'figcaption').textContent };
 }
 
@@ -388,11 +393,120 @@ test('toolbar departure defaults preserve overrides and share one preview map th
   f.reply(f.departureRequests.at(-1), { ...values, pushbackPreview: { ...values.pushbackPreview, phase: 'complete', valid: false }, aircraft: { x: 0, z: 0, headingDeg: 0 } });
   assert.match(f.caption(), /200 m to holding point/);
   f.get('taxi-pushback-view').fire('click'); f.timer.advance(250);
+  assert.ok(f.pushbackRequests.every(m => m.operation === 'status'), 'Pushback and Taxi map view buttons cannot start or stop the tug');
   assert.match(f.caption(), /Pushback complete/, 'the completed path remains available for inspection');
   assert.doesNotMatch(f.caption(), /m reverse|Final nose direction/, 'completion does not tell the pilot to reverse again');
   f.panel.update({ ...f.connection, visible: false }); assert.equal(f.timer.pending, 0);
   f.panel.destroy(); assert.equal(f.timer.pending, 0);
   assert.ok(f.departureRequests.every(m => m.type === 'requestTaxiGuidance' && ['preview', 'status'].includes(m.operation)));
+});
+
+for (const outcome of ['failure', 'timeout']) test(`refreshing taxi guidance never falls back to the departure route on ${outcome}`, () => {
+  const f = taxiFixture(); f.timer.advance(600);
+  const values = { pushbackPreview: { id: 'retained', icao: 'TEST', runway: '09', phase: 'preview', valid: true,
+    lengthM: 60, remainingM: 0, headingDeg: 0, points: [{ x: 30, z: 40 }, { x: 0, z: 0 }] },
+    preview: f.route, scene: f.scene, aircraft: { x: 0, z: 0, headingDeg: 0, speedKts: 0 } };
+  f.reply(f.departureRequests.at(-1), values);
+  f.preview();
+  f.get('taxi-show-route').fire('click');
+  const refresh = f.requests.at(-1);
+  assert.equal(f.figure().hidden, true, 'waiting for the new route must not resurrect the pushback-preview map');
+  // A delayed completion update is still allowed to update the pushback UI,
+  // but it cannot take ownership away from the pilot's direct route request.
+  f.timer.advance(1000);
+  f.reply(f.departureRequests.at(-1), { ...values, pushbackPreview: { ...values.pushbackPreview, phase: 'complete', valid: false } });
+  assert.equal(f.figure().hidden, true, 'late pushback completion cannot restore the old map');
+  if (outcome === 'failure') f.reply(refresh, { ok: false, error: 'No forward taxi route.' });
+  else f.timer.advance(12000);
+  assert.equal(f.figure().hidden, true, 'a failed refresh must not silently display a different route');
+  assert.equal(f.get('taxi-hide-route').hidden, false, 'the pilot can explicitly return to the pushback preview');
+  f.timer.advance(1000);
+  f.reply(f.requests.at(-1), { sceneKey: 1, aircraft: { x: 0, z: 180, headingDeg: 0 } });
+  assert.equal(f.figure().hidden, true, 'fresh positions cannot revive the departure route');
+  assert.ok(f.nodes.some(n => !n.hidden && n.textContent.includes(outcome === 'failure' ? 'No forward taxi route.' : 'request timed out')),
+    'position updates preserve the route failure explanation');
+  if (outcome === 'timeout') {
+    f.reply(refresh, { preview: f.route, scene: f.scene, sceneKey: 1 });
+    assert.equal(f.figure().hidden, true, 'a timed-out reply cannot restore the route');
+  }
+  f.get('taxi-hide-route').fire('click');
+  assert.equal(f.figure().hidden, false, 'explicit Back to pushback restores the preview');
+  assert.ok(f.pushbackRequests.every(message => message.operation === 'status'), 'refresh never starts or stops the aircraft');
+  f.panel.destroy();
+});
+
+test('a refreshed remainder survives late pushback completion and never reverts on scene loss', () => {
+  const f = taxiFixture(); f.timer.advance(600);
+  const departure = { pushbackPreview: { id: 'old-plan', icao: 'TEST', runway: '09', phase: 'preview', valid: true,
+    lengthM: 60, remainingM: 0, headingDeg: 0, points: [{ x: 30, z: 40 }, { x: 0, z: 0 }] },
+    preview: f.route, scene: f.scene, aircraft: { x: 0, z: 100, headingDeg: 0, speedKts: 2 } };
+  f.reply(f.departureRequests.at(-1), departure);
+  f.get('taxi-show-route').fire('click');
+  const remainder = { ...f.route, points: [{ x: 0, z: 100 }, { x: 0, z: 200 }], lengthM: 100 };
+  f.reply(f.requests.at(-1), { preview: remainder, scene: f.scene, sceneKey: 1,
+    aircraft: { x: 0, z: 100, headingDeg: 0 } });
+  const map = f.figure().querySelector('svg'), line = map.querySelector('.taxi-simple-route');
+  f.timer.advance(1000);
+  f.reply(f.departureRequests.at(-1), { ...departure, pushbackPreview: { ...departure.pushbackPreview, phase: 'complete', valid: false } });
+  assert.equal(map.querySelector('.taxi-simple-route'), line, 'late completion cannot replace the refreshed remainder');
+  assert.match(f.caption(), /100 m to holding point/);
+  f.reply(f.requests.at(-1), { sceneKey: null });
+  assert.equal(f.figure().hidden, true, 'loss of the manual scene cannot select an unrelated departure route');
+  f.timer.advance(1000); f.reply(f.requests.at(-1));
+  f.preview();
+  assert.equal(f.figure().hidden, false, 'an explicit retry can recover');
+  assert.match(f.caption(), /190 m to holding point/);
+  f.timer.advance(1000);
+  f.reply(f.requests.at(-1), { ok: false, error: 'Position temporarily unavailable.' });
+  assert.ok(f.nodes.some(n => !n.hidden && n.textContent === 'Position temporarily unavailable.'));
+  f.timer.advance(1000);
+  f.reply(f.requests.at(-1), { sceneKey: 1, aircraft: { x: 0, z: 12, headingDeg: 0 } });
+  assert.ok(!f.nodes.some(n => !n.hidden && n.textContent === 'Position temporarily unavailable.'),
+    'successful position updates still recover temporary status errors');
+  assert.ok(f.pushbackRequests.every(message => message.operation === 'status'));
+  f.panel.destroy();
+});
+
+test('synthetic repeated refresh and close/reopen cycles bound requests, DOM and timers', () => {
+  const f = taxiFixture({ trackMaps: true });
+  const countNodes = node => 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
+  const departure = { pushbackPreview: { id: 'resource-check', icao: 'TEST', runway: '09', phase: 'preview', valid: true,
+    lengthM: 60, remainingM: 60, headingDeg: 0, points: [{ x: 30, z: 40 }, { x: 0, z: 0 }] },
+    preview: f.route, scene: f.scene, aircraft: { x: 30, z: 40, headingDeg: 0, speedKts: 0 } };
+  let maximumNodes;
+  // This is lifecycle stress, not a simulated flight or a heap-size benchmark.
+  // Fixture request/node logs intentionally retain history; inspect only the
+  // production request Maps, live DOM tree and scheduled timer ownership.
+  for (let cycle = 0; cycle < 45; cycle++) {
+    f.reply(f.requests.at(-1));
+    f.timer.advance(600);
+    f.reply(f.departureRequests.at(-1), departure);
+    maximumNodes ??= countNodes(f.panel.element);
+    f.get('taxi-show-route').fire('click');
+    const request = f.requests.at(-1);
+    assert.equal(request.operation, 'preview');
+    if (cycle % 3 === 0) f.reply(request, { preview: f.route, scene: f.scene, sceneKey: 1 });
+    else if (cycle % 3 === 1) f.reply(request, { ok: false, error: 'No forward taxi route.' });
+    else f.timer.advance(13000);
+    assert.ok(countNodes(f.panel.element) <= maximumNodes, 'refreshes cannot append retained map layers');
+    assert.equal(f.timer.pending, 3, 'one timer per manual guidance, departure and pushback owner');
+    assert.equal(f.resourceMaps.length, 2, 'refreshes reuse both production request registries');
+    assert.ok(f.resourceMaps.every(map => map.peak <= 2), 'unanswered requests expire rather than accumulate');
+    f.panel.update({ ...f.connection, visible: false });
+    assert.equal(f.timer.pending, 0);
+    assert.ok(f.resourceMaps.every(map => map.size === 0));
+    const allocated = f.nodes.length, sent = f.requests.length + f.departureRequests.length + f.pushbackRequests.length;
+    f.reply(request, { preview: f.route, scene: f.scene, sceneKey: 1 });
+    f.reply(f.departureRequests.at(-1), departure);
+    f.timer.advance(30000);
+    assert.equal(f.nodes.length, allocated, 'late replies cannot recreate hidden map nodes');
+    assert.equal(f.requests.length + f.departureRequests.length + f.pushbackRequests.length, sent, 'hidden owners cannot keep polling');
+    f.panel.update(f.connection);
+  }
+  f.panel.destroy();
+  assert.equal(f.timer.pending, 0);
+  assert.ok(f.resourceMaps.every(map => map.size === 0));
+  assert.ok(f.pushbackRequests.every(message => message.operation === 'status'), 'resource checks never move the aircraft');
 });
 
 test('after stopped pushback, a moving invalid preview keeps the same route and fresh marker without recapture or control writes', () => {
@@ -485,10 +599,46 @@ function presetFixture() {
   return { ...runtime, row, submit, profile, snapshot, commands: () => runtime.sockets.at(-1).sent.filter(message => message.type === 'executeAircraftCommand') };
 }
 
+test('toolbar formats received punctuation without changing names, source data or command values', () => {
+  const runtime = presetFixture();
+  const command = runtime.profile.controlCapabilities.aircraftCommands.commands.find(c => c.id === 'configuration.lighting.cockpit');
+  command.description = '8 dimmers · panel, flood and background lighting · flight displays unchanged';
+  runtime.profile.profile.aircraftTitle = 'São Paulo – 737';
+  runtime.api.receive(runtime.profile);
+  assert.equal(runtime.row(command.id).querySelector('.preset-description').textContent,
+    '8 dimmers | panel, flood and background lighting | flight displays unchanged');
+  assert.ok(runtime.document.getElementById('tab-flight').text().includes('São Paulo - 737'));
+  assert.ok(command.description.includes('·'), 'formatting does not mutate catalogue data');
+  const input = runtime.row(command.id).querySelector('input');
+  input.value = '8'; input.fire('input'); runtime.submit(command.id);
+  assert.deepEqual(runtime.commands().at(-1).input, { value: 8 });
+  assert.equal(runtime.commands().at(-1).commandId, command.id);
+
+  runtime.api.selectTab('voice');
+  const transcript = '“São Paulo” · heading 090° → 180°…';
+  runtime.api.receive({ type: 'voiceStatus', status: 'transcribed', transcript, statusText: 'Waiting…' });
+  assert.ok(runtime.document.getElementById('tab-voice').text().includes('"São Paulo" | heading 090 deg -> 180 deg...'));
+  assert.equal(runtime.api.state.voice.transcript, transcript, 'raw transcript stays intact');
+
+  runtime.document.getElementById('taxi-airport').value = '';
+  runtime.document.getElementById('taxi-runway').value = '';
+  runtime.document.getElementById('taxi-stand').value = '';
+  runtime.api.selectTab('taxi');
+  const request = runtime.sockets[0].sent.filter(m => m.type === 'pushback' && m.operation === 'status').at(-1);
+  runtime.api.receive({ type: 'pushbackState', requestId: request.requestId, ok: false,
+    error: 'Tug unavailable – check simulator…' });
+  assert.equal(runtime.document.getElementById('taxi-pushback-reason').textContent, 'Tug unavailable - check simulator...');
+});
+
 test('toolbar presets match catalogue classification, grouping and validated numeric targets', () => {
   const runtime = presetFixture();
   const section = runtime.document.getElementById('toolbar-presets');
-  assert.ok(section.text().includes('Global cockpit lighting'));
+  assert.equal(section.tag, 'details');
+  assert.equal(section.open, false, 'the whole Presets section starts collapsed');
+  section.open = true;
+  runtime.api.receive(runtime.snapshot);
+  assert.equal(section.open, true, 'live readbacks preserve the user expansion');
+  assert.ok(section.text().includes('Cockpit lighting'));
   assert.equal(runtime.row('lights.landing.on'), undefined);
   const lights = section.querySelector('.preset-group');
   assert.ok(lights.text().indexOf('Takeoff lights') < lights.text().indexOf('After landing lights'));
@@ -624,7 +774,7 @@ test('toolbar search accepts app abbreviations and punctuation without changing 
   assert.equal(JSON.stringify(runtime.sockets[0].sent), sent, 'search never sends aircraft commands');
 });
 
-test('toolbar voice examples and alternatives use punctuation available in the simulator font', () => {
+test('toolbar Voice keeps command alternatives and status without suggested phrases or question cards', () => {
   const runtime = page();
   const profile = aircraftProfile();
   profile.controlCapabilities = { aircraftCommands: { commands: [
@@ -632,14 +782,12 @@ test('toolbar voice examples and alternatives use punctuation available in the s
     { id: 'lights.position.set', label: 'Position lights', group: 'exterior_lights', input: { kind: 'enum', values: ['off', 'steady', 'strobe'] }, speech: { patterns: ['position lights {value}'] } },
   ] } };
   runtime.api.receive(profile);
-  runtime.api.state.voiceReference = { flightPlanQueries: ['what is my destination'], aircraftQueries: {} };
   runtime.api.selectTab('voice');
   runtime.document.getElementById('section-toggle-voice-exterior-lights').fire('click');
-  runtime.document.getElementById('section-toggle-voice-questions-plan').fire('click');
   const text = runtime.document.getElementById('tab-voice').text();
-  assert.ok(text.includes('Strobe lights on"'), text);
+  assert.match(text, /strobe lights\s*\| <value>/);
   assert.ok(text.includes('off / steady / strobe'), text);
-  assert.ok(text.includes('What is my destination"'), text);
+  assert.doesNotMatch(text, /Try saying|Questions you can ask|About the aircraft|About the flight plan/);
   assert.doesNotMatch(text, /[\u00b7\u2013-\u201f\ufffd]/);
   runtime.api.receive({ type: 'voiceStatus', status: 'sent', transcript: 'strobe lights on', statusText: 'Command sent' });
   assert.ok(runtime.document.getElementById('tab-voice').text().includes('"strobe lights on" - Command sent'));
@@ -794,22 +942,27 @@ test('toolbar loader retries bridge failures and releases even if listener clean
   assert.equal(runtime.panel.keyboardFocused, false, 'hide retries release');
 });
 
-test('toolbar page protects all controls, keeps capture through blur, and releases on leaving the panel', () => {
+test('toolbar captures text editing, not ordinary controls or browsing, and releases on leaving the panel', () => {
   const runtime = page(); runtime.api.boot();
   const keyboard = () => runtime.messages.filter(message => message.action === 'keyboard').map(message => message.focused);
   const search = { tagName: 'INPUT', type: 'search', blurred: 0, blur() { this.blurred += 1; runtime.document.fire('blur', { target: this }); } };
   const button = { tagName: 'BUTTON', type: 'button' };
-  for (const target of [button, search, { tagName: 'INPUT', type: 'range' }, { tagName: 'SELECT' }, { tagName: 'SUMMARY' }]) {
+  for (const target of [button, { tagName: 'INPUT', type: 'range' }, { tagName: 'SELECT' }, { tagName: 'SUMMARY' },
+    { tagName: 'INPUT', type: 'checkbox' }, { tagName: 'INPUT', type: 'text', disabled: true }, { tagName: 'INPUT', type: 'text', readOnly: true }]) {
+    runtime.document.fire('mousedown', { target });
+    runtime.document.fire('focus', { target });
+    assert.equal(keyboard().at(-1), false, 'mouse controls do not claim simulator input');
+  }
+  for (const target of [search, { tagName: 'INPUT', type: 'number' }, { tagName: 'TEXTAREA' }, { isContentEditable: true }]) {
     runtime.document.fire('focus', { target });
     assert.equal(keyboard().at(-1), true);
   }
-  const beforeBlur = keyboard().length;
   runtime.document.fire('blur', { target: search });
-  assert.equal(keyboard().length, beforeBlur, 'disabling or rerendering a control cannot release a held key to the simulator');
+  assert.equal(keyboard().at(-1), false, 'leaving an editor returns simulator input');
 
   runtime.document.activeElement = search;
   const oldSequence = runtime.messages.at(-1).sequence;
-  runtime.document.fire('mousedown'); runtime.document.fire('focus', { target: search });
+  runtime.document.fire('mousedown', { target: search }); runtime.document.fire('focus', { target: search });
   runtime.window.fire('message', { source: runtime.window.parent,
     data: { source: 'flightfabric-toolbar-loader', action: 'keyboardReleased', sequence: oldSequence } });
   assert.equal(search.blurred, 0, 'a delayed release cannot cancel a newer interaction');
@@ -833,15 +986,47 @@ test('toolbar page protects all controls, keeps capture through blur, and releas
   runtime.document.getElementById('tab-voice').appendChild(search);
   runtime.api.selectTab('flight');
   assert.equal(search.blurred, 3, 'switching tabs drops a field that would stay focused while hidden');
-  assert.equal(keyboard().at(-1), true, 'switching tabs keeps the keyboard inside the panel');
+  assert.equal(keyboard().at(-1), false, 'switching tabs releases hidden editing focus');
   runtime.window.fire('blur');
   assert.equal(keyboard().at(-1), false, 'moving to the native header or another window releases capture');
   runtime.document.fire('mousedown');
-  assert.equal(keyboard().at(-1), true, 'clicking whitespace captures keyboard scrolling too');
+  assert.equal(keyboard().at(-1), false, 'clicking whitespace leaves simulator input available');
 
   const count = keyboard().length;
   runtime.window.fire('beforeunload');
   assert.deepEqual(keyboard().slice(count), [false], 'unloading releases the keyboard');
+});
+
+test('toolbar holds native capture only through actual keyboard interactions and text editing', () => {
+  const runtime = page(); runtime.api.boot();
+  const claimed = () => runtime.messages.filter(message => message.action === 'keyboard').at(-1).focused;
+  const button = { tagName: 'BUTTON' };
+  const search = { tagName: 'INPUT', type: 'search' };
+  runtime.document.activeElement = button;
+  runtime.document.fire('keydown', { key: 'Enter', code: 'Enter', target: button });
+  button.disabled = true;
+  runtime.document.fire('blur', { target: button });
+  assert.equal(claimed(), true, 'disabling a control cannot leak a held activation key');
+  runtime.document.fire('keydown', { key: 'Enter', code: 'Enter', repeat: true, target: button, preventDefault() {} });
+  runtime.document.fire('keyup', { key: 'Enter', code: 'Enter', target: button });
+  assert.equal(claimed(), false, 'release even when a pending command disabled the focused control');
+  runtime.document.fire('keydown', { key: 'Shift', code: 'ShiftLeft', target: button });
+  runtime.document.fire('keydown', { key: 'Tab', code: 'Tab', target: button });
+  runtime.document.fire('keyup', { key: 'Tab', code: 'Tab', target: button });
+  assert.equal(claimed(), true, 'another held key still owns capture');
+  runtime.document.fire('keyup', { key: 'Shift', code: 'ShiftLeft', target: button });
+  assert.equal(claimed(), false, 'keyboard navigation does not leave a persistent claim');
+  runtime.document.activeElement = search;
+  runtime.document.fire('focus', { target: search });
+  runtime.document.fire('keydown', { key: 'a', target: search });
+  runtime.document.fire('keyup', { key: 'a', target: search });
+  assert.equal(claimed(), true, 'typing stays protected between keys');
+  runtime.document.fire('keydown', { key: 'a', target: search });
+  runtime.window.fire('blur');
+  assert.equal(claimed(), false, 'leaving the iframe releases even if keyup is lost');
+  runtime.document.activeElement = button;
+  runtime.document.fire('focus', { target: button });
+  assert.equal(claimed(), false, 'returning does not revive a stale held key');
 });
 
 test('toolbar prevents repeated activation without breaking text editing or slider arrows', () => {
@@ -928,37 +1113,14 @@ test('toolbar bounds stalled WebSocket handshakes and ignores a late open after 
   assert.equal(runtime.timer.pending, 0, 'a successful connection cancels its deadline');
 });
 
-test('toolbar cancels pending voice reference work on unload and ignores a late response', () => {
+test('toolbar never downloads retired question references during boot, Voice navigation or reopen', () => {
   const runtime = page(); runtime.api.boot();
-  const reference = runtime.requests.find(request => request.url === '/toolbar/voice-reference.json');
-  const lateLoad = reference.onload;
-  runtime.window.fire('beforeunload');
-  assert.equal(reference.aborted, true);
-  const nodeCount = runtime.nodes.length;
-  reference.status = 200; reference.responseText = '{"flightPlanQueries":["route"]}'; lateLoad();
-  assert.equal(runtime.api.state.voiceReference, null);
-  assert.equal(runtime.nodes.length, nodeCount);
-});
-
-test('toolbar resumes an interrupted reference request only when Voice is shown', () => {
-  const runtime = page(); runtime.api.boot();
-  const reference = runtime.requests.find(request => request.url === '/toolbar/voice-reference.json');
-  const lateLoad = reference.onload;
-  runtime.api.setVisible(false);
-  assert.equal(reference.aborted, true);
-  runtime.api.setVisible(true);
-  assert.equal(runtime.requests.filter(request => request.url === reference.url).length, 1);
   runtime.api.selectTab('voice');
-  const retry = runtime.requests.filter(request => request.url === reference.url).at(-1);
-  assert.notEqual(retry, reference);
-  reference.status = 200; reference.responseText = '{"stale":true}'; lateLoad();
-  assert.equal(runtime.api.state.voiceReference, null);
-  retry.status = 200; retry.responseText = '{"flightPlanQueries":[]}'; retry.onload();
-  assert.ok(runtime.api.state.voiceReference);
+  runtime.api.setVisible(false); runtime.api.setVisible(true);
   runtime.api.selectTab('flight'); runtime.api.selectTab('voice');
-  assert.equal(runtime.requests.filter(request => request.url === reference.url).length, 2);
+  assert.equal(runtime.requests.some(request => request.url === '/toolbar/voice-reference.json'), false);
+  runtime.window.fire('beforeunload');
 });
-
 for (const interruption of ['hide', 'unload']) {
   test(`toolbar cancels an update reload on ${interruption}`, () => {
     const runtime = page(); runtime.api.boot(); runtime.api.state.appVersion = '0.9.8';

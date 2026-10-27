@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { createVoiceReadback } = require('../voice-readback');
 
-function fixture() {
+function fixture(selectedEngine = 'kokoro') {
   const children = [], played = [], spoken = [], timers = new Set();
   const engine = createVoiceReadback({
     player: { getInfo: () => ({ available: true, local: true, lastError: '' }),
@@ -18,6 +18,7 @@ function fixture() {
     },
     setTimer: fn => { timers.add(fn); return fn; }, clearTimer: fn => timers.delete(fn),
   });
+  if (selectedEngine) engine.select(selectedEngine);
   const wav = Buffer.alloc(100); wav.write('RIFF');
   function ready(child = children.at(-1)) { child.emit('message', { type: 'ready' }); }
   function complete(child = children.at(-1)) { child.emit('message', { type: 'audio', id: child.messages.at(-1).id, wav }); }
@@ -39,6 +40,77 @@ test('Kokoro is lazy, caches identical text, and switches to Windows without loa
   f.engine.speak('Heading one eight zero set.');
   assert.deepEqual(f.spoken, ['Heading one eight zero set.']);
   assert.equal(f.children.length, 1);
+  f.engine.dispose();
+});
+
+test('Windows is the default and never preloads Kokoro even with spoken feedback active', () => {
+  const f = fixture(null);
+  assert.equal(f.engine.getInfo().selectedEngine, 'windows-sapi');
+  f.engine.select('windows-sapi');
+  f.engine.setActive(true); f.engine.setActive(true);
+  f.engine.selectVoice('kokoro', 'bf_emma');
+  f.engine.select('windows-sapi');
+  assert.equal(f.engine.speak('Heading two seven zero set.'), true);
+  assert.deepEqual(f.spoken, ['Heading two seven zero set.']);
+  assert.equal(f.children.length, 0);
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.engine.getInfo().preparing, false);
+  f.engine.dispose();
+});
+
+for (const phase of ['loading', 'ready', 'generating']) {
+test(`switching to Windows during Kokoro ${phase} retires it without late playback or restart`, () => {
+  const f = fixture();
+  f.engine.setActive(true);
+  if (phase !== 'loading') f.ready();
+  if (phase === 'generating') f.engine.speak('Gear down selected.');
+  const old = f.children[0];
+  const queuedTimeouts = [...f.timers];
+  f.engine.select('windows-sapi');
+  assert.equal(old.killed, true);
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.engine.getInfo().preparing, false);
+  // Native messages and already queued deadline callbacks may arrive after retirement.
+  old.emit('spawn'); old.emit('message', { type: 'ready' });
+  old.emit('message', { type: 'audio', id: 1, wav: f.wav });
+  old.emit('message', { type: 'error', id: 1 }); old.emit('error', new Error('Retired worker'));
+  for (const timeout of queuedTimeouts) timeout();
+  old.emit('exit', 1);
+  f.engine.setActive(true);
+  assert.equal(f.children.length, 1, 'active Windows feedback must not restart Kokoro after its exit');
+  assert.deepEqual(f.played, []); assert.deepEqual(f.spoken, []);
+  assert.equal(f.engine.getInfo().fallbackReason, '');
+  assert.equal(f.engine.speak('Gear up selected.'), true);
+  assert.deepEqual(f.spoken, ['Gear up selected.']);
+  assert.equal(f.timers.size, 0);
+  f.engine.dispose();
+});
+}
+
+test('rapid engine switches wait for native exit and clear cached Kokoro audio', () => {
+  const f = fixture();
+  const text = 'Heading two seven zero set.';
+  f.engine.setActive(true); f.ready();
+  f.engine.speak(text); f.complete();
+  f.engine.speak('Gear down selected.');
+  const old = f.children[0];
+  f.engine.select('windows-sapi');
+  f.engine.speak('Gear up selected.');
+  f.engine.select('kokoro'); f.engine.speak(text);
+  assert.equal(old.killed, true);
+  assert.equal(f.children.length, 1, 'replacement waits for the retired process to exit');
+  assert.equal(f.played.length, 1, 'switching engines must discard the previous audio cache');
+  f.complete(old); old.emit('message', { type: 'error' });
+  old.emit('exit', 0);
+  assert.equal(f.children.length, 2);
+  old.emit('message', { type: 'ready' }); old.emit('error', new Error('Obsolete worker'));
+  assert.equal(f.children[1].messages.length, 0, 'old readiness cannot activate the replacement');
+  f.ready();
+  assert.equal(f.children[1].messages[0].text, text);
+  f.complete();
+  assert.equal(f.played.length, 2);
+  assert.deepEqual(f.spoken, ['Gear up selected.']);
+  assert.equal(f.engine.getInfo().fallbackReason, '');
   f.engine.dispose();
 });
 
@@ -94,6 +166,7 @@ test('native crash, malformed audio, failed startup and shutdown remain bounded'
   }
   const engine = createVoiceReadback({ player: { getInfo: () => ({ available: true }), cancel() {}, speak: () => true },
     spawnWorker() { throw new Error('Cannot launch'); } });
+  engine.select('kokoro');
   assert.equal(engine.speak('Gear down selected.'), true);
   assert.match(engine.getInfo().fallbackReason, /could not start/); engine.dispose();
 });

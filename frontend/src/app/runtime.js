@@ -12,7 +12,7 @@ import { createLandingController } from '../landing/controller.js';
 import { createTelemetryWarnings } from '../telemetry/warnings.js';
 import { createAppFeedback } from '../ui/feedback.js';
 import { bindSectionMotion } from '../ui/motion.js';
-import { createAppMessageHandler, createStatusIndicatorsController } from './message-handlers.js';
+import { createAppMessageHandler } from './message-handlers.js';
 import { createLvarInspectorController } from '../data-sources/lvar-inspector-controller.js';
 import { createConnection } from '../ws/connection.js';
 import { createVoiceControlController } from '../voice/voice-controller.js';
@@ -305,7 +305,6 @@ export async function initAppRuntime({
     },
   };
   let lvarInspector = null;
-  let statusIndicators = null;
   let handleMessage = () => {};
   
   // Current flight state (for AP display fallbacks)
@@ -619,8 +618,6 @@ export async function initAppRuntime({
   }
   // === Message Handlers ===
   const landingController = createLandingController({
-    $,
-    windowRef: window,
     flightStore,
     landingStore,
     tabsStore,
@@ -681,12 +678,6 @@ export async function initAppRuntime({
     onEndFlightManual: endFlightManual,
   });
 
-  statusIndicators = createStatusIndicatorsController({
-    $,
-    documentRef: document,
-    statusStore,
-  });
-
   lvarInspector = createLvarInspectorController({
     $,
     documentRef: document,
@@ -721,7 +712,6 @@ export async function initAppRuntime({
     landingController,
     takeoffStore,
     telemetryWarnings,
-    statusIndicators,
     lvarInspector,
     appSettingsController,
     updateEngines,

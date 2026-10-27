@@ -315,6 +315,9 @@ onBeforeUnmount(() => {
       </div>
     </section>
     <form v-else-if="required || settingsUi.introOpen" class="onboarding-form" :data-onboarding-step="step" :aria-busy="busy" @submit.prevent="step < steps.length ? changeStep(step + 1) : finish()">
+      <button v-if="settingsUi.introOpen" type="button" class="ff-icon-button onboarding-close" aria-label="Close setup" data-close-intro-top :disabled="busy" @click="closeIntro">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+      </button>
       <div class="onboarding-artwork" aria-hidden="true">
         <div class="onboarding-brand"><img src="/assets/app-mark.svg" alt="" width="28" height="28">FlightFabric</div>
         <picture :key="step" class="onboarding-illustration">

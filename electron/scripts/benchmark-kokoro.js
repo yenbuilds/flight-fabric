@@ -50,6 +50,7 @@ async function main() {
     },
   });
   try {
+    readback.select('kokoro');
     if (warm) {
       readback.setActive(true);
       let deadline;

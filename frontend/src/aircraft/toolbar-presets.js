@@ -4,18 +4,19 @@ import { presetGroups, presetNumberValue, brightnessLabel } from './preset-prese
 
 // Coherent uses the app's catalogue and presentation rules without loading Vue
 // or its per-tick stores. Keep controls mounted across telemetry updates.
-export function createPresetPanel({ document, send, setTimeout, clearTimeout, now = Date.now }) {
-  const element = node('section', 'card presets-section');
+export function createPresetPanel({ document, send, setTimeout, clearTimeout, now = Date.now, formatText = String }) {
+  const element = node('details', 'card presets-section');
   element.setAttribute('aria-label', 'Presets');
   element.id = 'toolbar-presets';
   element.hidden = true;
+  element.open = false;
   let context = '', catalogue = {}, snapshot = null, connection = {}, rows = [], pending = null;
   let tick = null, sequence = 0, signature = '', enabled = false;
   const drafts = Object.create(null), feedback = Object.create(null);
   function node(tag, className, text) {
     const result = document.createElement(tag);
     result.className = className || '';
-    if (text !== undefined) result.textContent = text;
+    if (text !== undefined) result.textContent = formatText(text);
     return result;
   }
   function clear(target) { while (target.firstChild) target.removeChild(target.firstChild); }
@@ -25,6 +26,7 @@ export function createPresetPanel({ document, send, setTimeout, clearTimeout, no
   }
   function reset() {
     snapshot = null; pending = null;
+    element.open = false;
     Object.keys(drafts).forEach(key => delete drafts[key]);
     Object.keys(feedback).forEach(key => delete feedback[key]);
   }
@@ -117,13 +119,18 @@ export function createPresetPanel({ document, send, setTimeout, clearTimeout, no
     const active = document.activeElement;
     if (active && typeof element.contains === 'function' && element.contains(active) && typeof active.blur === 'function') active.blur();
     clear(element); rows = [];
-    const art = node('img', 'preset-watermark'); art.src = '/assets/aircraft-presets.svg'; art.alt = ''; art.setAttribute('aria-hidden', 'true'); element.appendChild(art);
-    const heading = node('div', 'preset-heading');
+    const heading = node('summary', 'preset-heading');
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true'); icon.setAttribute('focusable', 'false');
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', 'm12 3 9 5-9 5-9-5 9-5Z M3 12l9 5 9-5M3 16l9 5 9-5'); icon.appendChild(path); heading.appendChild(icon);
     const title = node('div'); title.appendChild(node('h3', '', 'Presets')); title.appendChild(node('p', 'muted', 'Apply a group of settings together.')); heading.appendChild(title); element.appendChild(heading);
+    const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    chevron.setAttribute('class', 'preset-chevron'); chevron.setAttribute('viewBox', '0 0 24 24');
+    chevron.setAttribute('aria-hidden', 'true'); chevron.setAttribute('focusable', 'false');
+    const chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    chevronPath.setAttribute('d', 'm9 5 7 7-7 7'); chevron.appendChild(chevronPath); heading.appendChild(chevron);
+    const art = node('img', 'preset-watermark'); art.src = '/assets/aircraft-presets.svg'; art.alt = ''; art.setAttribute('aria-hidden', 'true'); element.appendChild(art);
     const groups = presetGroups(catalogue.commands);
     groups.cards.forEach(command => row(command, element, false));
     if (groups.lights.length) {
@@ -147,10 +154,10 @@ export function createPresetPanel({ document, send, setTimeout, clearTimeout, no
       if (input) input.disabled = Boolean(pending);
       if (range) range.disabled = Boolean(pending);
       if (target) target.textContent = 'Target brightness: ' + (presetNumberValue(command, drafts[command.id]) === null ? '--' : drafts[command.id]) + '%';
-      reason.textContent = why;
+      reason.textContent = formatText(why);
       reason.hidden = !why || (input && !range && !String(drafts[command.id] || '').trim() && why.startsWith('Enter a value'));
       const entry = feedback[command.id];
-      result.textContent = entry ? entry.text : ''; result.className = 'preset-result ' + (entry ? entry.tone : ''); result.hidden = !entry;
+      result.textContent = formatText(entry ? entry.text : ''); result.className = 'preset-result ' + (entry ? entry.tone : ''); result.hidden = !entry;
       let observation = '';
       if (range) {
         const values = brightnessValues(command);
@@ -158,7 +165,7 @@ export function createPresetPanel({ document, send, setTimeout, clearTimeout, no
       } else if (command.id === 'configuration.apu.start') {
         const value = presetObservation(command, snapshot, now()); observation = value ? value.label : 'APU status unknown';
       }
-      observed.textContent = observation; observed.hidden = !observation;
+      observed.textContent = formatText(observation); observed.hidden = !observation;
     });
   }
   function schedule() {

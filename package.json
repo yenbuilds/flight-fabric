@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -84,7 +84,6 @@
     "test:aircraft-profile-provenance": "node tests/scripts/test-aircraft-profile-provenance.js",
     "test:architecture-guards": "node --test tests/scripts/test-aircraft-ownership-guard.js && node tests/scripts/test-architecture-guards.js",
     "test:flaps": "node tests/scripts/test-flaps.js",
-    "test:stability": "node tests/scripts/test-stability-runner.js",
     "test:stability-runner": "node tests/scripts/test-stability-runner.js",
     "test:autodetect": "node tests/scripts/test-profile-autodetect.js",
     "test:helpers": "node tests/scripts/test-helpers.js",
@@ -110,13 +109,10 @@
     "validate:profiles": "node scripts/validate-aircraft-profiles.js",
     "validate:frame-contract": "node scripts/validate-frame-contract.js",
     "validate:simvar-units": "node scripts/validate-simvar-units.js",
-    "validate:release-profile": "node scripts/release-profile-loader.js user --validate",
     "build": "node electron/build-electron.js",
-    "build:quick": "node electron/build-electron.js",
     "build:clean": "node electron/build-electron.js --clean",
     "electron": "cd electron && npm start",
     "electron:build": "node electron/build-electron.js",
-    "electron:build:quick": "node electron/build-electron.js",
     "electron:release:summary": "node scripts/electron-release-summary.js",
     "release:installer-zip": "node scripts/electron-release-summary.js --installer-zip",
     "electron:release": "npm run electron:build -- --profile=user && npm run test:electron:ipc-runtime && npm run test:electron:packaged && npm run test:electron:backend-launch && npm run test:electron:lifecycle && npm run electron:release:summary",

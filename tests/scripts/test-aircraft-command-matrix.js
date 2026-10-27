@@ -162,7 +162,8 @@ for (const entry of loader.listProfiles()) {
         if (available) { assert.equal(voice.commandId, `lights.${target}.set`); assert.deepEqual(voice.input, { value }); }
       }
     }
-    for (const phrase of ['landing', 'set landing', 'runway turn off', 'taxi lights almost off']) {
+    for (const phrase of ['landing', 'set landing', 'runway turn off', 'taxi lights almost off',
+      "don't let's hit it", "let's hit it off", "let's hit it then gear up", 'hit it']) {
       assert.equal(interpret(phrase, catalogue).ok, false, phrase);
     }
     const supportsBrightness = /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|headwind-a330|inibuilds-a350-(?:900|1000))$/.test(entry.id)
@@ -181,7 +182,7 @@ for (const entry of loader.listProfiles()) {
           assert.equal(voice.commandId, `configuration.lighting.${target}`);
           assert.deepEqual(voice.input, { value: 50 });
           const descriptor = catalogue.commands.find(command => command.id === voice.commandId);
-          if (entry.id.startsWith('inibuilds-a350-')) assert.equal(descriptor.brightnessFields.length, target === 'displays' ? 4 : 15);
+          if (entry.id.startsWith('inibuilds-a350-')) assert.equal(descriptor.brightnessFields.length, target === 'displays' ? 4 : 11);
           else assert.ok(descriptor.brightnessFields.length >= 6);
         }
       }
@@ -189,10 +190,13 @@ for (const entry of loader.listProfiles()) {
     for (const phrase of ['set all pee eff fifty percent', 'set all screens one hundred one percent',
       'set display brightness minus five percent']) assert.equal(interpret(phrase, catalogue).ok, false, phrase);
     const supportsTakeoffLights = entry.simulator === 'msfs' && takeoffLightsProfiles.has(entry.id);
-    for (const phrase of ['set takeoff lights', 'set take off lights', 'set lights for takeoff']) {
+    for (const phrase of ['set takeoff lights', 'set take off lights', 'set lights for takeoff',
+      "Let's hit it", 'Let’s hit it!', 'lets hit it']) {
       const voice = interpret(phrase, catalogue);
       assert.equal(voice.ok, supportsTakeoffLights, `${profileKey}: ${phrase} coverage`);
-      const resolved = resolveAircraftCommand({ commandId: 'configuration.lights.takeoff', input: {} }, options);
+      const resolved = resolveAircraftCommand(voice.ok
+        ? { commandId: voice.commandId, input: voice.input }
+        : { commandId: 'configuration.lights.takeoff', input: {} }, options);
       assert.equal(resolved.ok, supportsTakeoffLights, `${profileKey}: direct preset coverage`);
       if (supportsTakeoffLights) {
         assert.equal(voice.commandId, 'configuration.lights.takeoff');

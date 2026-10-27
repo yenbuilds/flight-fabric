@@ -43,7 +43,7 @@ async function capture({ win, evaluate }) {
     useVoiceFirstCommandStore().dismiss();
     const { useLandingStore } = await import('/frontend/src/vue/stores/landing.js');
     const { createLandingController } = await import('/frontend/src/landing/controller.js');
-    const controller = createLandingController({ $: id => document.getElementById(id), windowRef: window,
+    const controller = createLandingController({
       flightStore: workbenchTest.flight, landingStore: useLandingStore(), tabsStore: workbenchTest.tabs });
     // Use the same recorded-landing action as the app runtime. The basic layout
     // fixture does not bind it because its normal checks do not open debriefs.

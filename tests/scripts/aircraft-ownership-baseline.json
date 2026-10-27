@@ -164,9 +164,9 @@
     ]
   },
   "frontend/toolbar/presets.js": {
-    "reason": "Checked-in generated toolbar bundle of existing preset observation rules; source changes need the same ownership review.",
+    "reason": "Checked-in generated toolbar bundle of existing preset observation rules. Reviewed 27 October 2026: changes rename the cockpit-lighting label, format displayed punctuation and wrap presets in a collapsed-by-default native disclosure. No aircraft branches, mappings or control behavior were added. Source ownership remains unchanged. See docs/MSFS-TOOLBAR-PANEL.md and docs/COCKPIT-LIGHTING-VALIDATION.md.",
     "accepted": [
-      "aircraft-source-placement:efc77a843bedf37a5f465acbe60d1ccef617a759538dea7fe09ee07901292511"
+      "aircraft-source-placement:cb9bfb1e97bd841f170f3494115cb86274ded2e602c5f94dec4cd142febbb357"
     ]
   },
   "packages/telemetry-types/src/messages.ts": {

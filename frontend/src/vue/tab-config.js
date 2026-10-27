@@ -1,4 +1,4 @@
-export const DEFAULT_TAB_ID = 'flight';
+export const DEFAULT_TAB_ID = 'livemap';
 
 export const TAB_ORDER = Object.freeze([
   'livemap',

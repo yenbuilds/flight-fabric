@@ -72,6 +72,29 @@ test('execution-stage baseline projection asserts exact new descriptors and pres
     'projection must not mutate the registered definition');
 });
 
+test('Mach prerequisite projection retains the original SDK event and all unrelated guards', () => {
+  const { projectPreExecutionCatalogue } = require(join(process.cwd(), 'tests/helpers/pre-execution-catalogue-projection.js'));
+  const original = defaultAircraftIntegrationRegistry.getById('pmdg-737');
+  const alteredGuard = structuredClone(original);
+  alteredGuard.actions['mcp.mach.set'].guard.requires[0].max = 399;
+  assert.throws(() => projectPreExecutionCatalogue(alteredGuard), /reviewed 737 Mach mode prerequisite/);
+  const alteredEvent = structuredClone(original);
+  alteredEvent.actions['mcp.mach.set'].routes[0].command = '#84134';
+  assert.notDeepEqual(projectPreExecutionCatalogue(alteredEvent), projectPreExecutionCatalogue(original));
+});
+
+test('required-condition advice is bounded text and cannot replace required evidence', () => {
+  for (const hint of ['', ' ', 42, 'x'.repeat(241), 'Select Mach\nmode']) {
+    const document = pmdg();
+    document.integration.actions['mcp.mach.set'].guard.requires[0].failureHint = hint;
+    rejects(JSON.stringify(document), /invalid|required|must /);
+    assert.throws(() => createAircraftIntegrationRegistry([document.integration]), /invalid required control conditions/);
+  }
+  const document = pmdg();
+  delete document.integration.actions['mcp.mach.set'].guard.requires[0].fieldId;
+  rejects(JSON.stringify(document), /required|invalid/);
+});
+
 test('777 surface baseline projection preserves unrelated mappings and rejects unreviewed corrections', () => {
   const { projectPreExecutionCatalogue, projectPreSurfaceCorrectionProfile } = require(join(process.cwd(), 'tests/helpers/pre-execution-catalogue-projection.js'));
   const definition = defaultAircraftIntegrationRegistry.getById('pmdg-777');

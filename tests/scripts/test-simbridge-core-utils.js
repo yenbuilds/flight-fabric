@@ -638,7 +638,6 @@ test('go-around reset clears every attempt-scoped scorer and returns a fresh app
   const calls = [];
   const freshScorer = { id: 'second-attempt' };
   const result = resetGoAroundScoringState({
-    resetStability: () => calls.push('stability'),
     landingRunner: { reset: () => calls.push('landing') },
     createCurrentApproachScorer: () => {
       calls.push('approach');
@@ -646,7 +645,7 @@ test('go-around reset clears every attempt-scoped scorer and returns a fresh app
     },
   });
 
-  assert(calls.join(',') === 'stability,landing,approach', `unexpected reset order: ${calls.join(',')}`);
+  assert(calls.join(',') === 'landing,approach', `unexpected reset order: ${calls.join(',')}`);
   assert(result === freshScorer, 'expected the fresh current-approach scorer to be returned');
 });
 

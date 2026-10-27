@@ -557,8 +557,5 @@ export function initSettingsRuntime({
     applySettingsToForm,
     cleanup: cleanupSettingsRuntime,
     readFormSettings,
-    requestSettings,
-    submitSettings,
-    updateDirtyState,
   };
 }

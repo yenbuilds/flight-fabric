@@ -2443,8 +2443,6 @@ test(
   !rootPackage.scripts?.['release:source:verify']
     || rootPackage.scripts['electron:release'].endsWith('&& npm run release:source:verify'),
 );
-test('handles dashboard build', buildScript.includes('buildDashboard') || buildScript.includes('--with-dashboard'));
-test('supports PyInstaller for dashboard', buildScript.includes('pyinstaller') || buildScript.includes('PyInstaller'));
 test('OurAirports sync writes a freshness manifest', dataSyncScript.includes('MANIFEST_FILE_NAME') && dataSyncScript.includes('downloadedAt') && dataSyncScript.includes('sha256'));
 test('Electron build enforces OurAirports freshness manifest', buildScript.includes('getOurAirportsFreshnessIssues') && buildScript.includes('OURAIRPORTS_DATA_MAX_AGE_DAYS') && buildScript.includes('manifest.json'));
 test('Electron build fetches required OurAirports data before packaging when missing or stale', buildScript.includes("'scripts/sync-aviation-data.js', '--required-only'"));
@@ -2700,40 +2698,6 @@ const devLauncherHtml = path.join(devAppRoot, 'electron', 'launcher', 'index.htm
 
 test('dev backend script path exists', fs.existsSync(devBackendScript));
 test('dev launcher HTML path exists', fs.existsSync(devLauncherHtml));
-
-// ─────────────────────────────────────────────────────────────
-// Dashboard Files (Additive - for hybrid mode)
-// ─────────────────────────────────────────────────────────────
-section('Dashboard Files');
-
-const dashboardDir = path.join(projectRoot, 'tools', 'flight-dashboard');
-const hasDashboard = fs.existsSync(dashboardDir);
-
-if (!hasDashboard) {
-  console.log('  - dashboard not present (optional feature), skipping checks');
-} else {
-  test('dashboard app.py exists', fs.existsSync(path.join(dashboardDir, 'app.py')));
-  test('dashboard_launcher.py exists', fs.existsSync(path.join(dashboardDir, 'dashboard_launcher.py')));
-  test('flight-dashboard.spec exists', fs.existsSync(path.join(dashboardDir, 'flight-dashboard.spec')));
-}
-
-// Validate launcher script contents
-const launcherPath = path.join(dashboardDir, 'dashboard_launcher.py');
-if (hasDashboard && fs.existsSync(launcherPath)) {
-  const launcherSource = fs.readFileSync(launcherPath, 'utf8');
-  test('launcher handles frozen mode', launcherSource.includes('sys.frozen') || launcherSource.includes('_MEIPASS'));
-  test('launcher imports streamlit', launcherSource.includes('streamlit'));
-  test('launcher accepts --port arg', launcherSource.includes('--port'));
-}
-
-// Validate spec file contents  
-const specPath = path.join(dashboardDir, 'flight-dashboard.spec');
-if (hasDashboard && fs.existsSync(specPath)) {
-  const specSource = fs.readFileSync(specPath, 'utf8');
-  test('spec defines Analysis', specSource.includes('Analysis('));
-  test('spec has hidden imports', specSource.includes('hiddenimports'));
-  test('spec includes app.py', specSource.includes('app.py'));
-}
 
 // ─────────────────────────────────────────────────────────────
 // Backend Script Compatibility

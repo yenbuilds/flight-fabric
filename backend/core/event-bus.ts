@@ -105,8 +105,7 @@ export function eventNames(): string[] {
 //   simconnect:dataReaderExhausted - SimConnect reader exhaustion warning
 //
 // Landing events:
-//   landing:touchdown   - { vs_fpm, grade, gforce, ... }
-//   landing:early       - early touchdown payload for immediate effects
+//   telemetry:landing  - immediate/final WebSocket landing feedback
 //   landing:final       - { vs_fpm, grade, gforce, runwayExcursion, ... }
 //
 // Takeoff events:

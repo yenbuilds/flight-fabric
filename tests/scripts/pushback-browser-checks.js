@@ -3,6 +3,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 module.exports = async function checkPushback({ win, evaluate, ready, settled, wait, output }) {
+  assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi').open;`), false, 'pushback starts collapsed');
+  assert.equal(await evaluate(`const panel = document.querySelector('#aircraft-page-autotaxi'); return panel.parentElement.lastElementChild === panel;`), true, 'pushback is last on the controls page');
+  for (const width of [1440, 390, 320]) {
+    win.setContentSize(width, 1000);
+    await wait(250);
+    await settled(`const panel = document.querySelector('#aircraft-page-autotaxi'); panel.scrollIntoView({ block: 'center', behavior: 'instant' });
+      const rect = panel.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight + 1;`, value => value === true);
+    await wait(150);
+    fs.writeFileSync(path.join(output, `pushback-collapsed-${width}.png`), (await win.webContents.capturePage()).toPNG());
+  }
   await evaluate(`layoutTest.setDeparture('YMML', '16'); await layoutTest.settle();
     document.querySelector('#aircraft-page-autotaxi > summary').click(); await layoutTest.settle();`);
   assert.equal(await settled(`return document.querySelector('[data-pushback-start]')?.disabled;`, v => v === false), false);

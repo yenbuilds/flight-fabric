@@ -24,6 +24,7 @@ const landingAircraftChangeRunnerPath = path.join(
   'support',
   'simbridge-landing-aircraft-change-runner.js',
 );
+const landingRecordingRunnerPath = path.join(__dirname, '..', 'support', 'simbridge-landing-recording-runner.js');
 const { finalizeRecordingForShutdown, runSimbridgeShutdownSequence } = require('../../backend/core/simbridge-shutdown.js') as {
   finalizeRecordingForShutdown: (options: Record<string, unknown>) => Promise<void>;
   runSimbridgeShutdownSequence: (options: Record<string, unknown>) => Promise<void>;
@@ -344,6 +345,76 @@ test('simbridge-core: aircraft change during accepted rollout waits for frozen l
   assert.match(outStr, /TEST:core_stopped/);
   assert.doesNotMatch(outStr, /TEST:runner_error/);
 });
+
+for (const mode of ['automatic', 'manual']) {
+  test(`simbridge-core: recording-only sample preparation resumes after ${mode} start and restart`, async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-core-recording-sampling-'));
+    const child = spawn(process.execPath, [path.join(__dirname, '../support/simbridge-recording-sampling-runner.js'), mode], {
+      env: { ...process.env, HOME: tempRoot, USERPROFILE: tempRoot,
+        APPDATA: path.join(tempRoot, 'AppData/Roaming'), LOCALAPPDATA: path.join(tempRoot, 'AppData/Local'),
+        XDG_CONFIG_HOME: path.join(tempRoot, '.config'), OneDrive: path.join(tempRoot, 'OneDrive'),
+        ONEDRIVE: path.join(tempRoot, 'OneDrive'), OneDriveConsumer: path.join(tempRoot, 'OneDrive'),
+        OneDriveCommercial: path.join(tempRoot, 'OneDrive'),
+        FLIGHT_FABRIC_SKIP_WINDOWS_KNOWN_DOCUMENTS: '1',
+        RECORDING_AUTO_START: mode === 'automatic' ? '1' : '0',
+        FLIGHT_START_REQUIRE_MOVEMENT: '0', FLIGHT_START_REQUIRE_TELEMETRY_ACTIVITY: '0',
+        FLIGHT_END_PARKED_ENGINES_OFF_ENABLE: '0', UPDATE_CHECKS_ENABLED: '0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', chunk => { output += chunk.toString(); });
+    child.stderr.on('data', chunk => { output += chunk.toString(); });
+    try {
+      const code = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => child.kill(), 30000);
+        child.on('error', error => { clearTimeout(timer); reject(error); });
+        child.on('close', code => { clearTimeout(timer); resolve(code ?? -1); });
+      });
+      assert.equal(code, 0, output);
+      assert.match(output, new RegExp(`TEST:recording_sampling_pass:${mode}:`));
+    } finally { fs.rmSync(tempRoot, { recursive: true, force: true }); }
+  });
+}
+
+for (const scenario of ['normal', 'retry', 'failure']) {
+  test(`simbridge-core: landing CSV and stability broadcast (${scenario})`, async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-core-landing-recording-'));
+    const snapshotDirectory = process.env.FF_LANDING_RECORDING_SNAPSHOT_DIR;
+    const args = [landingRecordingRunnerPath, scenario];
+    if (snapshotDirectory) args.push(path.join(snapshotDirectory, `${scenario}.json`));
+    const cp = spawn(process.execPath, args, {
+      env: {
+        ...process.env,
+        HOME: tempRoot,
+        USERPROFILE: tempRoot,
+        APPDATA: path.join(tempRoot, 'AppData', 'Roaming'),
+        LOCALAPPDATA: path.join(tempRoot, 'AppData', 'Local'),
+        XDG_CONFIG_HOME: path.join(tempRoot, '.config'),
+        OneDrive: path.join(tempRoot, 'OneDrive'),
+        ONEDRIVE: path.join(tempRoot, 'OneDrive'),
+        OneDriveConsumer: path.join(tempRoot, 'OneDrive'),
+        OneDriveCommercial: path.join(tempRoot, 'OneDrive'),
+        FLIGHT_FABRIC_SKIP_WINDOWS_KNOWN_DOCUMENTS: '1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    cp.stdout.on('data', (chunk: Buffer) => stdout.push(chunk.toString()));
+    cp.stderr.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
+    try {
+      const exitCode = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => cp.kill(), 60000);
+        cp.on('error', (error: Error) => { clearTimeout(timer); reject(error); });
+        cp.on('close', (code: number | null) => { clearTimeout(timer); resolve(code ?? -1); });
+      });
+      assert.equal(exitCode, 0, `Landing runner failed (${scenario}):\n${stderr.join('')}\n${stdout.join('')}`);
+      assert.ok(stdout.join('').includes(`TEST:landing_recording_pass:${scenario}`));
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+}
 
 for (const scenario of ['normal', 'disconnect', 'inactive', 'capture-disabled']) {
   test(`simbridge-core: takeoff recording lifecycle (${scenario})`, async () => {

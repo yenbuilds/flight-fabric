@@ -51,6 +51,5 @@ onBeforeUnmount(() => { void voice.cancelVoiceTest(); });
     <p class="mt-2 text-xs" :class="state.phase === 'error' ? 'text-warning' : state.recognized ? 'text-success' : 'text-muted-fg'" role="status" aria-live="polite" data-voice-test-status>{{ state.phase === 'playing' ? 'Playing your recording…' : state.message }}</p>
     <p v-if="state.recognized" class="mt-3 text-sm text-success" data-voice-microphone-passed>✓ Microphone and recognition checked</p>
     <p v-if="state.transcript" class="mt-2 break-words text-sm text-fg" data-voice-test-transcript><span class="text-muted-fg">{{ state.interpreted ? 'Interpreted:' : 'Heard:' }}</span> {{ state.transcript }}</p>
-    <details class="setup-details mt-3"><summary>About this test</summary><p class="text-xs text-muted-fg">Replay your recording until you leave Settings. This checks recognition; check command availability on Aircraft.</p></details>
   </section>
 </template>

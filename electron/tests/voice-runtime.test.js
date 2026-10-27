@@ -23,6 +23,7 @@ const {
   resolvePushToTalkHelperPath,
 } = require('../voice-push-to-talk-hook');
 const { AUDIO_CHANNEL, createVoiceRuntime } = require('../voice-runtime');
+const { createVoiceReadback } = require('../voice-readback');
 const {
   createVoiceSpeechEngine,
   resolveVoiceHotwordsPath,
@@ -233,14 +234,15 @@ function createFakeHelperChild() {
   return child;
 }
 
-async function createRetryFixture(t, { startupFailure = false, cloudEngine = null, initialize = true, readbackEngine = null } = {}) {
+async function createRetryFixture(t, { startupFailure = false, cloudEngine = null, initialize = true, readbackEngine = null,
+  savedSettings = {} } = {}) {
   const base = path.resolve(ORIGINAL_SOURCE_DIR, '../.tmp'); fs.mkdirSync(base, { recursive: true });
   const directory = fs.mkdtempSync(path.join(base, 'voice-retry-'));
   const helperPath = path.join(directory, 'helper.exe'); fs.writeFileSync(helperPath, 'fixture');
   const settingsPath = path.join(directory, 'voice-control.json');
   const controller = { version: 1, devicePath: '\\\\?\\HID#RETRY', reportId: 1, linkCollection: 0, button: 11, label: 'Test yoke' };
   fs.writeFileSync(settingsPath, JSON.stringify({ voiceRecognitionEnabled: true,
-    pushToTalkShortcut: 'Control+F1', controllerBindingV1: controller }));
+    pushToTalkShortcut: 'Control+F1', controllerBindingV1: controller, ...savedSettings }));
   const handlers = new Map(), children = [], hooks = [], hookOptions = [], sent = [], logs = [];
   const state = { automaticReady: true, initialized: 0, shutdown: 0, ready: false, activeSessionId: null,
     cancelled: [], setupStarts: 0 };
@@ -1011,7 +1013,7 @@ test('voice recognition is default-off and starts local resources only after exp
       pushToTalkShortcut: '',
       voiceRecognitionEnabled: true,
       voiceMode: 'offline',
-      readbackEngine: 'kokoro',
+      readbackEngine: 'windows-sapi',
       readbackVoices: { kokoro: 'af_heart' },
       // The disabled preview does not add cloud preferences for a new offline user.
     });
@@ -1154,7 +1156,42 @@ test('voice runtime exposes only its bounded local readback engine through trust
   assert.equal(cancellations, 2, 'runtime shutdown should stop any remaining readback');
 });
 
-test('spoken voice defaults to Kokoro, persists Windows selection, and rejects unknown engines', async t => {
+for (const savedEngine of [undefined, 'windows-sapi']) {
+test(`${savedEngine || 'default Windows speech'} bypasses Kokoro on startup and IPC selection releases an active model`, async t => {
+  const children = [], spoken = [];
+  const readback = createVoiceReadback({
+    player: { getInfo: () => ({ available: true, local: true }), cancel: () => true,
+      speak: text => { spoken.push(text); return true; }, playAudio: () => assert.fail('Unexpected neural audio') },
+    spawnWorker: () => {
+      const child = new EventEmitter();
+      child.kill = () => { child.killed = true; return true; };
+      child.postMessage = () => assert.fail('Unexpected neural synthesis');
+      children.push(child); return child;
+    },
+  });
+  const h = await createRetryFixture(t, { readbackEngine: readback,
+    savedSettings: { readbackEngine: savedEngine, readbackVoices: { kokoro: 'bf_emma' } } });
+  assert.equal(h.runtime.runtimeInfo().enabled, true);
+  assert.equal(h.runtime.runtimeInfo().readback.selectedEngine, 'windows-sapi');
+  h.invoke('set-readback-active', true);
+  h.invoke('readback-speak', 'Heading two seven zero set.');
+  assert.equal(children.length, 0, 'saved Windows choice must be restored before background activation');
+  assert.deepEqual(spoken, ['Heading two seven zero set.']);
+  h.invoke('set-readback-engine', 'kokoro');
+  assert.equal(children.length, 1, 'active feedback prepares the newly selected neural engine');
+  assert.equal(h.runtime.runtimeInfo().readback.selectedVoice, 'bf_emma');
+  h.invoke('set-readback-engine', 'windows-sapi');
+  assert.equal(children[0].killed, true);
+  assert.equal(JSON.parse(fs.readFileSync(h.settingsPath, 'utf8')).readbackEngine, 'windows-sapi');
+  children[0].emit('message', { type: 'ready' }); children[0].emit('exit', 0);
+  h.invoke('set-readback-active', true);
+  h.invoke('readback-speak', 'Gear down selected.');
+  assert.equal(children.length, 1, 'model exit must not undo the persisted Windows selection');
+  assert.deepEqual(spoken, ['Heading two seven zero set.', 'Gear down selected.']);
+});
+}
+
+test('spoken voice defaults to Windows, persists both engine choices, and rejects unknown engines', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-readback-choice-'));
   const handlers = new Map();
   const make = () => createVoiceRuntime({ app: { isPackaged: false, getPath: () => directory },
@@ -1162,10 +1199,15 @@ test('spoken voice defaults to Kokoro, persists Windows selection, and rejects u
     registerTrustedIpcHandler: (channel, handler) => handlers.set(channel, handler) });
   let runtime = make();
   t.after(async () => { await runtime.shutdown(); fs.rmSync(directory, { recursive: true, force: true }); });
+  assert.equal(runtime.runtimeInfo().readback.selectedEngine, 'windows-sapi');
+  assert.deepEqual(runtime.runtimeInfo().readback.voices, []);
+  handlers.get('voice:set-readback-engine')({}, 'kokoro');
   assert.equal(runtime.runtimeInfo().readback.selectedEngine, 'kokoro');
   assert.equal(runtime.runtimeInfo().readback.selectedVoice, 'af_heart');
   assert.equal(runtime.runtimeInfo().readback.voices.length, 8);
   handlers.get('voice:set-readback-voice')({}, { engineId: 'kokoro', voiceId: 'bf_emma' });
+  await runtime.shutdown(); runtime = make();
+  assert.equal(runtime.runtimeInfo().readback.selectedEngine, 'kokoro', 'saved Kokoro overrides the new default after restart');
   assert.equal(runtime.runtimeInfo().readback.selectedVoice, 'bf_emma');
   assert.throws(() => handlers.get('voice:set-readback-voice')({}, { engineId: 'kokoro', voiceId: '../voice' }), /Unsupported/);
   assert.throws(() => handlers.get('voice:set-readback-voice')({}, { engineId: 'windows-sapi', voiceId: 'am_michael' }), /Unsupported/);
@@ -1190,10 +1232,28 @@ test('spoken voice defaults to Kokoro, persists Windows selection, and rejects u
   assert.equal(JSON.parse(fs.readFileSync(path.join(directory, 'voice-control.json'), 'utf8')).readbackVoices.kokoro, 'bf_emma');
 });
 
+for (const [savedEngine, expectedEngine] of [[undefined, 'windows-sapi'], ['windows-sapi', 'windows-sapi'], ['kokoro', 'kokoro'], ['retired-engine', 'windows-sapi']]) {
+test(`stored engine ${savedEngine} resolves to ${expectedEngine} without rewriting preferences on load`, async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-readback-default-'));
+  const settingsPath = path.join(directory, 'voice-control.json');
+  const saved = JSON.stringify({ readbackEngine: savedEngine, readbackVoices: { kokoro: 'bf_emma' }, voiceRecognitionEnabled: false });
+  fs.writeFileSync(settingsPath, saved);
+  const handlers = new Map();
+  const runtime = createVoiceRuntime({ app: { isPackaged: false, getPath: () => directory },
+    appDir: ORIGINAL_SOURCE_DIR, ipcMain: new EventEmitter(), getMainWindow: () => null,
+    registerTrustedIpcHandler: (channel, handler) => handlers.set(channel, handler) });
+  t.after(async () => { await runtime.shutdown(); fs.rmSync(directory, { recursive: true, force: true }); });
+  assert.equal(runtime.runtimeInfo().readback.selectedEngine, expectedEngine);
+  assert.equal(fs.readFileSync(settingsPath, 'utf8'), saved, 'reading settings preserves the original saved choices');
+  handlers.get('voice:set-readback-engine')({}, 'kokoro');
+  assert.equal(runtime.runtimeInfo().readback.selectedVoice, 'bf_emma', 'stored Kokoro voice survives even when another engine is active');
+});
+}
+
 for (const [savedVoice, expectedVoice, count] of [['af_alloy', 'af_alloy', 9], ['retired-voice', 'af_heart', 8]]) {
 test(`saved spoken voice ${savedVoice} remains usable or recovers to the bundled default`, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-readback-migration-'));
-  fs.writeFileSync(path.join(directory, 'voice-control.json'), JSON.stringify({ readbackVoices: { kokoro: savedVoice } }));
+  fs.writeFileSync(path.join(directory, 'voice-control.json'), JSON.stringify({ readbackEngine: 'kokoro', readbackVoices: { kokoro: savedVoice } }));
   const runtime = createVoiceRuntime({ app: { isPackaged: false, getPath: () => directory },
     appDir: ORIGINAL_SOURCE_DIR, ipcMain: new EventEmitter(), getMainWindow: () => null,
     registerTrustedIpcHandler: () => {} });

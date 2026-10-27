@@ -428,6 +428,24 @@ test('getAdjustedBands: runway length sets the zone end and weather never moves 
   assertEqual(long.POOR.max, 5000, 'Long Landing caps at 5000 ft');
 });
 
+test('getAdjustedBands: short-runway collapse and long-runway caps preserve band order', () => {
+  const cases = [
+    // length, Ideal end, Good end, TDZ end, Long Landing end (feet)
+    [2400, 800, 800, 800, 1200],
+    [3000, 1000, 1000, 1000, 1500],
+    [6000, 1250, 1667, 2000, 3000],
+    [9000, 1500, 2333, 3000, 4500],
+    [10000, 1500, 2333, 3000, 5000],
+  ];
+  for (const [length, ideal, good, zone, long] of cases) {
+    const bands = landingDist.getAdjustedBands(length);
+    assertEqual(bands.PERFECT.max, ideal, `${length} ft Ideal end`);
+    assertEqual(bands.GOOD.max, good, `${length} ft Good end`);
+    assertEqual(bands.ACCEPTABLE.max, zone, `${length} ft TDZ end`);
+    assertEqual(bands.POOR.max, long, `${length} ft Long Landing end`);
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Runway context tests
 // ─────────────────────────────────────────────────────────────────────────────
@@ -561,6 +579,33 @@ test('scoreBounce: known bounce count remains penalized without final touchdown 
   assertEqual(result.bounceCount, 2, 'Known bounce count must be preserved');
   assertEqual(result.grade, 'Multiple Bounces', 'Missing endpoint geometry must not become a clean landing');
   assertEqual(result.distanceTraveledFt, 80, 'Explicit airborne distance remains usable without an endpoint');
+});
+
+test('scoreBounce: distance penalties saturate while the porpoise score floor remains active', () => {
+  // Numerical scoring boundaries, not a simulated flight trajectory.
+  const cases = [
+    // count, airborne feet, score, penalty
+    [1, 0, 90, 5], [1, 949, 81, 14], [1, 950, 80, 15], [1, 1500, 80, 15],
+    [2, 0, 70, 15], [2, 724, 56, 29], [2, 725, 55, 30], [2, 1500, 55, 30],
+    [3, 0, 50, 25], [3, 584, 31, 44], [3, 585, 30, 45], [3, 1500, 30, 45],
+    [4, 0, 20, 40], [4, 190, 10, 50], [4, 600, 10, 70],
+  ];
+  for (const [bounceCount, airborneDistanceFt, score, penalty] of cases) {
+    const result = landingDist.scoreBounce({ bounceCount, airborneDistanceFt });
+    assertEqual(result.score, score, `${bounceCount} bounces, ${airborneDistanceFt} ft score`);
+    assertEqual(result.penalty, penalty, `${bounceCount} bounces, ${airborneDistanceFt} ft penalty`);
+  }
+});
+
+test('scoreLateralOffset: the outside-reference penalty caps at a zero score on either side', () => {
+  // Numerical scoring boundaries beyond the runway reference, not a flight scenario.
+  for (const sign of [-1, 1]) {
+    for (const [offset, score, penalty] of [[569, 1, 99], [570, 0, 100], [1000, 0, 100]]) {
+      const result = landingDist.scoreLateralOffset(sign * offset, 150);
+      assertEqual(result.score, score, `${sign * offset} ft score`);
+      assertEqual(result.penalty, penalty, `${sign * offset} ft penalty`);
+    }
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -806,6 +851,26 @@ test('calculateTouchdownOffsetFromRolloutTrack: reports relative track offset, n
 
   assertApprox(r.offsetFt, 0, 2, 'A straight rollout passes through its own touchdown origin');
   assertEqual(r.side, 'center', 'Relative track result should not claim the aircraft was off the absolute centerline');
+});
+
+test('calculateTouchdownOffsetFromRolloutTrack: needs five usable points and enough track spread', () => {
+  const touchdown = { lat: 40, lon: -74 };
+  // Five northbound positions spanning 600 ft, roughly 4.4 seconds at 80 kt.
+  const rollout = [0, 150, 300, 450, 600].map(distanceFt =>
+    mkOffset(touchdown.lat, touchdown.lon, 0, distanceFt, 0)
+  );
+  // A malformed GPS sample is a deliberate robustness input and is filtered out.
+  const result = landingDist.calculateTouchdownOffsetFromRolloutTrack(
+    touchdown, [rollout[0], { lat: NaN, lon: -74 }, ...rollout.slice(1)], 0,
+  );
+  assertEqual(result.sampleCount, 5, 'Only usable points enter the fit');
+  assertEqual(result.alongTrackFt, 600, 'Track spread');
+  assertEqual(result.offsetFt, 0, 'Straight track passes through touchdown');
+  assertEqual(result.headingDeg, 0, 'Northbound track');
+  assertNull(landingDist.calculateTouchdownOffsetFromRolloutTrack(touchdown, rollout.slice(1), 0).offsetFt,
+    'Four points cannot establish a fit');
+  assertNull(landingDist.calculateTouchdownOffsetFromRolloutTrack(touchdown, Array(5).fill(touchdown), 0).offsetFt,
+    'Repeated stationary coordinates cannot establish a track');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

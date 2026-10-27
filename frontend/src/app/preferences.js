@@ -127,11 +127,9 @@ export function createAppPreferences({
   renderFuelValue();
 
   return {
-    applyFuelUnit,
     applyShowBranding,
     applySyncedFuelUnit,
     cycleFuelUnit,
-    renderFuelValue,
     setFuelGallons: setFuelTelemetry,
     setFuelTelemetry,
     syncToBackend,

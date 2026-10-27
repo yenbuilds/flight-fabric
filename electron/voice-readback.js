@@ -32,7 +32,7 @@ function createVoiceReadback({
   setTimer = setTimeout, clearTimer = clearTimeout,
   requestTimeoutMs = 30000, idleTimeoutMs = 120000,
 } = {}) {
-  let selectedEngine = 'kokoro';
+  let selectedEngine = 'windows-sapi';
   let active = false;
   const selectedVoices = Object.fromEntries(READBACK_ENGINES.filter(engine => engine.defaultVoice)
     .map(engine => [engine.id, engine.defaultVoice]));

@@ -328,6 +328,7 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
       <VoiceRestartHint />
       <div id="voice-settings-configuration" v-show="configurationOpen">
         <div class="voice-setup-grid mt-5">
+          <div class="grid min-w-0 gap-8">
             <VoiceSetupTest :disabled="recognitionSaving || shortcutSetupBusy || shortcutSaving || voice.controllerSetup.active">
             <div class="voice-microphone-selection min-w-0">
               <div class="flex flex-wrap items-center justify-between gap-2">
@@ -365,6 +366,69 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
               </div>
             </div>
             </VoiceSetupTest>
+
+            <section class="voice-feedback-settings" aria-labelledby="voice-feedback-title">
+              <h4 id="voice-feedback-title" class="mb-3 text-sm font-semibold text-fg">Recognition &amp; spoken feedback</h4>
+              <CloudVoiceSettings :disabled="captureLocked || shortcutSetupBusy || recognitionSaving || voice.status === 'sending'" />
+            <div>
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <label class="flex min-h-10 shrink-0 cursor-pointer items-center gap-2 text-fg" title="Speaks command results entirely offline on this PC.">
+                <input
+                  class="peer sr-only"
+                  type="checkbox"
+                  role="switch"
+                  :checked="voice.spokenReadbacks"
+                  data-voice-spoken-feedback
+                  :disabled="captureLocked"
+                  @change="toggleSpokenReadbacks"
+                >
+                <span
+                  class="relative h-5 w-9 shrink-0 rounded-full border transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-100"
+                  :class="voice.spokenReadbacks ? 'border-accent/60 bg-accent/35' : 'border-border bg-muted'"
+                  aria-hidden="true"
+                >
+                  <span
+                    class="absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-gray-200 transition-transform"
+                    :class="voice.spokenReadbacks ? 'translate-x-4' : 'translate-x-0'"
+                  ></span>
+                </span>
+                <span>Spoken feedback</span>
+              </label>
+              <button type="button" class="ff-button-secondary text-xs disabled:opacity-50" data-voice-test-feedback
+                :disabled="captureLocked || recognitionSaving || voice.status === 'sending'" @click="voice.testSpokenFeedback">Test spoken feedback</button>
+              </div>
+              <div v-if="voice.runtime.readback.engines.length" class="mt-3 max-w-md">
+                <label for="voice-readback-engine" class="mb-1 block text-xs font-medium text-fg">Speech engine</label>
+                <select id="voice-readback-engine" class="w-full rounded-lg border border-border bg-surface-100 px-3 py-2 text-sm text-fg"
+                  data-voice-readback-engine :value="voice.runtime.readback.selectedEngine" :disabled="captureLocked"
+                  :aria-describedby="voice.runtime.readback.selectedEngine === 'kokoro' ? 'voice-neural-memory-warning' : undefined"
+                  @change="changeReadbackEngine">
+                  <option v-for="engine in voice.runtime.readback.engines" :key="engine.id" :value="engine.id">{{ engine.label }}</option>
+                </select>
+                <p v-if="voice.runtime.readback.selectedEngine === 'kokoro'" id="voice-neural-memory-warning" class="mt-2 text-xs text-warning">
+                  Neural voices use significantly more RAM. Choose Windows TTS for lower memory use.
+                </p>
+                <div v-if="voice.runtime.readback.voices.length" class="mt-3">
+                  <label for="voice-readback-voice" class="mb-1 block text-xs font-medium text-fg">Voice</label>
+                  <select id="voice-readback-voice" class="w-full rounded-lg border border-border bg-surface-100 px-3 py-2 text-sm text-fg"
+                    :value="voice.runtime.readback.selectedVoice" :disabled="captureLocked" @change="changeReadbackVoice">
+                    <option v-for="option in voice.runtime.readback.voices" :key="option.id" :value="option.id">{{ option.label }}</option>
+                  </select>
+                </div>
+                <p class="mt-1 text-xs text-muted-fg">All voices work offline.</p>
+                <p v-if="voice.runtime.readback.preparing" class="mt-1 text-xs text-muted-fg" role="status">Preparing the selected voice…</p>
+                <p v-if="readbackSelectionError" class="mt-1 text-xs text-warning" role="alert">{{ readbackSelectionError }}</p>
+                <p v-if="voice.runtime.readback.fallbackReason" class="mt-1 text-xs text-warning" role="status">{{ voice.runtime.readback.fallbackReason }}</p>
+                <button v-if="voice.runtime.readback.fallbackReason" type="button" class="ff-button-secondary mt-2 text-xs"
+                  :disabled="captureLocked" @click="voice.setReadbackEngine(voice.runtime.readback.selectedEngine)">Retry selected voice</button>
+              </div>
+              <p v-if="voice.voiceTest.feedbackMessage" class="mt-2 text-xs text-muted-fg" role="status">{{ voice.voiceTest.feedbackMessage }}</p>
+              <p v-if="voice.runtime.readbackError" class="text-[11px] text-warning" data-voice-readback-error>
+                Last spoken readback failed: {{ voice.runtime.readbackError }} Speech uses the default output device.
+              </p>
+            </div>
+            </section>
+          </div>
           <section aria-labelledby="voice-ptt-title" data-voice-ptt-settings>
             <h4 id="voice-ptt-title" class="mb-3 text-base font-semibold text-fg">2. Set up push-to-talk</h4>
             <p class="mb-3 text-xs text-muted-fg">Hold to speak. Release for a response.</p>
@@ -506,63 +570,6 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
             <VoiceButtonTest :disabled="recognitionSaving || shortcutSetupBusy || shortcutDirty || shortcutSaving || voice.controllerSetup.active" :on-screen="inputChoice === 'screen'" />
           </section>
 
-          <section class="voice-feedback-settings" aria-labelledby="voice-feedback-title">
-            <h4 id="voice-feedback-title" class="mb-3 text-sm font-semibold text-fg">Recognition &amp; spoken feedback</h4>
-            <CloudVoiceSettings :disabled="captureLocked || shortcutSetupBusy || recognitionSaving || voice.status === 'sending'" />
-          <div>
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <label class="flex min-h-10 shrink-0 cursor-pointer items-center gap-2 text-fg" title="Speaks command results entirely offline on this PC.">
-              <input
-                class="peer sr-only"
-                type="checkbox"
-                role="switch"
-                :checked="voice.spokenReadbacks"
-                data-voice-spoken-feedback
-                :disabled="captureLocked"
-                @change="toggleSpokenReadbacks"
-              >
-              <span
-                class="relative h-5 w-9 shrink-0 rounded-full border transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-100"
-                :class="voice.spokenReadbacks ? 'border-accent/60 bg-accent/35' : 'border-border bg-muted'"
-                aria-hidden="true"
-              >
-                <span
-                  class="absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-gray-200 transition-transform"
-                  :class="voice.spokenReadbacks ? 'translate-x-4' : 'translate-x-0'"
-                ></span>
-              </span>
-              <span>Spoken feedback</span>
-            </label>
-            <button type="button" class="ff-button-secondary text-xs disabled:opacity-50" data-voice-test-feedback
-              :disabled="captureLocked || recognitionSaving || voice.status === 'sending'" @click="voice.testSpokenFeedback">Test spoken feedback</button>
-            </div>
-            <div v-if="voice.runtime.readback.engines.length" class="mt-3 max-w-md">
-              <label for="voice-readback-engine" class="mb-1 block text-xs font-medium text-fg">Speech engine</label>
-              <select id="voice-readback-engine" class="w-full rounded-lg border border-border bg-surface-100 px-3 py-2 text-sm text-fg"
-                data-voice-readback-engine :value="voice.runtime.readback.selectedEngine" :disabled="captureLocked"
-                @change="changeReadbackEngine">
-                <option v-for="engine in voice.runtime.readback.engines" :key="engine.id" :value="engine.id">{{ engine.label }}</option>
-              </select>
-              <div v-if="voice.runtime.readback.voices.length" class="mt-3">
-                <label for="voice-readback-voice" class="mb-1 block text-xs font-medium text-fg">Voice</label>
-                <select id="voice-readback-voice" class="w-full rounded-lg border border-border bg-surface-100 px-3 py-2 text-sm text-fg"
-                  :value="voice.runtime.readback.selectedVoice" :disabled="captureLocked" @change="changeReadbackVoice">
-                  <option v-for="option in voice.runtime.readback.voices" :key="option.id" :value="option.id">{{ option.label }}</option>
-                </select>
-              </div>
-              <p class="mt-1 text-xs text-muted-fg">All voices work offline.</p>
-              <p v-if="voice.runtime.readback.preparing" class="mt-1 text-xs text-muted-fg" role="status">Preparing the selected voice…</p>
-              <p v-if="readbackSelectionError" class="mt-1 text-xs text-warning" role="alert">{{ readbackSelectionError }}</p>
-              <p v-if="voice.runtime.readback.fallbackReason" class="mt-1 text-xs text-warning" role="status">{{ voice.runtime.readback.fallbackReason }}</p>
-              <button v-if="voice.runtime.readback.fallbackReason" type="button" class="ff-button-secondary mt-2 text-xs"
-                :disabled="captureLocked" @click="voice.setReadbackEngine(voice.runtime.readback.selectedEngine)">Retry selected voice</button>
-            </div>
-            <p v-if="voice.voiceTest.feedbackMessage" class="mt-2 text-xs text-muted-fg" role="status">{{ voice.voiceTest.feedbackMessage }}</p>
-            <p v-if="voice.runtime.readbackError" class="text-[11px] text-warning" data-voice-readback-error>
-              Last spoken readback failed: {{ voice.runtime.readbackError }} Speech uses the default output device.
-            </p>
-          </div>
-          </section>
           <button type="button" class="justify-self-start" :class="voice.voiceTest.recognized ? 'ff-button-primary' : 'ff-button-secondary'" data-voice-setup-done :disabled="captureLocked || shortcutSetupBusy || shortcutDirty || shortcutSaving" @click="backToAircraft">Open Aircraft controls</button>
         </div>
 

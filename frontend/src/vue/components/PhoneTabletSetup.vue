@@ -219,8 +219,8 @@ onUnmounted(() => { retire(); unsubscribe?.(); });
       </section>
       <details class="setup-details">
         <summary>Connection help</summary>
-        <p class="phone-setup-copy">Bookmark this page. New flights appear automatically. After restarting FlightFabric, scan again or request a new code if access expires.</p>
-        <p class="phone-setup-copy">Page won’t open? Use the same home network and allow FlightFabric through your firewall on private networks.</p>
+        <p class="phone-setup-copy">Can’t connect? Allow FlightFabric through your firewall on private networks.</p>
+        <p class="phone-setup-copy">After restarting FlightFabric, scan the QR again or request a new code on your phone.</p>
         <p v-if="host.alternateIpsLabel" class="phone-setup-copy">Other network addresses: {{ host.alternateIpsLabel }}</p>
       </details>
     </template>

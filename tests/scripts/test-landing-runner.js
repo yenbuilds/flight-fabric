@@ -161,15 +161,6 @@ function makeCtx(overrides = {}) {
   return {
     phase: 'LANDING',
     xwind_kts: 6,
-    stability: {
-      ultimateScore: {
-        overall: 100,
-        breakdown: { gear_ok: 100, flaps_ok: 100, spoilers_ok: 100 },
-        gateStable: true,
-        gateFailures: [],
-        samples: 20,
-      },
-    },
     aircraftName: 'Test Aircraft',
     icao: null,
     runway: null,
@@ -201,6 +192,67 @@ test('update is safe with invalid frame and non-function broadcast', () => {
   const runner = createLandingRunner();
   assert.doesNotThrow(() => runner.update(null, null, null, makeCtx()));
   assert.doesNotThrow(() => runner.update(undefined, 'not-a-fn', {}, makeCtx()));
+});
+
+test('stationary simulator-load WOW changes cannot start a landing, then a valid approach recovers', () => {
+  const runner = createLandingRunner();
+  const broadcasts = [];
+  const finals = [];
+  const off = eventBus.on('landing:final', (payload) => finals.push(payload));
+  const t0 = 1_700_000_000_000;
+  const broadcast = (payload) => broadcasts.push(payload);
+  const ctx = makeCtx();
+  const update = (elapsedMs, overrides) => runner.update(makeFrame(overrides), broadcast, { nowEpochMs: t0 + elapsedMs }, ctx);
+
+  try {
+    // Deliberately invalid flight telemetry during simulator loading: WOW
+    // changes while the aircraft has no airspeed or descent.
+    for (const [elapsedMs, wow] of [[0, true], [100, false], [200, true], [61000, true]]) {
+      update(elapsedMs, { wow, ias: 0, gs: 0, vs: 0, ra: 0, display: { iasKts: 0, gsKts: 0, vsFpm: 0, raFt: 0 } });
+    }
+    assert.strictEqual(runner.isRolloutActive(), false);
+    assert.deepStrictEqual(broadcasts, [], 'Rejected contacts must not show a landing');
+    assert.deepStrictEqual(finals, [], 'Rejected contacts must not produce a final record');
+
+    // A later approach descends from 120 ft at 600 fpm over 12 seconds.
+    update(120000, { wow: false, alt_msl: 1120, ra: 120 / 3.28084, display: { iasKts: 140, vsFpm: -600, raFt: 120 } });
+    update(131800, { wow: false, alt_msl: 1002, ra: 2 / 3.28084, display: { iasKts: 138, vsFpm: -600, raFt: 2 } });
+    update(132000, { wow: true, alt_msl: 1000, ra: 0, display: { iasKts: 138, vsFpm: -600, raFt: 0 } });
+    assert.strictEqual(runner.isRolloutActive(), true);
+    assert.strictEqual(broadcasts.filter((payload) => payload.final === false).length, 1);
+    update(192000, { wow: true, gs: 20, display: { iasKts: 20, vsFpm: 0, raFt: 0 } });
+    assert.strictEqual(finals.length, 1, 'A valid landing must still finalize after rejected contacts');
+  } finally {
+    off();
+  }
+});
+
+test('brief takeoff lift-off and settling cannot start a landing or emit a final record', () => {
+  const runner = createLandingRunner();
+  const broadcasts = [];
+  const finals = [];
+  const off = eventBus.on('landing:final', (payload) => finals.push(payload));
+  const t0 = 1_700_000_000_000;
+  try {
+    // A brief two-foot hop at rotation speed, returning after 1.6 seconds.
+    // The radio altimeter includes its normal few-foot ground offset.
+    for (const [elapsedMs, wow, raFt, vsFpm] of [
+      [0, true, 8, 0], [100, false, 8, 300], [900, false, 10, 0],
+      [1700, true, 8, -300], [61000, true, 8, 0],
+    ]) {
+      const speedKts = elapsedMs === 61000 ? 20 : 140;
+      runner.update(makeFrame({
+        wow, ias: speedKts, gs: speedKts, vs: vsFpm / 196.8503937,
+        ra: raFt / 3.28084, alt_msl: 1000 + raFt - 8,
+        display: { iasKts: speedKts, gsKts: speedKts, vsFpm, raFt },
+      }), (payload) => broadcasts.push(payload), { nowEpochMs: t0 + elapsedMs }, makeCtx({ phase: 'TAKEOFF' }));
+    }
+    assert.strictEqual(runner.isRolloutActive(), false);
+    assert.deepStrictEqual(broadcasts, [], 'Takeoff settling must not show a landing');
+    assert.deepStrictEqual(finals, [], 'Takeoff settling must not produce a final record');
+  } finally {
+    off();
+  }
 });
 
 test('first touchdown still produces final landing event and bounce fields', () => {
@@ -1478,7 +1530,7 @@ test('bounce touchdown VS prefers recent airborne sample when WOW frame is dampe
     false,
     'landing:final payload should not expose checklist stability pct',
   );
-  assert.strictEqual(finalPayload.ultimate_stability_gate_stable, true, 'Expected canonical gate stable boolean in landing:final payload');
+  assert.strictEqual(finalPayload.ultimate_stability_gate_stable, null, 'Approach stability is unknown until the current-approach scorer enriches the final payload');
   assert.strictEqual(
     Object.prototype.hasOwnProperty.call(finalPayload, 'ultimate_stability_gateStable'),
     false,
@@ -1529,7 +1581,7 @@ test('landing:final preserves touchdown surface validity even when class is pres
   assert.strictEqual(finalPayload.surface_on_runway, false, 'Expected explicit surface_on_runway false to survive landing:final payload');
 });
 
-test('runway touchdown at threshold counts as TDZ achieved and preserves score-shaped stability', () => {
+test('runway touchdown at threshold counts as TDZ achieved without inventing approach stability', () => {
   const runwayData = {
     icao: 'TEST',
     runway: '36',
@@ -1548,17 +1600,6 @@ test('runway touchdown at threshold counts as TDZ achieved and preserves score-s
         simconnect: { lat: 0, lon: 0, hdgTrueDeg: 0, hdgMagDeg: 0 },
         display: { iasKts: 138, vsFpm: -500, raFt: 4 },
       },
-      {
-        stability: {
-          ultimateScore: {
-            score: 67,
-            breakdown: { gear_ok: 100, flaps_ok: 100, spoilers_ok: 100 },
-            gateStable: false,
-            gateFailures: ['vs_unstable_after_gate'],
-            samples: 20,
-          },
-        },
-      },
     );
 
     assert.strictEqual(finalEvent.touchdownDistance.distanceFt, 0, 'Expected threshold touchdown distance to be 0 ft');
@@ -1569,12 +1610,12 @@ test('runway touchdown at threshold counts as TDZ achieved and preserves score-s
     assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetSide, 'center', 'Centered touchdown should emit center side');
     assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetScore, null, 'Portable runway geometry cannot prove alignment');
     assert.strictEqual(finalEvent.touchdownDistance.lateralOffsetGrade, 'Unverified');
-    assert.strictEqual(finalEvent.ultimateStability.score, 67, 'score-shaped ultimateScore payload should be preserved');
-    assert.strictEqual(finalEvent.ultimateStability.gateStable, false, 'score-shaped gateStable=false should be preserved for UI broadcast');
+    assert.strictEqual(finalEvent.ultimateStability.score, null);
+    assert.strictEqual(finalEvent.ultimateStability.gateStable, null);
     assert.deepStrictEqual(
       finalEvent.ultimateStability.gateFailures,
-      ['vs_unstable_after_gate'],
-      'score-shaped gateFailures should be preserved for UI broadcast',
+      [],
+      'Missing approach stability must not manufacture gate failures',
     );
   });
 });

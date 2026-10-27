@@ -4,8 +4,7 @@ import { useAircraftControlsStore } from '../stores/aircraft-controls.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useVoicePushToTalk } from '../composables/useVoicePushToTalk.js';
-import { canQueryAircraftState, stateQueryExamples } from '../../voice/state-queries.js';
-import { flightPlanQueryExamples } from '../../voice/flight-plan-queries.js';
+import { canQueryAircraftState } from '../../voice/state-queries.js';
 import { voiceCommandExamples } from '../../voice/command-examples.js';
 import { createContext } from '../../voice/cloud-intent.js';
 import KeyboardShortcutKeys from './KeyboardShortcutKeys.vue';
@@ -23,7 +22,6 @@ const voice = useVoiceControlStore();
 const aircraftControls = useAircraftControlsStore();
 const specific = useAircraftSpecificStore();
 const queriesAvailable = computed(() => canQueryAircraftState(specific));
-const queryExamples = computed(() => stateQueryExamples(specific));
 const isModalPresentation = computed(() => props.presentation === 'modal');
 
 const examples = computed(() => {
@@ -38,10 +36,6 @@ const examples = computed(() => {
 const developmentTranscription = computed(() => voice.runtime.development
   && !queriesAvailable.value
   && (aircraftControls.availability.enabled !== true || examples.value.length === 0));
-// Flight plan questions need no aircraft data, only a session that can dispatch.
-const flightPlanExamples = flightPlanQueryExamples();
-const flightPlanQueriesAvailable = computed(() => !developmentTranscription.value
-  && (queriesAvailable.value || (aircraftControls.availability.enabled === true && examples.value.length > 0)));
 const recognitionOff = computed(() => voice.runtime.enabled !== true);
 const pushToTalkDisabled = computed(() => (
   recognitionOff.value
@@ -143,36 +137,10 @@ const emit = defineEmits(['open-settings']);
       </div>
     </div>
 
-    <div v-if="queriesAvailable" class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg" data-state-query-guide>
-      <p class="font-semibold">Ask about the aircraft</p>
-      <p class="mt-1">{{ queryExamples.slice(0, 3).join(' · ') }}</p>
-      <details v-if="queryExamples.length > 3" class="mt-2" data-more-state-queries>
-        <summary class="cursor-pointer py-1">More questions ({{ queryExamples.length - 3 }})</summary>
-        <ul class="mt-1 grid gap-1 sm:grid-cols-2">
-          <li v-for="example in queryExamples.slice(3)" :key="example">{{ example }}</li>
-        </ul>
-      </details>
-      <p class="mt-1">Replies use fresh aircraft data. Turn on spoken feedback to hear them.</p>
-    </div>
-    <div v-if="flightPlanQueriesAvailable" class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg" data-flight-plan-query-guide>
-      <p class="font-semibold">Ask about the flight plan</p>
-      <p class="mt-1">{{ flightPlanExamples.join(' · ') }}</p>
-      <p class="mt-1">Answers use the flight plan loaded in SimBrief.</p>
-    </div>
-    <div v-if="examples.length" class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3 text-xs">
-      <span class="mr-1 text-muted-fg">Try saying</span>
-      <span
-        v-for="example in examples"
-        :key="example"
-        class="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-gray-300"
-      >
-        &ldquo;{{ example }}&rdquo;
-      </span>
-    </div>
-    <p v-else-if="developmentTranscription" class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg">
+    <p v-if="!examples.length && developmentTranscription" class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg">
       Development mode: speak any phrase to inspect its transcription. Commands will not be sent.
     </p>
-    <p v-else class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg">
+    <p v-else-if="!examples.length" class="mt-3 border-t border-white/10 pt-3 text-xs text-muted-fg">
       No voice commands are exposed for this aircraft.
     </p>
 

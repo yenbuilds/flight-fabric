@@ -479,7 +479,6 @@ module.exports = {
   // Helpers
   getMinRunwayForAircraft,
   estimateFlightTime,
-  haversineDistanceNm,
   bearingDeg,
 };
 

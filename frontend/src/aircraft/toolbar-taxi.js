@@ -7,7 +7,7 @@ import { TAXI_COPY } from './taxi-presentation.js';
 
 // Manual taxi guidance with explicit pushback Start/Stop. Inputs remain
 // mounted while telemetry refreshes, preserving native keyboard capture/caret.
-export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now = Date.now }) {
+export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now = Date.now, formatText = String }) {
   const element = node('section', 'card taxi-section');
   element.id = 'toolbar-taxi';
   element.appendChild(node('h2', 'card-title', TAXI_COPY.title));
@@ -19,7 +19,7 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
   const runway = input('Departure runway', 'taxi-runway', 3);
   const stand = select('Stand / gate', 'taxi-stand', [['', 'Load airport stands']]);
   const help = node('details', 'taxi-note muted');
-  help.appendChild(node('summary', '', 'How it works · Experimental'));
+  help.appendChild(node('summary', '', 'How it works'));
   const departureHelp = help.appendChild(node('p', '', TAXI_COPY.departureHelp));
   const startHelp = help.appendChild(node('p', '', TAXI_COPY.startHelp));
   startHelp.id = 'taxi-pushback-help';
@@ -53,6 +53,8 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
   element.appendChild(help);
   const prefix = 'taxi-' + now() + '-' + Math.random().toString(36).slice(2) + '-';
   let connection = {}, context = '', catalogue = {}, state = {}, route = null, scene = null;
+  let manualRouteRequested = false;
+  let routeError = '';
   let timer = null, sequence = 0, revision = 0, lastReply = -Infinity, error = '', standsLoaded = false;
   const pending = new Map();
   let departure = { data: null, fresh: false }, pushbackSelected = true, planDefault = {};
@@ -65,7 +67,10 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     const previous = departure.data?.pushbackPreview.phase, phase = snapshot.data?.pushbackPreview.phase;
     departure = snapshot;
     if (['connecting', 'pushing', 'stopping'].includes(phase) && !['connecting', 'pushing', 'stopping'].includes(previous)) { invalidate(); pushbackSelected = true; }
-    if (phase === 'complete' && previous !== 'complete') { invalidate(); pushbackSelected = false; }
+    if (phase === 'complete' && previous !== 'complete') {
+      if (!manualRouteRequested) invalidate();
+      pushbackSelected = false;
+    }
     updatePushback();
     refresh();
   } });
@@ -85,7 +90,7 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
 
   function node(tag, className, text) {
     const n = document.createElement(tag); n.className = className || '';
-    if (text !== undefined) n.textContent = text;
+    if (text !== undefined) n.textContent = formatText(text);
     return n;
   }
   function field(label, control, id) {
@@ -108,7 +113,7 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     n.addEventListener('click', action); actions.appendChild(n); return n;
   }
   function clear(target) { while (target.firstChild) target.removeChild(target.firstChild); }
-  function invalidate() { revision++; pending.clear(); route = null; scene = null; error = ''; }
+  function invalidate() { revision++; pending.clear(); route = null; scene = null; error = ''; routeError = ''; manualRouteRequested = false; }
   function reset() { invalidate(); state = {}; lastReply = -Infinity; clearStands();
     pushbackControls.update({ connected: connection.connected, visible: false }); departurePreview.reset(); }
   function clearStands() {
@@ -131,7 +136,7 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     if (!enabled() || has(operation)) return;
     if (operation !== 'status' && (!validAirport() || has('preview') || has('parkings') || pushback.active)) return;
     if (operation === 'preview' && (!fresh() || state.canGuide !== true || !validDestination())) return;
-    if (operation === 'preview') { route = null; scene = null; pushbackSelected = false; }
+    if (operation === 'preview') { manualRouteRequested = true; routeError = ''; route = null; scene = null; pushbackSelected = false; }
     const requestId = prefix + (++sequence);
     const message = { type: 'requestTaxiGuidance', operation, requestId,
       profileKey: catalogue.profileKey, profileRevision: catalogue.profileRevision };
@@ -143,7 +148,7 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     if (operation === 'status' && state.sceneKey != null && (!scene || scene.key !== state.sceneKey)) message.scene = true;
     if (operation !== 'status') error = '';
     if (send(message)) pending.set(requestId, { operation, revision, at: now() });
-    else { state = {}; lastReply = -Infinity; error = 'Taxi guidance connection lost.'; }
+    else { state = {}; lastReply = -Infinity; error = 'Taxi guidance connection lost.'; if (operation === 'preview') routeError = error; }
     updatePushback(); refresh();
   }
   function poll() {
@@ -153,6 +158,7 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
       if (now() - p.at >= (p.operation === 'status' ? 2000 : 12000)) {
         pending.delete(id);
         if (p.operation !== 'status') error = 'Taxi guidance request timed out. Try again.';
+        if (p.operation === 'preview') routeError = error;
       }
     });
     request('status'); refresh();
@@ -190,6 +196,7 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     pending.delete(message.requestId);
     if (message.ok !== true) {
       error = message.error || 'Taxi guidance unavailable.';
+      if (p.operation === 'preview') routeError = error;
       if (p.operation === 'status') { state = {}; lastReply = -Infinity; }
       refresh(); return;
     }
@@ -211,7 +218,9 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     else if (scene && scene.key !== message.sceneKey) scene = null;
     // Include transport time in freshness; a delayed preview may be a useful
     // reference, but it cannot make an old aircraft pose look live again.
-    state = message; lastReply = p.at; error = ''; updatePushback(); refresh();
+    // Position replies may recover a status error, but not a route failure.
+    state = message; lastReply = p.at; error = '';
+    updatePushback(); refresh();
   }
   function refresh() {
     const busy = has('preview') || has('parkings') || pushback.active;
@@ -222,27 +231,32 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     push.hidden = !pushback.active && (mode.control.value !== 'runway' || pushback.completed);
     push.disabled = pushback.active ? pushback.pending === 'stop' : !pushback.canStart;
     push.setAttribute('aria-describedby', pushback.active ? 'taxi-pushback-reason' : 'taxi-pushback-help taxi-pushback-reason');
-    push.textContent = pushback.active ? (pushback.pending === 'stop' ? 'Stopping…' : 'Stop pushback') : TAXI_COPY.start;
+    push.textContent = pushback.active ? (pushback.pending === 'stop' ? 'Stopping...' : 'Stop pushback') : TAXI_COPY.start;
     push.className = 'button taxi-pushback-action' + (pushback.active ? ' taxi-pushback-stop' : '');
     pushbackReason.hidden = !pushback.active && mode.control.value !== 'runway';
     pushbackReason.className = 'taxi-reason ' + (pushback.completed ? 'taxi-complete' : 'muted');
-    pushbackReason.textContent = (pushback.active && pushback.fresh && Number.isFinite(pushback.state.remainingM)
-      ? Math.round(pushback.state.remainingM) + ' m remaining · Runway ' + pushback.state.runway + '. ' : '') + (pushback.reason || '');
+    pushbackReason.textContent = formatText((pushback.active && pushback.fresh && Number.isFinite(pushback.state.remainingM)
+      ? Math.round(pushback.state.remainingM) + ' m remaining · Runway ' + pushback.state.runway + '. ' : '') + (pushback.reason || ''));
     runway.wrapper.hidden = mode.control.value === 'stand'; stand.wrapper.hidden = mode.control.value !== 'stand';
     load.hidden = mode.control.value !== 'stand';
     load.disabled = !enabled() || !validAirport() || busy;
     show.disabled = !enabled() || !fresh() || !state.canGuide || !validAirport() || !validDestination() || busy;
-    show.textContent = has('preview') ? 'Finding route…' : route || departure.data?.pushbackPreview.phase === 'complete' ? TAXI_COPY.refreshRoute : TAXI_COPY.showRoute;
-    load.textContent = has('parkings') ? 'Loading stands…' : 'Load stands'; hide.hidden = !route && !has('preview');
+    show.textContent = has('preview') ? 'Finding route...' : route || departure.data?.pushbackPreview.phase === 'complete' ? TAXI_COPY.refreshRoute : TAXI_COPY.showRoute;
+    load.textContent = has('parkings') ? 'Loading stands...' : 'Load stands'; hide.hidden = !manualRouteRequested;
     hide.textContent = departure.data ? 'Back to pushback' : TAXI_COPY.hideRoute;
     const unavailable = !connection.connected ? 'Connect FlightFabric to view taxi guidance.' : !enabled() ? 'Taxi guidance is unavailable on this connection.'
-      : !fresh() ? 'Waiting for fresh aircraft position on the ground.' : state.guidanceUnavailableReason || '';
+      : !fresh() ? 'Waiting for fresh aircraft position on the ground.'
+      : state.guidanceUnavailableReason === 'Taxi guidance needs an aircraft on the ground with the flight running.' ? ''
+      : state.guidanceUnavailableReason || '';
     const completed = departure.fresh && departure.data?.pushbackPreview.phase === 'complete';
-    reason.textContent = (pushbackSelected && departure.data ? '' : error) || unavailable
-      || (has('preview') || has('parkings') ? 'Loading airport guidance…' : completed && !pushback.completed ? TAXI_COPY.complete : '');
-    reason.className = 'taxi-reason ' + (completed && !error && !unavailable && !busy ? 'taxi-complete' : 'muted');
+    const failure = routeError || error;
+    reason.textContent = formatText((pushbackSelected && departure.data ? '' : failure) || unavailable
+      || (has('preview') || has('parkings') ? 'Loading airport guidance...' : completed && !pushback.completed ? TAXI_COPY.complete : ''));
+    reason.className = 'taxi-reason ' + (completed && !failure && !unavailable && !busy ? 'taxi-complete' : 'muted');
     reason.hidden = !reason.textContent;
-    const displayRoute = route || departure.data?.route;
+    // Explicit manual guidance owns this view even while loading or after an
+    // error. Only an explicit return to Pushback may show the earlier plan.
+    const displayRoute = route || ((!manualRouteRequested || pushbackSelected) ? departure.data?.route : null);
     figure.hidden = !displayRoute; cautions.hidden = !displayRoute;
     pushbackView.hidden = !departure.data;
     viewButton.hidden = !departure.data;
@@ -252,8 +266,8 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     if (!displayRoute || !connection.visible) return;
     if (pushing) {
       map.removeAttribute('data-taxi-map');
-      renderPushbackMap(map, departure.data, departure.fresh);
-      caption.textContent = pushbackCaption(departure.data, departure.fresh);
+      renderPushbackMap(map, departure.data, departure.fresh, formatText);
+      caption.textContent = formatText(pushbackCaption(departure.data, departure.fresh));
       cautions.hidden = true;
       return;
     }
@@ -268,9 +282,9 @@ export function createTaxiPanel({ document, send, setTimeout, clearTimeout, now 
     const arrived = a && Math.hypot(end.x - a.x, end.z - a.z) <= 5;
     const remaining = a && !offRoute ? progress.ahead.reduce((sum, p, i, points) => sum + (i ? Math.hypot(p.x - points[i - 1].x, p.z - points[i - 1].z) : 0), progress.distanceM) : null;
     const destination = route.kind === 'stand' ? route.label : 'holding point before runway ' + route.runway;
-    caption.textContent = !a ? 'Reference only · Live aircraft position unavailable.' : offRoute ? 'Off route · Check your position or show a new route.'
+    caption.textContent = formatText(!a ? 'Reference only · Live aircraft position unavailable.' : offRoute ? 'Off route · Check your position or show a new route.'
       : arrived ? (route.kind === 'stand' ? 'At ' + destination : 'At holding point · Hold short of runway ' + route.runway)
-        : Math.round(remaining) + ' m to ' + destination;
+        : Math.round(remaining) + ' m to ' + destination);
     if (a && route === departure.data?.route && departure.data.pushbackPreview.phase !== 'complete') caption.textContent = 'Taxi route after pushback to runway ' + route.runway + '. You control the aircraft.';
     cautions.textContent = [(route.runwayTravelM > 1 ? 'Includes ' + Math.round(route.runwayTravelM) + ' m along an intervening runway.' : ''),
       (route.joinM >= 1 ? 'The first ' + Math.round(route.joinM) + ' m cross open ground to reach the centreline. Check for obstacles.' : '')].filter(Boolean).join(' ');

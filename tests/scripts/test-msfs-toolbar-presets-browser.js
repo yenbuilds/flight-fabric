@@ -94,17 +94,31 @@ async function checkNativeInputBridge(win) {
   await page(`await fetch('/fixture/aircraft?id=pmdg-737');`);
   const nav = '[data-preset="radios.nav.setBothActive"]', lighting = '[data-preset="configuration.lighting.cockpit"]';
   await until(page, `return Boolean(document.querySelector('${nav}'));`);
+  assert.equal(await page(`return document.getElementById('toolbar-presets').open;`), false);
+  const beforeDisclosure = await count();
+  await click('#toolbar-presets > summary');
+  await until(page, `return document.getElementById('toolbar-presets').open;`);
+  press('Space');
+  await until(page, `return document.getElementById('toolbar-presets').open;`, false);
+  await click('#toolbar-presets > summary');
+  await until(page, `return document.getElementById('toolbar-presets').open;`);
+  assert.equal(await count(), beforeDisclosure, 'opening and closing Presets sends no commands');
   const initialCount = await count();
+  const lightingDescription = await page(`return document.querySelector('${lighting} .preset-description').textContent;`);
+  assert.match(lightingDescription, /dimmers \| panel, flood and background lighting \| flight displays unchanged/);
   await page(`window.fixtureEvents = []; ['focus','blur','mousedown'].forEach(type => document.addEventListener(type, e=>window.fixtureEvents.push([type,e.target.tagName,e.target.id]), true));
     window.addEventListener('message', e=>window.fixtureEvents.push(['message',e.data])); window.addEventListener('blur',()=>window.fixtureEvents.push(['window blur']));`);
   await click(lighting + ' input[type=range]');
-  await until(root, 'return keyboardClaimed;');
+  await until(root, 'return keyboardClaimed;', false);
   const sliderValue = await page(`return Number(document.activeElement.value);`);
   // Wait for queued native input to arrive before reading the slider value.
   await page(`window.fixtureArrowReleased = false;
     document.addEventListener('keyup', event => { window.fixtureArrowReleased = event.key === 'ArrowRight'; }, { once: true });`);
-  press('Right');
+  key('keyDown', 'Right');
+  await until(root, 'return keyboardClaimed;');
+  key('keyUp', 'Right');
   await until(page, 'return window.fixtureArrowReleased;');
+  await until(root, 'return keyboardClaimed;', false);
   assert.equal(await page(`return Number(document.activeElement.value);`), sliderValue + 1, 'real arrow key edits the focused slider');
   const range = await bounds(lighting + ' input[type=range]');
   mouse('mouseDown', range.x + range.width / 2, range.y + range.height / 2, { button: 'left', clickCount: 1 });
@@ -117,7 +131,7 @@ async function checkNativeInputBridge(win) {
   for (const char of '110.30') { key('keyDown', char); key('char', char); key('keyUp', char); }
   await until(page, `return !document.querySelector('${nav} button').disabled;`);
   // Enter dispatch disables the focused input; capture must survive until the
-  // user leaves the panel, including key repeat after a fast command result.
+  // held key is released, including repeat after a fast command result.
   key('keyDown', 'Enter'); key('char', '\r');
   await until(page, `return document.querySelector('${nav} input').disabled;`);
   assert.equal(await root('return keyboardClaimed;'), true, 'pending controls keep keyboard capture');
@@ -135,7 +149,7 @@ async function checkNativeInputBridge(win) {
   await click(nav + ' input'); press('Tab');
   await until(page, 'return window.fixtureTabReleased;');
   assert.equal(await page(`return document.activeElement === document.querySelector('${nav} button');`), true);
-  assert.equal(await root('return keyboardClaimed;'), true, 'Tab retains native keyboard capture');
+  await until(root, 'return keyboardClaimed;', false);
   key('keyDown', 'Space'); key('char', ' '); key('keyUp', 'Space');
   await until(page, `return document.querySelector('${nav} input').disabled;`);
   await until(page, `return !document.querySelector('${nav} input').disabled;`);
@@ -169,8 +183,13 @@ async function checkNativeInputBridge(win) {
   await until(root, 'return keyboardClaimed;', false);
   assert.equal(await page(`return document.activeElement.tagName;`), 'BODY', 'outside click drops stale field focus');
   await require('./toolbar-sections-browser')({ win, page, root, click, bounds, mouse, key, press, until, count });
+  assert.doesNotMatch(await page(`return document.getElementById('app').textContent;`), /[\u00b7\u2022\u2026\u2013\u2014\u2018\u2019\u201c\u201d\u2192\u00b0]/,
+    'all rendered toolbar sections use simulator-font-safe punctuation');
+  assert.equal(await page(`return document.getElementById('toolbar-presets').open;`), false, 'loader reload starts Presets collapsed');
+  await click('#toolbar-presets > summary');
+  await until(page, `return document.getElementById('toolbar-presets').open;`);
   for (const hiddenClass of ['minimized', 'panelInvisible', 'hide']) {
-    await click(lighting + ' input[type=range]'); await until(root, 'return keyboardClaimed;');
+    await click(lighting + ' input[type=number]'); await until(root, 'return keyboardClaimed;');
     await root(`host.classList.add('${hiddenClass}');`);
     await until(root, 'return keyboardClaimed;', false);
     await wait(80); // Let the compositor remove the iframe and deliver window blur.
@@ -178,10 +197,12 @@ async function checkNativeInputBridge(win) {
     await until(root, `return document.querySelector('flightfabric-panel').panelActive;`);
     await wait(100); // Input starts after the reopened frame has been painted.
   }
-  await click(lighting + ' input[type=range]'); await until(root, 'return keyboardClaimed;');
+  await click(lighting + ' input[type=range]');
+  key('keyDown', 'Right'); await until(root, 'return keyboardClaimed;');
   await page(`await fetch('/fixture/aircraft?id=fbw-a32nx');`);
   await until(page, `return !document.querySelector('${nav}');`);
   assert.equal(await root('return keyboardClaimed;'), true, 'replacing a focused catalogue cannot release a held key');
+  key('keyUp', 'Right'); await until(root, 'return keyboardClaimed;', false);
   await root(`document.querySelector('flightfabric-panel').remove();`);
   await until(root, 'return keyboardClaimed;', false);
   assert.equal(await root('return handlers.size;'), 0, 'detach removes native listeners');
@@ -216,8 +237,18 @@ async function browser() {
       await until(`return document.querySelectorAll('[data-preset]').length;`, expected.length);
       await until(`return [...document.querySelectorAll('[data-preset] button')].some(button => !button.disabled);`);
       assert.deepEqual(await evaluate(`return [...document.querySelectorAll('[data-preset]')].map(row => row.dataset.preset).sort();`), expected.sort(), aircraft + ': same supported app presets');
+      assert.equal(await evaluate(`return document.getElementById('toolbar-presets').open;`), false, aircraft + ': collapsed on aircraft change');
+      await evaluate(`document.querySelector('#toolbar-presets > summary').click();`);
       for (const width of [1200, 375, 320]) {
         win.setContentSize(width, 1000); await wait(80);
+        if (aircraft === 'pmdg-737') {
+          await evaluate(`document.querySelector('#toolbar-presets > summary').click(); document.getElementById('toolbar-presets').scrollIntoView();`);
+          await wait(80);
+          assert.equal(await evaluate(`return document.getElementById('toolbar-presets').open;`), false);
+          assert.ok(await evaluate(`return document.getElementById('toolbar-presets').getBoundingClientRect().height < 160;`), 'collapsed presets are compact');
+          fs.writeFileSync(path.join(OUTPUT, 'presets-collapsed-' + width + '.png'), (await capture(win)).toPNG());
+          await evaluate(`document.querySelector('#toolbar-presets > summary').click();`);
+        }
         await evaluate(`document.querySelector('#toolbar-presets').scrollIntoView();`);
         const layout = await evaluate(`return { overflow: document.documentElement.scrollWidth > innerWidth || document.querySelector('#content').scrollWidth > innerWidth,
           buttons: [...document.querySelectorAll('[data-preset] button')].map(button => button.getBoundingClientRect().height),
@@ -233,6 +264,7 @@ async function browser() {
     }
     await evaluate(`await fetch('/fixture/aircraft?id=pmdg-737');`);
     await until(`return Boolean(document.querySelector('[data-preset="radios.nav.setBothActive"]'));`);
+    await evaluate(`document.querySelector('#toolbar-presets > summary').click();`);
     await evaluate(`const input = document.querySelector('[data-preset="radios.nav.setBothActive"] input'); input.focus(); input.value = '110.30'; input.dispatchEvent(new Event('input', { bubbles: true }));`);
     await wait(1200);
     assert.equal(await evaluate(`return document.activeElement === document.querySelector('[data-preset="radios.nav.setBothActive"] input') && document.activeElement.value === '110.30';`), true, 'streamed data preserves typed value and focus');
@@ -249,6 +281,7 @@ async function browser() {
     assert.equal(await evaluate(`return [...document.querySelectorAll('[data-preset] button')].every(button => button.disabled);`), true, 'missing readbacks disable all presets');
     await evaluate(`await fetch('/fixture/aircraft?id=tfdi-md-11');`);
     await until(`return document.querySelectorAll('[data-preset]').length;`, 4);
+    await evaluate(`document.querySelector('#toolbar-presets > summary').click();`);
     await until(`return [...document.querySelectorAll('[data-preset] button')].every(button => !button.disabled);`);
     await evaluate(`document.querySelector('[data-preset="configuration.lights.takeoff"] button').click();`);
     await until(`return document.querySelector('[data-preset="configuration.lights.takeoff"] .preset-result').textContent.includes('not confirmed');`);
@@ -401,7 +434,8 @@ async function main() {
     '/toolbar/voice-reference.json': ['toolbar/voice-reference.json', 'application/json'], '/assets/aircraft-presets.svg': ['assets/aircraft-presets.svg', 'image/svg+xml'] };
   // Keep one built UI for the journey, including reconnect/reload. Another
   // desktop build can replace frontend-dist while this fixture is running.
-  const assetBytes = new Map(Object.entries(assets).map(([url, asset]) => [url, fs.readFileSync(path.join(ROOT, 'frontend-dist', asset[0]))]));
+  const assetRoot = process.env.FF_TOOLBAR_ASSET_ROOT || path.join(ROOT, 'frontend-dist');
+  const assetBytes = new Map(Object.entries(assets).map(([url, asset]) => [url, fs.readFileSync(path.join(assetRoot, asset[0]))]));
   const http = require('node:http').createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const json = data => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)); };

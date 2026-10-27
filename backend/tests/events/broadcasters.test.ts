@@ -107,7 +107,6 @@ test('assessAutopilotReliability does not mark empty SDK frames as profile-confi
       profile: { id: 'test-sdk-aircraft', dataSource: { preferred: 'sdk' } },
       sdkConnected: true,
       sdkHasData: false,
-      sdkSource: { status: 'running' },
     });
 
     assert.equal(unreliable.apReliable, false);
@@ -369,6 +368,66 @@ test('assessAutopilotReliability handles partial LVAR AP and A/THR availability 
   } finally {
     console.warn = originalWarn;
   }
+});
+
+test('telemetry senders skip absent payloads and tolerate unavailable transports', () => {
+  const { sendAttitude, sendSurface, sendAutopilot } = require('../../events/broadcasters');
+  const reliability = { apReliable: true, athrReliable: true, reason: 'simconnect-only' };
+  const cases = [
+    [sendAttitude, { valid: true, pitchDeg: 2.5, bankDeg: -1 }],
+    [sendSurface, { onGround: true, valid: false, raw: null, name: null, class: 'unknown', runwayLike: false }],
+    [sendAutopilot, { apMaster: false, athrArmed: false }],
+  ];
+  for (const [send, payload] of cases) {
+    const messages = [];
+    for (const missing of [null, undefined]) send((message) => messages.push(message), missing, { reliability });
+    assert.deepEqual(messages, []);
+    assert.doesNotThrow(() => send(null, payload, { reliability }));
+    assert.doesNotThrow(() => send(() => { throw new Error('transport closed'); }, payload, { reliability }));
+  }
+});
+
+test('attitude and surface senders preserve unknown data instead of inventing valid readings', () => {
+  const { sendAttitude, sendSurface } = require('../../events/broadcasters');
+  const messages = [];
+  const surface = { onGround: true, valid: false, raw: null, name: null, class: 'unknown', runwayLike: false };
+  sendAttitude((message) => messages.push(message), { valid: false, pitchDeg: null, bankDeg: null });
+  sendSurface((message) => messages.push(message), surface);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0].type, 'attitude');
+  assert.equal(messages[0].valid, false);
+  assert.equal(messages[0].pitchDeg, null);
+  assert.equal(messages[0].bankDeg, null);
+  assert.deepEqual(messages[1], { type: 'surface', value: surface });
+});
+
+test('autopilot sender preserves precomputed recording reliability over other context', () => {
+  const { sendAutopilot } = require('../../events/broadcasters');
+  const messages = [];
+  const reliability = { apReliable: false, athrReliable: true, reason: 'recorded-source-unavailable' };
+  const ap = { apMaster: true, athrArmed: false, apHdgTargetDeg: 271 };
+  sendAutopilot((message) => messages.push(message), ap, { reliability, sdkConnected: true, sdkHasAutomationData: true });
+  sendAutopilot((message) => messages.push(message), ap, { reliability });
+  assert.equal(messages.length, 2);
+  assert.deepEqual(messages[0], messages[1]);
+  assert.equal(messages[1].master, null);
+  assert.equal(messages[1].athrArmed, false);
+  assert.equal(messages[1].hdgTarget, 271);
+  assert.equal(messages[1].reliabilityReason, reliability.reason);
+});
+
+test('autopilot sender still computes reliability when none is supplied', () => {
+  const { sendAutopilot } = require('../../events/broadcasters');
+  const messages = [];
+  sendAutopilot((message) => messages.push(message), { apMaster: false, athrArmed: false }, {
+    profile: { id: 'generic', dataSource: { preferred: 'simconnect' } },
+  });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].master, false);
+  assert.equal(messages[0].athrArmed, false);
+  assert.equal(messages[0].apReliable, true);
+  assert.equal(messages[0].athrReliable, true);
+  assert.equal(messages[0].reliabilityReason, 'simconnect-only');
 });
 
 export {};

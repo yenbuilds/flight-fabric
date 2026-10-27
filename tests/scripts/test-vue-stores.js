@@ -1322,18 +1322,18 @@ async function main() {
   await test('tabs store normalizes aliases, respects leave guards, and tracks transitions', () => {
     resetStoreTestContext();
     const tabs = useTabsStore();
-    assert.equal(tabs.activeTabId, 'flight', 'Overview should be the safe first-render tab');
+    assert.equal(tabs.activeTabId, 'livemap', 'Map should be the first-render tab');
 
     tabs.toggleMoreSheet();
     assert.equal(tabs.moreSheetOpen, true, 'more sheet should open');
 
     const unregister = tabs.registerBeforeChangeGuard((from, to) => {
-      assert.equal(from, 'flight', 'guard should see current tab');
+      assert.equal(from, 'livemap', 'guard should see current tab');
       return to !== 'settings';
     });
 
     assert.equal(tabs.requestTabChange('settings', { direction: 'forward' }), false, 'guard should block settings transition');
-    assert.equal(tabs.activeTabId, 'flight', 'blocked transition should keep the active tab');
+    assert.equal(tabs.activeTabId, 'livemap', 'blocked transition should keep the active tab');
     assert.equal(tabs.moreSheetOpen, true, 'blocked transition should not close the more sheet');
 
     unregister();
@@ -1352,8 +1352,8 @@ async function main() {
     assert.equal(tabs.tabSectionClass('livemap').active, false, 'tab section classes should leave inactive tabs hidden');
 
     tabs.setActiveTab('unknown-tab');
-    assert.equal(tabs.activeTabId, 'flight', 'invalid tab ids should fall back to Overview');
-    assert.equal(tabs.tabSectionClass('flight').active, true, 'invalid tab fallback should keep Overview visible');
+    assert.equal(tabs.activeTabId, 'livemap', 'invalid tab ids should fall back to Map');
+    assert.equal(tabs.tabSectionClass('livemap').active, true, 'invalid tab fallback should keep Map visible');
 
     tabs.beginSectionTransition('settings', 'left');
     assert.equal(tabs.tabSectionClass('settings')['swipe-enter-left'], true, 'transition classes should be state-driven');
@@ -2896,6 +2896,7 @@ async function main() {
     resetStoreTestContext();
     const voice = useVoiceControlStore();
 
+    assert.equal(voice.runtime.readback.selectedEngine, 'windows-sapi');
     assert.equal(voice.runtime.shortcut, '', 'voice should not claim a global shortcut before the user chooses one');
 
     voice.setState('sending', 'Sending selected heading\u2026');
@@ -2931,7 +2932,12 @@ async function main() {
     assert.equal(voice.runtime.shortcutError, 'Shortcut is already in use', 'the registration error should remain available to readiness UI');
     assert.equal(voice.runtime.readbackError, '', 'runtime info without readback state should not invent a readback failure');
     voice.applyRuntimeInfo({ available: true, readback: { available: true, lastError: 'Readback exited with code 1: Audio device unavailable', local: true } });
+    assert.equal(voice.runtime.readback.selectedEngine, 'windows-sapi', 'runtime info without an engine uses the lightweight default');
     assert.equal(voice.runtime.readbackError, 'Readback exited with code 1: Audio device unavailable', 'a failed spoken readback should be visible in the voice store');
+    voice.applyRuntimeInfo({ readback: { selectedEngine: 'kokoro', selectedVoice: 'bf_emma' } });
+    voice.applyRuntimeInfo({ enabled: true });
+    assert.equal(voice.runtime.readback.selectedEngine, 'kokoro', 'saved runtime selection overrides the default and survives partial updates');
+    assert.equal(voice.runtime.readback.selectedVoice, 'bf_emma');
 
     voice.setState('blocked', 'Simulator telemetry link unavailable.');
     assert.equal(voice.ready, false, 'an unavailable aircraft-control gate should still disable PTT');
@@ -3932,6 +3938,7 @@ async function main() {
           comfort: { peak_g: 1.31, minimum_g: 0.82, max_bank_deg: 28, rough_air_time_ms: 240000 },
           approach: { duration_ms: 720000, attempt_count: 2, established_distance_nm: 7.4 },
         },
+        // Summaries saved before Dutch roll detection was retired may still carry this field.
         dutch_roll: {
           detected: true,
           confidence: 'MEDIUM',
@@ -3977,7 +3984,7 @@ async function main() {
     );
     assert.match(landing.landingCard.rollout.noteText, /coordinate uncertainty/, 'low-precision lateral data should be disclosed');
     assert.equal(landing.landingCard.inflight.visible, true, 'flight summary should reveal the in-flight section');
-    assert.equal(landing.landingCard.inflight.stats.length, 13, 'in-flight stats should be normalized into display rows');
+    assert.equal(landing.landingCard.inflight.stats.length, 12, 'in-flight stats should be normalized into display rows');
     assert.equal(landing.landingCard.inflight.stats[2].value, 'Airborne 1h 52m · Taxi 18m 0s · Paused 6m 0s', 'flight time should include airborne, taxi, and paused time');
     assert.equal(landing.landingCard.inflight.stats[3].value, '684 NM · Avg GS 373 kt · Coverage 95%', 'route should disclose partial coverage');
     assert.equal(landing.landingCard.inflight.stats[4].value, '5,420 lb used · 7.9 lb/NM', 'fuel should include burn and efficiency');
@@ -3988,8 +3995,10 @@ async function main() {
     assert.equal(landing.landingCard.inflight.stats[9].value, 'Final 12m 0s · 2 attempts · Started 7.4 NM out', 'approach should include duration, attempts, and distance');
     assert.equal(landing.landingCard.inflight.stats[11].label, 'Possible Holding', 'detected holding should render as an informational stat');
     assert.equal(landing.landingCard.inflight.stats[11].value, '2 loops · 11m 42s', 'holding stat should include loop count and duration');
-    assert.equal(landing.landingCard.inflight.stats[12].label, 'Dutch Roll', 'detected Dutch roll should render as an informational stat');
-    assert.equal(landing.landingCard.inflight.stats[12].value, 'Possible (Medium, 16s)', 'Dutch roll stat should include confidence and duration');
+    assert(
+      !landing.landingCard.inflight.stats.some((stat) => stat.key === 'dutch-roll' || stat.label === 'Dutch Roll'),
+      'retired Dutch roll summaries in saved flights should not render a stat',
+    );
     assert.equal(landing.landingCard.inflight.violations.length, 2, 'overspeed and explicit violations should be normalized into display rows');
 
     landing.applyLandingCardMessage({

@@ -14,7 +14,7 @@ const {
 
 type AnyRecord = Record<string, any>;
 
-export type RolloutAnalysisSample = {
+type RolloutAnalysisSample = {
   timestampMs: number;
   onGround: boolean;
   onRunway?: boolean | null;
@@ -494,7 +494,6 @@ export function inferCoordinatePrecisionDigits(samples: AnyRecord[]): number | n
 }
 
 export const ROLLOUT_ANALYSIS_LIMITS = Object.freeze({
-  minGroundSpeedKts: MIN_ROLLOUT_GS_KTS,
   maxWindowMs: MAX_ROLLOUT_WINDOW_MS,
   maxSamples: MAX_ROLLOUT_SAMPLES,
 });

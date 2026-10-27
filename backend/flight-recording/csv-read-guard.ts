@@ -168,7 +168,6 @@ module.exports = {
   getFinalizingCsvPath,
   isActiveCsvPath,
   isFinalizingCsvPath,
-  resolveCsvPath,
 };
 
 export {};

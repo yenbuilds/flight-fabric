@@ -31,7 +31,7 @@
     return Number.isFinite(value) && value >= input.min && value <= input.max
       && Math.abs(position - Math.round(position)) < 1e-7 ? value : null;
   }
-  function brightnessLabel(id) { return id === 'configuration.lighting.cockpit' ? 'Global cockpit lighting' : 'All flight displays'; }
+  function brightnessLabel(id) { return id === 'configuration.lighting.cockpit' ? 'Cockpit lighting' : 'All flight displays'; }
   function readbackFields(commands) {
     var fields = SOURCE_FIELDS.slice();
     (commands || []).filter(function (command) { return command && command.kind === 'preset'; }).forEach(function (command) {

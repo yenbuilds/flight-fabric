@@ -202,14 +202,9 @@
     TAKEOFF_SCORING_ENABLED,
     normalizeAppSettings,
     sanitizeAppSettingsPatch,
-    sanitizeBool,
     sanitizeCabinAnnouncementStyle,
     sanitizeClampedInt,
-    sanitizeClampedNumber,
     sanitizeNonEmptyString,
-    sanitizeNonNegativeInt,
-    sanitizeOptionalString,
     sanitizeSimulatorProtocol,
-    sanitizeStabilityCriteria,
   });
 });

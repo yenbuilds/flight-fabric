@@ -128,16 +128,7 @@ async function remove(row) {
           </ol>
         </div>
 
-        <div class="mt-4 grid gap-2 text-xs leading-relaxed text-muted-fg sm:grid-cols-2">
-          <div class="rounded-lg border border-border/50 bg-panel/40 px-3 py-2.5">
-            <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg">Updates and reinstalls</div>
-            <p class="mt-1">Choose Update when offered. Same-version package fixes need Reinstall; panel content updates automatically.</p>
-          </div>
-          <div class="rounded-lg border border-border/50 bg-panel/40 px-3 py-2.5">
-            <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-fg">Installing safely</div>
-            <p class="mt-1">Close MSFS before package changes, then restart it. Choose Update ports after changing network ports. Removal affects only the FlightFabric toolbar package.</p>
-          </div>
-        </div>
+        <p class="mt-4 text-xs text-muted-fg">Use Reinstall to refresh an already-installed toolbar package.</p>
 
       </details>
 

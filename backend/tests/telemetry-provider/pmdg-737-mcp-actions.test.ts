@@ -140,6 +140,51 @@ test('PMDG MCP inputs preserve inclusive bounds, valid zero and cockpit incremen
   });
 });
 
+test('PMDG Mach rejects IAS mode before writing and works after a cockpit mode change', async () => {
+  for (const profileKey of PROFILE_KEYS) {
+    await withMcpFixture(profileKey, async (fixture) => {
+      fixture.publish('iasMach', 250);
+      fixture.onEvent = () => ({ ok: true, sendId: 1 });
+      const rejected = await fixture.execute('flightGuidance.mach.set', 0.78);
+      assert.equal(rejected.ok, false);
+      assert.equal(rejected.code, 'aircraft_integration_precondition_failed');
+      assert.match(rejected.error, /Select Mach mode.*speed window/i);
+      assert.equal(fixture.events.length, 0, 'IAS mode must not receive an ineffective Mach event');
+
+      fixture.publish('iasMach', 0.76);
+      fixture.onEvent = (name, value) => {
+        assert.equal(name, '#84135');
+        fixture.publish('iasMach', value * 0.01);
+        return { ok: true, sendId: 1 };
+      };
+      const changed = await fixture.execute('flightGuidance.mach.set', 0.78);
+      assert.equal(changed.ok, true, changed.error);
+      assert.equal(changed.confirmedValue, 0.78);
+      assert.deepEqual(fixture.events, [{ name: '#84135', value: 78 }]);
+      assert.equal((await fixture.execute('flightGuidance.mach.set', 0.78)).noOp, true);
+      assert.equal(fixture.events.length, 1);
+    });
+  }
+});
+
+test('PMDG Mach requires available current SDK data even for an unchanged target', async () => {
+  for (const condition of ['blank', 'missing', 'stopped', 'wrong-adapter']) {
+    await withMcpFixture(PROFILE_KEY, async (fixture) => {
+      fixture.publish('iasMach', 0.78);
+      if (condition === 'blank') fixture.publish('iasMach', null);
+      if (condition === 'missing') delete fixture.snapshot.normalized.automation.ap.selected.iasMach;
+      if (condition === 'stopped') fixture.snapshot.status = 'stopped';
+      if (condition === 'wrong-adapter') fixture.snapshot.adapterId = 'different-sdk';
+      const result = await fixture.execute('flightGuidance.mach.set', 0.78);
+      assert.equal(result.ok, false, condition);
+      assert.equal(result.code, condition === 'wrong-adapter'
+        ? 'unsupported_action' : 'aircraft_integration_precondition_unavailable', condition);
+      assert.equal(result.noOp, undefined);
+      assert.equal(fixture.events.length, 0);
+    });
+  }
+});
+
 test('PMDG MCP commands reject stale profile tokens before any SDK write', async () => {
   await withMcpFixture(PROFILE_KEY, async (fixture) => {
     for (const target of TARGETS) {

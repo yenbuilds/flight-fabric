@@ -2097,6 +2097,41 @@ test('deleteFlightCsv refuses when listed file metadata is stale', async () => {
   });
 });
 
+test('invalid and denied requests need no runtime services beyond the denial logger', async () => {
+  await withTempAppData(async () => {
+    const storeModule = require(resolveBackendPath('flight-recording', 'flight-csv-store.js'));
+    const originalCreate = storeModule.createFlightCsvStore;
+    let storeCreations = 0;
+    storeModule.createFlightCsvStore = () => {
+      storeCreations += 1;
+      throw new Error('Denied requests must not create runtime services');
+    };
+    try {
+      const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));
+      const ws = buildWs();
+      for (const message of [null, undefined, {}, { type: '' }]) {
+        await handleClientMessage(ws, message, {});
+      }
+      assert.deepEqual(ws.messages, []);
+
+      const logs = [];
+      await handleClientMessage(ws, {
+        type: 'executeAircraftControl', requestId: 'minimal-denied',
+        control: 'gear', operation: 'down',
+      }, { Debug: { log: (...args) => logs.push(args) } });
+      assert.equal(ws.messages.length, 1);
+      assert.equal(ws.messages[0].type, 'aircraftControlResult');
+      assert.equal(ws.messages[0].requestId, 'minimal-denied');
+      assert.equal(ws.messages[0].ok, false);
+      assert.equal(ws.messages[0].code, 'auth_required');
+      assert.equal(logs.length, 1);
+      assert.equal(storeCreations, 0);
+    } finally {
+      storeModule.createFlightCsvStore = originalCreate;
+    }
+  });
+});
+
 test('privileged websocket actions are denied without the session token', async () => {
   await withTempAppData(async () => {
     const { handleClientMessage } = require(resolveBackendPath('core', 'client-message-handler.js'));

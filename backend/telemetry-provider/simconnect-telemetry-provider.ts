@@ -744,9 +744,6 @@ class SimConnectTelemetryProvider {
     this._lastExceptionLogMs = 0;
     this._exceptionCount = 0;
     
-    // Track inFlightContext to suppress warnings from invalid menu-state data.
-    this._inFlightContext = false;
-    
     // SimConnect system state cache (RequestSystemState)
     // sim: 1=user controlling aircraft, 0=user navigating UI/menu
     // dialogMode: 1=dialog active, 0=no dialog
@@ -1540,7 +1537,6 @@ class SimConnectTelemetryProvider {
     this._rustNavRadioSamples = {};
     this._rustComRadioSamples = {};
     this._sampleCount = 0;
-    this._debuggedNullVars = null;
     this._overspeedActive = false;
     this._stallActive = false;
     this._stallWarningFilter = new StallWarningFilter();
@@ -2328,7 +2324,7 @@ class SimConnectTelemetryProvider {
         : typeof sample.observed === 'number' && Number.isFinite(sample.observed)
           && sample.observed >= condition.min && sample.observed <= condition.max;
       if (!matches) return { ok: false, code: 'aircraft_integration_precondition_failed',
-        error: `The current ${condition.fieldId} state does not support this control.` };
+        error: condition.failureHint || `The current ${condition.fieldId} state does not support this control.` };
     }
     return { ok: true };
   }
@@ -4764,7 +4760,6 @@ class SimConnectTelemetryProvider {
     // - RA realistic: must be in reasonable range
     // - Barber pole realistic: no aircraft has VMO < 100kts (even slowest GA is ~120kts)
     // - GS > 0: must be moving (menu often shows IAS > 0 but GS = 0)
-    this._inFlightContext = inFlightContext;
     const raRawCheck = d.ra ?? 0;
     const gsCheck = d.gs ?? 0;
     const barberPoleValid = barberPoleKts == null || barberPoleKts >= 100; // No aircraft has VMO < 100kts

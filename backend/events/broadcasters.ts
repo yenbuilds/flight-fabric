@@ -115,7 +115,6 @@ type ReliabilityContext = {
   sdkConnected?: boolean;
   sdkHasData?: boolean;
   sdkHasAutomationData?: boolean;
-  sdkSource?: unknown;
   reliability?: ReliabilityResult;
 };
 
@@ -403,7 +402,6 @@ function sendBasicStreams(broadcast: BroadcastFn, payload: BasicStreamsPayload):
 function sendAttitude(broadcast: BroadcastFn, attitude: AttitudePayload | null | undefined): void {
   if (!attitude || typeof broadcast !== 'function') return;
   const message = buildAttitudeBroadcastPayload(attitude);
-  if (!message) return;
   try { broadcast(message); } catch {}
 }
 
@@ -419,7 +417,6 @@ function sendFlapsSpoilers(broadcast: BroadcastFn, flapsObj: unknown, spoilersOb
 function sendSurface(broadcast: BroadcastFn, surface: SurfacePayload | null | undefined): void {
   if (!surface || typeof broadcast !== 'function') return;
   const message = buildSurfaceBroadcastPayload(surface);
-  if (!message) return;
   try { broadcast(message); } catch {}
 }
 
@@ -487,10 +484,10 @@ function assessAutopilotReliability(context: ReliabilityContext | null | undefin
   const sidecarCanProvideAp = lvarSidecarConnected && (
     profileNeedsApLvar
       ? lvarHasAutopilotData
-      : (profileHasModeSelectorLvars ? lvarHasModeSelectorData : !requiresExternalSource)
+      : (profileHasModeSelectorLvars ? lvarHasModeSelectorData : false)
   );
   const sidecarCanProvideAt = lvarSidecarConnected && (
-    profileNeedsAtLvar ? lvarHasAutothrottleData : !requiresExternalSource
+    profileNeedsAtLvar ? lvarHasAutothrottleData : false
   );
 
   if (sidecarCanProvideAp && sidecarCanProvideAt) {
@@ -513,7 +510,7 @@ function assessAutopilotReliability(context: ReliabilityContext | null | undefin
       missing.push('AP mode/selector panel data');
     }
     if (profileNeedsAtLvar) missing.push(`A/T (LVAR: ${String(lvars?.autothrottle)})`);
-    if (requiresExternalSource && !profileNeedsApLvar && !profileNeedsAtLvar) {
+    if (!profileNeedsApLvar && !profileNeedsAtLvar) {
       missing.push(`AP/A/T (requires ${preferredSource})`);
     }
 
@@ -545,7 +542,6 @@ function sendAutopilot(
     ? reliabilityContext.reliability
     : assessAutopilotReliability(reliabilityContext);
   const message = buildAutopilotBroadcastPayload(ap, reliability);
-  if (!message) return;
   try { broadcast(message); } catch {}
 }
 

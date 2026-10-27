@@ -44,14 +44,17 @@ import { buildTakeoffTimelineContext, extractRecordedTakeoff } from '../takeoff/
  *    ultimate_stability_* fields, the merge path below prefers those persisted
  *    values.
  *
- *    Future simplification: once LANDING rows reliably persist the complete
- *    ultimate_stability_* payload and tests prove parity with CSV replay, this
- *    replay scorer can be demoted to a compatibility fallback or removed.
+ *    Explicit current-rules previews also need replay samples to reconstruct
+ *    stability under today's scoring rules, even for complete LANDING rows.
  *
  *    Stability is separate from the Violation Loop — violations are timeline
  *    events; the stability breakdown is a numeric summary on the landing card.
  *
  * ── DATA FLOWS ───────────────────────────────────────────────────────────────
+ *    TimelineReplaySession owns one replay's state and processing order. The
+ *    public row-generation entry point creates a fresh session for each flight;
+ *    pure calculations and event builders remain local to this module.
+ *
  *    CSV row → Violation Loop → violation_start/end events on generatedTimeline
  *    CSV row → approachSamples buffer → Touchdown Event Builder → landing event
  *                                     → Retroactive Scan → violation_start events
@@ -378,21 +381,6 @@ type ParseCsvResult = {
   fileSizeBytes?: number;
   sha256?: string;
   error?: string;
-};
-type QuickPeekResult = {
-  firstRow: CsvRow | null;
-  lastRow: CsvRow | null;
-  firstCoordRow: CsvRow | null;
-  lastCoordRow: CsvRow | null;
-  aircraftProfileId: string | null;
-  firstFuelRow: CsvRow | null;
-  lastFuelRow: CsvRow | null;
-  distanceNm: number | null;
-  rowCount: number;
-  sampleCount: number;
-  strictBundle: boolean;
-  bundleStatusRequired: boolean;
-  manifestIdentity: AnyRecord | null;
 };
 type CsvExactScanResult = {
   firstRow: CsvRow | null;
@@ -3247,153 +3235,189 @@ async function generateFromCSV(csvPath: string, options: AnyRecord = {}): Promis
   return generateFromCSVInProcess(csvPath, options);
 }
 
-function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: AnyRecord = {}): TimelineResult {
+type ReplayRowContext = Readonly<{
+  row: CsvRow;
+  rowIndex: number;
+  timestampMs: number;
+  rawElapsed: number | null;
+  elapsed: number;
+  eventCoordinates: NullableCoordinate;
+  recordType: string | null | undefined;
+  pausedOrMenu: boolean;
+  ra: number | null | undefined;
+  onGround: boolean | null;
+  isTelemetrySample: boolean;
+}>;
 
-  const firstRow = rows[0];
-  const lastRow = rows[rows.length - 1];
-  const startTimestampMs = getRowTimestampMs(firstRow);
-  const analysisRescoreMode: 'recorded' | 'current-preview' = _options?.scoringMode === 'current-preview'
-    ? 'current-preview'
-    : 'recorded';
-  const suppressedStallRows = analysisRescoreMode === 'current-preview' ? transientStallRows(rows) : new Set<CsvRow>();
+/** Owns one replay's state and transition order; each generation creates a fresh session. */
+class TimelineReplaySession {
+  private readonly firstRow: CsvRow;
+  private readonly lastRow: CsvRow;
+  private readonly startTimestampMs: number;
+  private readonly analysisRescoreMode: 'recorded' | 'current-preview';
+  private readonly suppressedStallRows: Set<CsvRow>;
+  private readonly generatedTimeline: GeneratedTimeline;
 
-  const generatedTimeline = createInitialTimeline(csvPath, rows);
-  generatedTimeline.analysisRescore = {
-    mode: analysisRescoreMode,
-    scope: CURRENT_ANALYSIS_RESCORE_CONTRACT.scope,
-    contract: { ...CURRENT_ANALYSIS_RESCORE_CONTRACT },
-    persistedDataModified: false,
-    complete: analysisRescoreMode === 'recorded',
-    landingCount: 0,
-    landings: [],
-  };
-  // State tracking
-  let currentPhase = null;
-  let lastRA = null;
-  let lastTimestampMs = null;
-  const crossedAltitudes = new Set();
-  let wasOnGround = true;
-  let touchdownCount = 0;
-  let lastTouchdownTs = null;
-  let lastAcceptedTouchdownTimestampMs = null;
-  let maxRaFtSinceAirborne = 0;
-  let lastGroundAltitudeFt: number | null = null;
-  let lastGroundRadioHeightFt: number | null = null;
-  let replayBounceCandidate: ReplayBounceCandidate | null = null;
-  let pendingReplayBounceConfirmation: PendingReplayBounceConfirmation | null = null;
-  let replayTouchdownRearmed = true;
-  let activeReplayLandingEvent: AnyRecord | null = null;
-  let flightEnded = false; // Track if we've seen a crash/flight end
-  let lastTrackPoint = null;
-  let lastValidCoordinates = null;
-  let lastReplayFlapState: ReplayFlapState | null = null;
-  let pendingReplayFlapChange: PendingReplayFlapChange | null = null;
-  const replayFlapProfileCache = new Map<string, AnyRecord | null>();
-  
-  // Track active violations (to emit start/end pairs, not spam)
-  const activeViolations = new Map<string, ViolationState>(); // ruleId → { startTs, startElapsed, startMetrics }
-  let highSinkRateState: HighSinkRateState | null = null;
-  
-  // Approach profile reconstruction: collect telemetry samples during descent
-  // for the approach-profile SVG diagram. Capped then downsampled to 120 pts.
-  const MAX_APPROACH_SAMPLES = 3000; // raw limit before downsample
-  let approachSamples = [];
+  // Progress through the recording, including terminal crash state.
+  private currentPhase: string | null = null;
+  private lastRA: number | null = null;
+  private lastTimestampMs: number | null = null;
+  private readonly crossedAltitudes: Set<string> = new Set();
+  private wasOnGround: boolean = true;
+  private touchdownCount: number = 0;
+  private lastTouchdownTs: number | null = null;
+  private lastAcceptedTouchdownTimestampMs: number | null = null;
+  private maxRaFtSinceAirborne: number = 0;
+  private lastGroundAltitudeFt: number | null = null;
+  private lastGroundRadioHeightFt: number | null = null;
+  private replayBounceCandidate: ReplayBounceCandidate | null = null;
+  private pendingReplayBounceConfirmation: PendingReplayBounceConfirmation | null = null;
+  private replayTouchdownRearmed: boolean = true;
+  private activeReplayLandingEvent: AnyRecord | null = null;
+  private flightEnded: boolean = false;
+  private lastTrackPoint: AnyRecord | null = null;
+  private lastValidCoordinates: Coordinate | null = null;
 
-  // Retrospective stability scorer for the *current* approach. LANDING rows now
-  // carry live current-approach scores when the recorder completes normally, but
-  // this replay scorer remains the compatibility path for older recordings and
-  // incomplete logs. Persisted LANDING values take precedence in the merge below.
-  //
-  // Future cleanup: once enough real CSVs prove LANDING rows reliably contain
-  // complete ultimate_stability_* data, keep this only as a legacy fallback or
-  // delete it after migration/contract tests prove safe.
-  const stabilityScorer = new SimpleStabilityScorer();
-  let lastSampleTimestampMs = null;
-  let pausedOrMenuStartTimestampMs = null;
-  let pausedOrMenuAccumulatedMs = 0;
-  
-  // Phases that are NOT actual flight phases (should not trigger phase_start events)
-  const NON_FLIGHT_PHASES = new Set(['OVERSPEED', 'STALL', 'OVERSPEED_END', 'STALL_END', 'CRASH']);
-  
-  // Process each row
-  for (let i = 0; i < rows.length; i++) {
-    if (generatedTimeline.events.length > MAX_GENERATED_TIMELINE_EVENTS) {
-      return {
-        success: false,
-        error: 'Timeline contains more events than FlightFabric can process safely.',
-      };
+  // Configuration changes settle within this replay and its recorded profiles.
+  private lastReplayFlapState: ReplayFlapState | null = null;
+  private pendingReplayFlapChange: PendingReplayFlapChange | null = null;
+  private readonly replayFlapProfileCache: Map<string, AnyRecord | null> = new Map<string, AnyRecord | null>();
+
+  // Open violation episodes emit paired start/end events.
+  private readonly activeViolations: Map<string, ViolationState> = new Map<string, ViolationState>();
+  private highSinkRateState: HighSinkRateState | null = null;
+
+  // Collect the current approach for the diagram and retrospective scoring.
+  private readonly maxApproachSamples: number = 3000; // raw limit before downsampling
+  private approachSamples: AnyRecord[] = [];
+  private readonly stabilityScorer: AnyRecord;
+  private lastSampleTimestampMs: number | null = null;
+  private pausedOrMenuStartTimestampMs: number | null = null;
+  private pausedOrMenuAccumulatedMs: number = 0;
+
+  // Warning/event labels must not trigger phase_start events.
+  private readonly nonFlightPhases: Set<string> = new Set(['OVERSPEED', 'STALL', 'OVERSPEED_END', 'STALL_END', 'CRASH']);
+
+  constructor(
+    private readonly csvPath: string,
+    private readonly rows: CsvRow[],
+    private readonly options: AnyRecord,
+  ) {
+    this.firstRow = this.rows[0];
+    this.lastRow = this.rows[this.rows.length - 1];
+    this.startTimestampMs = getRowTimestampMs(this.firstRow);
+    this.analysisRescoreMode = this.options?.scoringMode === 'current-preview'
+      ? 'current-preview'
+      : 'recorded';
+    this.suppressedStallRows = this.analysisRescoreMode === 'current-preview' ? transientStallRows(this.rows) : new Set<CsvRow>();
+    this.generatedTimeline = createInitialTimeline(this.csvPath, this.rows);
+    this.generatedTimeline.analysisRescore = {
+      mode: this.analysisRescoreMode,
+      scope: CURRENT_ANALYSIS_RESCORE_CONTRACT.scope,
+      contract: { ...CURRENT_ANALYSIS_RESCORE_CONTRACT },
+      persistedDataModified: false,
+      complete: this.analysisRescoreMode === 'recorded',
+      landingCount: 0,
+      landings: [],
+    };
+    // Recorded LANDING scores take precedence in normal replay. This scorer
+    // supplies older/incomplete logs and independent current-rules previews.
+    this.stabilityScorer = new SimpleStabilityScorer();
+  }
+
+  build(): TimelineResult {
+    for (let rowIndex = 0; rowIndex < this.rows.length; rowIndex++) {
+      if (this.generatedTimeline.events.length > MAX_GENERATED_TIMELINE_EVENTS) {
+        return {
+          success: false,
+          error: 'Timeline contains more events than FlightFabric can process safely.',
+        };
+      }
+      this.processRow(this.prepareRow(this.rows[rowIndex], rowIndex));
     }
-    const row = rows[i];
+    return this.finish();
+  }
+
+  private prepareRow(row: CsvRow, rowIndex: number): ReplayRowContext {
     const timestampMs = getRowTimestampMs(row);
     const rawElapsed = toFiniteNumber(row.flight_elapsed_ms);
-    const elapsed = getRowElapsedMs(row, startTimestampMs);
+    const elapsed = getRowElapsedMs(row, this.startTimestampMs);
 
     const rowLat = toFiniteNumber(row.lat_deg);
     const rowLon = toFiniteNumber(row.lon_deg);
     if (isValidCoordinate(rowLat, rowLon)) {
-      lastValidCoordinates = { lat: rowLat, lon: rowLon };
-      lastTrackPoint = appendTrackPointIfDue({
-        timeline: generatedTimeline,
+      this.lastValidCoordinates = { lat: rowLat, lon: rowLon };
+      this.lastTrackPoint = appendTrackPointIfDue({
+        timeline: this.generatedTimeline,
         row,
         timestampMs,
         elapsedMs: elapsed,
-        rowIndex: i,
-        rowCount: rows.length,
-        lastTrackPoint,
+        rowIndex,
+        rowCount: this.rows.length,
+        lastTrackPoint: this.lastTrackPoint,
       });
     }
 
-    const eventCoordinates = resolveEventCoordinates(row, lastValidCoordinates);
-    
+    const eventCoordinates = resolveEventCoordinates(row, this.lastValidCoordinates);
+
     // Detect respawn/teleport: large timestamp gap (>30s) or position jump
     // After respawn, reset state to prevent spurious events
-    if (lastTimestampMs != null && (timestampMs - lastTimestampMs) > RESPAWN_GAP_MS) {
+    if (this.lastTimestampMs != null && (timestampMs - this.lastTimestampMs) > RESPAWN_GAP_MS) {
       // Large gap - likely respawn or session resume
-      wasOnGround = true;
-      crossedAltitudes.clear();
-      lastRA = null;
-      approachSamples = [];
-      stabilityScorer.reset();
-      lastSampleTimestampMs = null;
-      pausedOrMenuStartTimestampMs = null;
-      pausedOrMenuAccumulatedMs = 0;
-      lastTouchdownTs = null;
-      lastAcceptedTouchdownTimestampMs = null;
-      maxRaFtSinceAirborne = 0;
-      lastGroundAltitudeFt = null;
-      lastGroundRadioHeightFt = null;
-      replayBounceCandidate = null;
-      pendingReplayBounceConfirmation = null;
-      replayTouchdownRearmed = true;
-      activeReplayLandingEvent = null;
+      this.wasOnGround = true;
+      this.crossedAltitudes.clear();
+      this.lastRA = null;
+      this.approachSamples = [];
+      this.stabilityScorer.reset();
+      this.lastSampleTimestampMs = null;
+      this.pausedOrMenuStartTimestampMs = null;
+      this.pausedOrMenuAccumulatedMs = 0;
+      this.lastTouchdownTs = null;
+      this.lastAcceptedTouchdownTimestampMs = null;
+      this.maxRaFtSinceAirborne = 0;
+      this.lastGroundAltitudeFt = null;
+      this.lastGroundRadioHeightFt = null;
+      this.replayBounceCandidate = null;
+      this.pendingReplayBounceConfirmation = null;
+      this.replayTouchdownRearmed = true;
+      this.activeReplayLandingEvent = null;
       // Preserve terminal crash state, but an ordinary telemetry gap starts a
       // fresh analyzable segment rather than ending the entire replay.
-      lastReplayFlapState = null;
-      pendingReplayFlapChange = null;
+      this.lastReplayFlapState = null;
+      this.pendingReplayFlapChange = null;
     }
-    lastTimestampMs = timestampMs;
-    
-    // Skip processing after crash/respawn (data is unreliable)
+    this.lastTimestampMs = timestampMs;
+
     const recordType = row.record_type;
     const pausedOrMenu = isPausedOrMenuRow(row);
     if (pausedOrMenu) {
-      pendingReplayFlapChange = null;
-      if (pausedOrMenuStartTimestampMs === null && Number.isFinite(timestampMs)) {
-        pausedOrMenuStartTimestampMs = timestampMs;
+      this.pendingReplayFlapChange = null;
+      if (this.pausedOrMenuStartTimestampMs === null && Number.isFinite(timestampMs)) {
+        this.pausedOrMenuStartTimestampMs = timestampMs;
       }
-    } else if (pausedOrMenuStartTimestampMs !== null && Number.isFinite(timestampMs)) {
-      pausedOrMenuAccumulatedMs += Math.max(0, timestampMs - pausedOrMenuStartTimestampMs);
-      pausedOrMenuStartTimestampMs = null;
+    } else if (this.pausedOrMenuStartTimestampMs !== null && Number.isFinite(timestampMs)) {
+      this.pausedOrMenuAccumulatedMs += Math.max(0, timestampMs - this.pausedOrMenuStartTimestampMs);
+      this.pausedOrMenuStartTimestampMs = null;
     }
+    return {
+      row, rowIndex, timestampMs, rawElapsed, elapsed, eventCoordinates, recordType, pausedOrMenu,
+      ra: row.ra_ft,
+      onGround: toBooleanOrNull(row.on_ground),
+      isTelemetrySample: !recordType || recordType === 'SAMPLE',
+    };
+  }
+
+  private processRow(context: ReplayRowContext): void {
+    const { row, recordType, timestampMs, elapsed, eventCoordinates } = context;
     if (recordType === 'CRASH') {
-      flightEnded = true;
-      replayBounceCandidate = null;
-      pendingReplayBounceConfirmation = null;
-      replayTouchdownRearmed = true;
-      activeReplayLandingEvent = null;
-      lastReplayFlapState = null;
-      pendingReplayFlapChange = null;
-      generatedTimeline.events.push({
+      this.flightEnded = true;
+      this.replayBounceCandidate = null;
+      this.pendingReplayBounceConfirmation = null;
+      this.replayTouchdownRearmed = true;
+      this.activeReplayLandingEvent = null;
+      this.lastReplayFlapState = null;
+      this.pendingReplayFlapChange = null;
+      this.generatedTimeline.events.push({
         type: 'crash',
         timestampMs,
         elapsedMs: elapsed,
@@ -3402,50 +3426,60 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
         ias_kts: row.ias_kts,
         vs_fpm: row.vs_fpm,
       });
-      continue;
+      return;
     }
 
+    // Event rows retain the same pre-dispatch processing as telemetry samples.
+    this.updateConfiguration(context);
+    this.updatePhaseAndAltitude(context);
+    this.updateLandingAttempt(context);
+    this.updateApproachViolations(context);
+    this.processRecordedEvent(context);
+  }
+
+  private updateConfiguration(context: ReplayRowContext): void {
+    const { row, recordType, pausedOrMenu, timestampMs, elapsed, eventCoordinates } = context;
     // Configuration changes are confirmed only after the destination has held
     // steady. This collapses lever travel and surface noise into one useful row.
-    if (!pausedOrMenu && !flightEnded && (!recordType || recordType === 'SAMPLE')) {
-      const flapState = resolveReplayFlapState(row, replayFlapProfileCache);
+    if (!pausedOrMenu && !this.flightEnded && (!recordType || recordType === 'SAMPLE')) {
+      const flapState = resolveReplayFlapState(row, this.replayFlapProfileCache);
       if (flapState) {
-        if (!lastReplayFlapState || lastReplayFlapState.profileKey !== flapState.profileKey ||
-            lastReplayFlapState.kind !== flapState.kind) {
-          lastReplayFlapState = flapState;
-          pendingReplayFlapChange = null;
-        } else if (lastReplayFlapState.notchIndex === flapState.notchIndex ||
+        if (!this.lastReplayFlapState || this.lastReplayFlapState.profileKey !== flapState.profileKey ||
+            this.lastReplayFlapState.kind !== flapState.kind) {
+          this.lastReplayFlapState = flapState;
+          this.pendingReplayFlapChange = null;
+        } else if (this.lastReplayFlapState.notchIndex === flapState.notchIndex ||
                    (flapState.kind === 'percent' &&
-                    Math.abs(lastReplayFlapState.notchIndex - flapState.notchIndex) < REPLAY_FLAP_PERCENT_MIN_CHANGE)) {
+                    Math.abs(this.lastReplayFlapState.notchIndex - flapState.notchIndex) < REPLAY_FLAP_PERCENT_MIN_CHANGE)) {
           // Repeated samples are expected. They establish the baseline without
           // producing duplicate rows and cancel a transient candidate that fell
           // back to the last confirmed detent.
-          pendingReplayFlapChange = null;
-        } else if (pendingReplayFlapChange?.state.profileKey === flapState.profileKey &&
-                   pendingReplayFlapChange.state.kind === flapState.kind &&
-                   pendingReplayFlapChange.state.notchIndex === flapState.notchIndex) {
-          pendingReplayFlapChange.observationCount += 1;
-          const settledForMs = timestampMs - pendingReplayFlapChange.timestampMs;
+          this.pendingReplayFlapChange = null;
+        } else if (this.pendingReplayFlapChange?.state.profileKey === flapState.profileKey &&
+                   this.pendingReplayFlapChange.state.kind === flapState.kind &&
+                   this.pendingReplayFlapChange.state.notchIndex === flapState.notchIndex) {
+          this.pendingReplayFlapChange.observationCount += 1;
+          const settledForMs = timestampMs - this.pendingReplayFlapChange.timestampMs;
           const requiredSettleMs = flapState.kind === 'percent'
             ? REPLAY_FLAP_PERCENT_SETTLE_MS
             : REPLAY_FLAP_SETTLE_MS;
-          if (pendingReplayFlapChange.observationCount >= 2 && settledForMs >= requiredSettleMs) {
-            generatedTimeline.events.push(buildReplayFlapChangeEvent(
-              lastReplayFlapState,
-              pendingReplayFlapChange.state,
-              pendingReplayFlapChange.row,
-              pendingReplayFlapChange.timestampMs,
-              pendingReplayFlapChange.elapsedMs,
-              pendingReplayFlapChange.coordinates,
+          if (this.pendingReplayFlapChange.observationCount >= 2 && settledForMs >= requiredSettleMs) {
+            this.generatedTimeline.events.push(buildReplayFlapChangeEvent(
+              this.lastReplayFlapState,
+              this.pendingReplayFlapChange.state,
+              this.pendingReplayFlapChange.row,
+              this.pendingReplayFlapChange.timestampMs,
+              this.pendingReplayFlapChange.elapsedMs,
+              this.pendingReplayFlapChange.coordinates,
             ));
-            lastReplayFlapState = pendingReplayFlapChange.state;
-            pendingReplayFlapChange = null;
+            this.lastReplayFlapState = this.pendingReplayFlapChange.state;
+            this.pendingReplayFlapChange = null;
           }
         } else {
           // A new detent must be present in two consecutive eligible samples.
           // Store the first observation so the confirmed event keeps the actual
           // change time rather than the later confirmation time.
-          pendingReplayFlapChange = {
+          this.pendingReplayFlapChange = {
             state: flapState,
             observationCount: 1,
             row,
@@ -3455,37 +3489,39 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
           };
         }
       } else {
-        pendingReplayFlapChange = null;
+        this.pendingReplayFlapChange = null;
       }
 
     }
-    
+  }
+
+  private updatePhaseAndAltitude(context: ReplayRowContext): void {
+    const { row, recordType, pausedOrMenu, timestampMs, elapsed, eventCoordinates, ra } = context;
     // Phase transitions (skip OVERSPEED/STALL - those are warnings, not phases)
     // Also skip EVENT rows (record_type !== 'SAMPLE') - their phase column is the event type, not FSM phase
     // This includes LANDING, GO_AROUND, etc. event records
     const isEventRow = recordType && recordType !== 'SAMPLE';
-    if (!pausedOrMenu && row.phase && row.phase !== currentPhase && !NON_FLIGHT_PHASES.has(row.phase) && !isEventRow) {
-      generatedTimeline.events.push({
+    if (!pausedOrMenu && row.phase && row.phase !== this.currentPhase && !this.nonFlightPhases.has(row.phase) && !isEventRow) {
+      this.generatedTimeline.events.push({
         type: 'phase_start',
         timestampMs,
         elapsedMs: elapsed,
         newPhase: row.phase,
-        previousPhase: currentPhase,
+        previousPhase: this.currentPhase,
         lat: eventCoordinates.lat,
         lon: eventCoordinates.lon,
       });
-      currentPhase = row.phase;
+      this.currentPhase = row.phase;
     }
-    
+
     // Altitude markers (only during descent, RA decreasing)
     // Skip if RA is 0 (invalid/ground) or if flight has ended (post-crash noise)
-    const ra = row.ra_ft;
-    if (!pausedOrMenu && ra !== null && ra !== undefined && ra > 0 && lastRA !== null && lastRA > 0 && !flightEnded) {
+    if (!pausedOrMenu && ra !== null && ra !== undefined && ra > 0 && this.lastRA !== null && this.lastRA > 0 && !this.flightEnded) {
       for (const { altitudeFt, markerType } of ALTITUDE_MARKERS) {
         // Crossing from above to below
-        if (lastRA > altitudeFt && ra <= altitudeFt && !crossedAltitudes.has(markerType)) {
-          crossedAltitudes.add(markerType);
-          generatedTimeline.events.push({
+        if (this.lastRA > altitudeFt && ra <= altitudeFt && !this.crossedAltitudes.has(markerType)) {
+          this.crossedAltitudes.add(markerType);
+          this.generatedTimeline.events.push({
             type: 'marker',
             timestampMs,
             elapsedMs: elapsed,
@@ -3500,35 +3536,36 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
       }
     }
     if (!pausedOrMenu && ra !== null && ra > 0) {
-      lastRA = ra;
+      this.lastRA = ra;
     }
-    
+
     // Reset altitude markers on climb (RA increasing significantly)
     if (!pausedOrMenu && ra > APPROACH_CEILING_FT) {
-      crossedAltitudes.clear();
+      this.crossedAltitudes.clear();
     }
+  }
 
-    const onGround = toBooleanOrNull(row.on_ground);
-    if (!pausedOrMenu && onGround === false && wasOnGround !== false) {
-      maxRaFtSinceAirborne = 0;
+  private updateLandingAttempt(context: ReplayRowContext): void {
+    const { row, timestampMs, rawElapsed, elapsed, eventCoordinates, pausedOrMenu, ra, onGround, isTelemetrySample } = context;
+    if (!pausedOrMenu && onGround === false && this.wasOnGround !== false) {
+      this.maxRaFtSinceAirborne = 0;
     }
-    if (!pausedOrMenu && onGround === false && Number.isFinite(ra) && ra > maxRaFtSinceAirborne) {
-      maxRaFtSinceAirborne = ra;
+    if (!pausedOrMenu && onGround === false && Number.isFinite(ra) && ra > this.maxRaFtSinceAirborne) {
+      this.maxRaFtSinceAirborne = ra;
     }
-    const isTelemetrySample = !recordType || recordType === 'SAMPLE';
 
     if (
-      pendingReplayBounceConfirmation
+      this.pendingReplayBounceConfirmation
       && !pausedOrMenu
-      && !flightEnded
+      && !this.flightEnded
       && isTelemetrySample
     ) {
-      const pending = pendingReplayBounceConfirmation;
+      const pending = this.pendingReplayBounceConfirmation;
       const confirmationAgeMs = elapsed - pending.touchdownElapsedMs;
       if (onGround === false) {
         // Match the live runner: once another airborne segment starts, its
         // eventual load peak cannot retroactively confirm the prior contact.
-        pendingReplayBounceConfirmation = null;
+        this.pendingReplayBounceConfirmation = null;
       } else if (onGround === true && confirmationAgeMs >= 0) {
         const measuredLoadG = toFiniteNumber(row.g_force);
         if (
@@ -3548,90 +3585,90 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
           confirmationAgeMs <= REPLAY_BOUNCE_POST_IMPACT_CONFIRMATION_MS
           && delayedAssessment.confirmed === true
         ) {
-          if (applyConfirmedReplayBounce(activeReplayLandingEvent, delayedAssessment)) {
-            touchdownCount++;
-            lastTouchdownTs = pending.touchdownElapsedMs;
+          if (applyConfirmedReplayBounce(this.activeReplayLandingEvent, delayedAssessment)) {
+            this.touchdownCount++;
+            this.lastTouchdownTs = pending.touchdownElapsedMs;
           }
-          pendingReplayBounceConfirmation = null;
+          this.pendingReplayBounceConfirmation = null;
         } else if (confirmationAgeMs >= REPLAY_BOUNCE_POST_IMPACT_CONFIRMATION_MS) {
-          pendingReplayBounceConfirmation = null;
+          this.pendingReplayBounceConfirmation = null;
         }
       } else if (confirmationAgeMs >= REPLAY_BOUNCE_POST_IMPACT_CONFIRMATION_MS) {
-        pendingReplayBounceConfirmation = null;
+        this.pendingReplayBounceConfirmation = null;
       }
     }
 
     const isRawBounceAirborneSegment = !pausedOrMenu
-      && !flightEnded
+      && !this.flightEnded
       && isTelemetrySample
       && onGround === false
-      && activeReplayLandingEvent !== null
-      && lastTouchdownTs !== null
-      && replayTouchdownRearmed === false;
+      && this.activeReplayLandingEvent !== null
+      && this.lastTouchdownTs !== null
+      && this.replayTouchdownRearmed === false;
     if (isRawBounceAirborneSegment) {
-      if (!replayBounceCandidate) {
-        replayBounceCandidate = {
+      if (!this.replayBounceCandidate) {
+        this.replayBounceCandidate = {
           startedElapsedMs: elapsed,
-          baselineAltitudeFt: lastGroundAltitudeFt,
-          baselineRadioHeightFt: lastGroundRadioHeightFt,
+          baselineAltitudeFt: this.lastGroundAltitudeFt,
+          baselineRadioHeightFt: this.lastGroundRadioHeightFt,
           peakAltitudeFt: null,
           peakRadioHeightFt: null,
           maxUpwardVsFpm: null,
           lastAirborneVsFpm: null,
         };
       }
-      updateReplayBounceCandidate(replayBounceCandidate, row);
+      updateReplayBounceCandidate(this.replayBounceCandidate, row);
     }
     if (
       isRawBounceAirborneSegment
-      && replayBounceCandidate
-      && replayTouchdownRearmed === false
-      && elapsed - replayBounceCandidate.startedElapsedMs >= REPLAY_TOUCHDOWN_REARM_MS
+      && this.replayBounceCandidate
+      && this.replayTouchdownRearmed === false
+      && elapsed - this.replayBounceCandidate.startedElapsedMs >= REPLAY_TOUCHDOWN_REARM_MS
     ) {
       // The live runner re-arms only after a continuous airborne interval.
       // A ground recontact cannot complete that interval; an airborne sample
       // must reach the cooldown before the contact can own a new attempt.
       // Once that interval elapses, the next contact owns a new attempt even
       // if it is still close to the previous touchdown in wall-clock time.
-      replayTouchdownRearmed = true;
-      replayBounceCandidate = null;
-      pendingReplayBounceConfirmation = null;
+      this.replayTouchdownRearmed = true;
+      this.replayBounceCandidate = null;
+      this.pendingReplayBounceConfirmation = null;
     }
-    
+
     // Match live attempt boundaries: freeze after touchdown until capture is
     // re-armed, then wait for descending airborne telemetry to start a fresh
     // approach. Takeoff/go-around configuration must not become its gate.
     // Once an approach starts, retain level/climbing deviations for scoring.
-    const awaitingLandingRearm = activeReplayLandingEvent !== null && replayTouchdownRearmed === false;
-    const canCollectApproach = approachSamples.length > 0
+    const awaitingLandingRearm = this.activeReplayLandingEvent !== null && this.replayTouchdownRearmed === false;
+    const canCollectApproach = this.approachSamples.length > 0
       || (onGround !== true && (toFiniteNumber(row.vs_fpm) ?? 0) < 0);
-    if (pausedOrMenu && isTelemetrySample) stabilityScorer.notePause(timestampMs);
-    if (!awaitingLandingRearm && canCollectApproach && shouldCollectApproachSample(row, ra, flightEnded, pausedOrMenu)) {
-      const approachSample = buildApproachProfileSample(row, rawElapsed, timestampMs, pausedOrMenuAccumulatedMs);
-      approachSamples.push(approachSample);
+    if (pausedOrMenu && isTelemetrySample) this.stabilityScorer.notePause(timestampMs);
+    if (!awaitingLandingRearm && canCollectApproach && shouldCollectApproachSample(row, ra, this.flightEnded, pausedOrMenu)) {
+      const approachSample = buildApproachProfileSample(row, rawElapsed, timestampMs, this.pausedOrMenuAccumulatedMs);
+      this.approachSamples.push(approachSample);
       // Keep a hard cap to avoid unbounded memory on long approaches
-      if (approachSamples.length > MAX_APPROACH_SAMPLES) {
-        approachSamples = approachSamples.slice(-MAX_APPROACH_SAMPLES);
+      if (this.approachSamples.length > this.maxApproachSamples) {
+        this.approachSamples = this.approachSamples.slice(-this.maxApproachSamples);
       }
 
       // Feed the same row to the replay stability scorer. This preserves
       // historical stability for older CSVs and incomplete logs where the live
       // LANDING row does not contain a full ultimate_stability_* payload.
       const sampleTimestampMs = approachSample.tMs;
-      const dtMs = lastSampleTimestampMs !== null && Number.isFinite(sampleTimestampMs)
-        ? Math.max(0, sampleTimestampMs - lastSampleTimestampMs)
+      const dtMs = this.lastSampleTimestampMs !== null && Number.isFinite(sampleTimestampMs)
+        ? Math.max(0, sampleTimestampMs - this.lastSampleTimestampMs)
         : 100;
       const sample = frameToSample(csvRowToStabilityFrame(row, dtMs));
-      if (sample) stabilityScorer.addSample(sample);
-      lastSampleTimestampMs = sampleTimestampMs;
+      if (sample) this.stabilityScorer.addSample(sample);
+      this.lastSampleTimestampMs = sampleTimestampMs;
     }
     // Reset samples if climbing back above ceiling (go-around)
-    if (!pausedOrMenu && ra !== null && ra > APPROACH_CEILING_FT && approachSamples.length > 0) {
-      approachSamples = [];
-      stabilityScorer.reset();
-      lastSampleTimestampMs = null;
+    if (!pausedOrMenu && ra !== null && ra > APPROACH_CEILING_FT && this.approachSamples.length > 0) {
+      this.approachSamples = [];
+      this.stabilityScorer.reset();
+      this.lastSampleTimestampMs = null;
     }
-    
+
     // Touchdown detection and landing analysis
     // Sanity checks: must have reasonable approach parameters
     // - IAS > 50 kts (not stopped/taxiing)
@@ -3641,44 +3678,44 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
     const tdIas = toFiniteNumber(row.ias_kts) ?? 0;
     const vs = toFiniteNumber(row.vs_fpm) ?? 0;
     const isReasonableLanding = !pausedOrMenu && isTouchdownTransitionCandidate({
-      wasOnGround,
+      wasOnGround: this.wasOnGround,
       onGround,
       raFt: ra,
       iasKts: tdIas,
       vsFpm: vs,
-      flightEnded,
+      flightEnded: this.flightEnded,
       minIasKts: 50,
       maxIasKts: 250,
       maxRaFt: 50,
       requireDescent: true,
     }) && !isTakeoffSettlingTouchdown({
-      lastAcceptedTouchdownMs: lastAcceptedTouchdownTimestampMs,
-      peakRaFt: maxRaFtSinceAirborne,
+      lastAcceptedTouchdownMs: this.lastAcceptedTouchdownTimestampMs,
+      peakRaFt: this.maxRaFtSinceAirborne,
       minAirborneRaFt: config.landing.touchdownMinAirborneRaFt,
     });
-    
+
     if (isReasonableLanding) {
       // Bounce detection remains attached to the current landing attempt until
       // continuous airborne time reaches the live touchdown rearm threshold.
       // A bounce is part of the same landing sequence — do NOT create a separate timeline entry.
       // A second WOW contact is only a raw candidate. Match the live runner by
       // requiring corroborating motion/impact before changing the landing score.
-      const isRawBounce = replayTouchdownRearmed === false
-        && lastTouchdownTs !== null
-        && activeReplayLandingEvent !== null;
-      const contactCandidate = replayBounceCandidate;
+      const isRawBounce = this.replayTouchdownRearmed === false
+        && this.lastTouchdownTs !== null
+        && this.activeReplayLandingEvent !== null;
+      const contactCandidate = this.replayBounceCandidate;
       const bounceAssessment = isRawBounce && contactCandidate
         ? assessReplayBounceCandidate(contactCandidate, row, {
             airborneDurationMs: Math.max(0, elapsed - contactCandidate.startedElapsedMs),
           })
         : null;
       const isBounce = bounceAssessment?.confirmed === true;
-      replayBounceCandidate = null;
+      this.replayBounceCandidate = null;
 
       if (isBounce) {
-        if (applyConfirmedReplayBounce(activeReplayLandingEvent, bounceAssessment)) {
-          touchdownCount++;
-          lastTouchdownTs = elapsed;
+        if (applyConfirmedReplayBounce(this.activeReplayLandingEvent, bounceAssessment)) {
+          this.touchdownCount++;
+          this.lastTouchdownTs = elapsed;
         }
         // Update the most recent landing event with bounce data instead of creating a new entry.
         // This mirrors how landing-runner.js handles bounces: same sequence, one timeline entry.
@@ -3686,7 +3723,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
       } else if (isRawBounce && contactCandidate && bounceAssessment) {
         // The live runner waits briefly for a delayed impact-load SAMPLE after
         // the WOW transition; retain the same contact during replay.
-        pendingReplayBounceConfirmation = {
+        this.pendingReplayBounceConfirmation = {
           candidate: contactCandidate,
           touchdownElapsedMs: elapsed,
           airborneDurationMs: Math.max(0, elapsed - contactCandidate.startedElapsedMs),
@@ -3694,26 +3731,26 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
           impactLoadG: toFiniteNumber(bounceAssessment.impactLoadG),
         };
       } else if (!isRawBounce) {
-        touchdownCount++;
-        lastTouchdownTs = elapsed;
+        this.touchdownCount++;
+        this.lastTouchdownTs = elapsed;
         const replayStabilityPolicy = getReplayStabilityPolicyFromRow(row);
         const touchdownLandingGrade = resolveReplayLandingGrade(
           row,
           null,
-          analysisRescoreMode,
+          this.analysisRescoreMode,
         );
         const touchdownHeadline = touchdownLandingGrade.headline;
-        const replayStabilitySamples = captureReplayStabilitySamples(stabilityScorer);
+        const replayStabilitySamples = captureReplayStabilitySamples(this.stabilityScorer);
         const touchdownResult = buildReplayLandingEvent({
           row: touchdownHeadline.vsFpm === toFiniteNumber(row.vs_fpm)
             ? row
             : { ...row, vs_fpm: touchdownHeadline.vsFpm },
           timestampMs,
           elapsedMs: elapsed,
-          touchdownNumber: touchdownCount,
+          touchdownNumber: this.touchdownCount,
           eventCoordinates,
-          approachSamples,
-          stabilityScorer,
+          approachSamples: this.approachSamples,
+          stabilityScorer: this.stabilityScorer,
           stabilityCriteria: replayStabilityPolicy.criteria,
           stabilityPolicy: replayStabilityPolicy.policy,
           stabilityProfile: replayStabilityPolicy.profile,
@@ -3729,62 +3766,65 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
         applyReplayLandingGrade(touchdownResult.landingEvent, touchdownLandingGrade);
         touchdownResult.landingEvent._analysisReplayStabilitySamples = replayStabilitySamples;
 
-        generatedTimeline.events.push(touchdownResult.landingEvent);
-        activeReplayLandingEvent = touchdownResult.landingEvent;
-        replayTouchdownRearmed = false;
-        pendingReplayBounceConfirmation = null;
-        lastAcceptedTouchdownTimestampMs = timestampMs;
-        generatedTimeline.events.push(...touchdownResult.retroactiveViolations);
+        this.generatedTimeline.events.push(touchdownResult.landingEvent);
+        this.activeReplayLandingEvent = touchdownResult.landingEvent;
+        this.replayTouchdownRearmed = false;
+        this.pendingReplayBounceConfirmation = null;
+        this.lastAcceptedTouchdownTimestampMs = timestampMs;
+        this.generatedTimeline.events.push(...touchdownResult.retroactiveViolations);
 
         // Reset approach samples after touchdown (next approach starts fresh)
-        approachSamples = [];
-        stabilityScorer.reset();
-        lastSampleTimestampMs = null;
+        this.approachSamples = [];
+        this.stabilityScorer.reset();
+        this.lastSampleTimestampMs = null;
       }
       // An uncorroborated raw contact is WOW chatter within the existing
       // landing sequence. Preserve the raw CSV, but do not create or score a
       // bounce and do not move the accepted touchdown anchor.
     }
     if (!isReasonableLanding && !pausedOrMenu && isTelemetrySample
-        && wasOnGround === false && onGround === true) {
+        && this.wasOnGround === false && onGround === true) {
       // Even a recontact rejected by the touchdown sanity guard ends this raw
       // airborne segment. Do not let its evidence leak into a later WOW cycle.
-      replayBounceCandidate = null;
+      this.replayBounceCandidate = null;
     }
-    if (!pausedOrMenu && !flightEnded && isTelemetrySample && onGround === true) {
-      lastGroundAltitudeFt = toFiniteNumber(row.alt_plane_ft);
-      lastGroundRadioHeightFt = toFiniteNumber(row.ra_ft);
+    if (!pausedOrMenu && !this.flightEnded && isTelemetrySample && onGround === true) {
+      this.lastGroundAltitudeFt = toFiniteNumber(row.alt_plane_ft);
+      this.lastGroundRadioHeightFt = toFiniteNumber(row.ra_ft);
     }
     if (!pausedOrMenu && onGround !== null) {
-      wasOnGround = onGround;
+      this.wasOnGround = onGround;
     }
-    
+  }
+
+  private updateApproachViolations(context: ReplayRowContext): void {
+    const { row, timestampMs, elapsed, eventCoordinates, pausedOrMenu, isTelemetrySample } = context;
     // Stability violations (only during approach/final phases)
     // Track violations as start/end pairs, not spam on every row
     if (pausedOrMenu) {
-      highSinkRateState = endHighSinkRateViolation(
-        highSinkRateState,
+      this.highSinkRateState = endHighSinkRateViolation(
+        this.highSinkRateState,
         timestampMs,
         elapsed,
-        generatedTimeline,
+        this.generatedTimeline,
         eventCoordinates.lat,
         eventCoordinates.lon,
       );
-      endAllViolations(timestampMs, elapsed, generatedTimeline, activeViolations, eventCoordinates.lat, eventCoordinates.lon);
-    } else if (currentPhase && (currentPhase.includes('APPROACH') || currentPhase.includes('FINAL'))) {
+      endAllViolations(timestampMs, elapsed, this.generatedTimeline, this.activeViolations, eventCoordinates.lat, eventCoordinates.lon);
+    } else if (this.currentPhase && (this.currentPhase.includes('APPROACH') || this.currentPhase.includes('FINAL'))) {
       // Check each violation type and emit start/end events
       if (isTelemetrySample) {
-        highSinkRateState = updateHighSinkRateViolation(
-          highSinkRateState,
+        this.highSinkRateState = updateHighSinkRateViolation(
+          this.highSinkRateState,
           toFiniteNumber(row.vs_fpm),
           timestampMs,
           elapsed,
-          generatedTimeline,
+          this.generatedTimeline,
           eventCoordinates.lat,
           eventCoordinates.lon,
         );
       }
-      
+
       // MSFS documents NAV GSI as a +/-119 deflection but not its polarity, so
       // either direction uses the same severity threshold.
       const gsDevDots = plausibleIlsDeviationDots(row.gs_deviation_dots);
@@ -3794,21 +3834,21 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
         gsDeviationAvailable && gsDevAbs > STABILITY_THRESHOLDS.GLIDESLOPE_DOTS,
         gsDevAbs > 2.0 ? 'warning' : 'caution',
         { value: gsDevDots, threshold: STABILITY_THRESHOLDS.GLIDESLOPE_DOTS, nav1_has_glideslope: row.nav1_has_glideslope ?? null, nav1_signal: row.nav1_signal ?? null },
-        timestampMs, elapsed, generatedTimeline, activeViolations, eventCoordinates.lat, eventCoordinates.lon);
-      
+        timestampMs, elapsed, this.generatedTimeline, this.activeViolations, eventCoordinates.lat, eventCoordinates.lon);
+
       const locDevDots = plausibleIlsDeviationDots(row.loc_deviation_dots);
       const locDevAbs = Number.isFinite(locDevDots) ? Math.abs(locDevDots) : 0;
       checkViolationCondition('LOCALIZER',
         isLocalizerDeviationRelevant(row) && locDevAbs > STABILITY_THRESHOLDS.LOCALIZER_DOTS,
         locDevAbs > 2 ? 'warning' : 'caution',
         { value: locDevDots, threshold: STABILITY_THRESHOLDS.LOCALIZER_DOTS, approach_type: row.approach_type ?? null, nav1_has_localizer: row.nav1_has_localizer ?? null, nav1_signal: row.nav1_signal ?? null },
-        timestampMs, elapsed, generatedTimeline, activeViolations, eventCoordinates.lat, eventCoordinates.lon);
-      
+        timestampMs, elapsed, this.generatedTimeline, this.activeViolations, eventCoordinates.lat, eventCoordinates.lon);
+
       checkViolationCondition('BANK_ANGLE',
         row.bank_deg !== null && Math.abs(row.bank_deg) > STABILITY_THRESHOLDS.BANK_MAX_DEG,
         Math.abs(row.bank_deg) > 30 ? 'warning' : 'caution',
         { value: row.bank_deg, threshold: STABILITY_THRESHOLDS.BANK_MAX_DEG },
-        timestampMs, elapsed, generatedTimeline, activeViolations, eventCoordinates.lat, eventCoordinates.lon);
+        timestampMs, elapsed, this.generatedTimeline, this.activeViolations, eventCoordinates.lat, eventCoordinates.lon);
 
       // Steep path-rate proxy for visual/RNAV approaches: fires only when ILS
       // gs_deviation_dots is unavailable so it never doubles up with GLIDESLOPE.
@@ -3836,25 +3876,27 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             target_angle_source: glidepathAngle.source,
             deficit_fpm: Math.round(vsDeficit),
           },
-          timestampMs, elapsed, generatedTimeline, activeViolations, eventCoordinates.lat, eventCoordinates.lon);
+          timestampMs, elapsed, this.generatedTimeline, this.activeViolations, eventCoordinates.lat, eventCoordinates.lon);
       }
     } else {
       // Not in approach/final - close any open violations
-      highSinkRateState = endHighSinkRateViolation(
-        highSinkRateState,
+      this.highSinkRateState = endHighSinkRateViolation(
+        this.highSinkRateState,
         timestampMs,
         elapsed,
-        generatedTimeline,
+        this.generatedTimeline,
         eventCoordinates.lat,
         eventCoordinates.lon,
       );
-      endAllViolations(timestampMs, elapsed, generatedTimeline, activeViolations);
+      endAllViolations(timestampMs, elapsed, this.generatedTimeline, this.activeViolations);
     }
-    
+  }
+
+  private processRecordedEvent(context: ReplayRowContext): void {
+    const { row, rowIndex, timestampMs, elapsed, eventCoordinates, recordType } = context;
     // ═══════════════════════════════════════════════════════════════════════
     // CSV Event Records (OVERSPEED, STALL, GO_AROUND, etc.)
     // The CSV records event rows with record_type != 'SAMPLE' - process them here
-    // recordType was declared earlier in the loop for CRASH handling
     // ═══════════════════════════════════════════════════════════════════════
     if (recordType && recordType !== 'SAMPLE' && recordType !== 'CRASH') {
       if (recordType === 'FLIGHT_VIOLATION_START' || recordType === 'FLIGHT_VIOLATION_END') {
@@ -3866,12 +3908,12 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             elapsed,
             eventCoordinates,
           );
-          if (violationEvent) generatedTimeline.events.push(violationEvent);
+          if (violationEvent) this.generatedTimeline.events.push(violationEvent);
         }
       }
       // Overspeed events
       else if (recordType === 'OVERSPEED') {
-        generatedTimeline.events.push({
+        this.generatedTimeline.events.push({
           type: 'violation_start',
           timestampMs,
           elapsedMs: elapsed,
@@ -3887,7 +3929,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
           },
         });
       } else if (recordType === 'OVERSPEED_END') {
-        generatedTimeline.events.push({
+        this.generatedTimeline.events.push({
           type: 'violation_end',
           timestampMs,
           elapsedMs: elapsed,
@@ -3900,8 +3942,8 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
         });
       }
       // Stall events
-      else if (recordType === 'STALL' && !suppressedStallRows.has(row)) {
-        generatedTimeline.events.push({
+      else if (recordType === 'STALL' && !this.suppressedStallRows.has(row)) {
+        this.generatedTimeline.events.push({
           type: 'violation_start',
           timestampMs,
           elapsedMs: elapsed,
@@ -3913,8 +3955,8 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
             ias_kts: row.ias_kts,
           },
         });
-      } else if (recordType === 'STALL_END' && !suppressedStallRows.has(row)) {
-        generatedTimeline.events.push({
+      } else if (recordType === 'STALL_END' && !this.suppressedStallRows.has(row)) {
+        this.generatedTimeline.events.push({
           type: 'violation_end',
           timestampMs,
           elapsedMs: elapsed,
@@ -3930,15 +3972,15 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
       // live takeoff runner. Replay shows it as a marker and never rescores it.
       else if (recordType === 'TAKEOFF') {
         const takeoff = extractRecordedTakeoff({ ...row, timestamp_ms: timestampMs }, {
-          bundleName: recordingBundleLayout.getBundleFromCsvPath(csvPath)?.bundleName || path.basename(csvPath),
-          recordingSessionId: firstRow.recording_session_id,
-          flightId: firstRow.flight_id,
-          rowIndex: i,
+          bundleName: recordingBundleLayout.getBundleFromCsvPath(this.csvPath)?.bundleName || path.basename(this.csvPath),
+          recordingSessionId: this.firstRow.recording_session_id,
+          flightId: this.firstRow.flight_id,
+          rowIndex,
         });
         // The row is written when the takeoff is scored, a few seconds after
         // liftoff; the marker belongs at the liftoff moment and position.
         const markerTimestampMs = takeoff?.timestampMs ?? timestampMs;
-        if (takeoff) generatedTimeline.events.push({
+        if (takeoff) this.generatedTimeline.events.push({
           type: 'marker',
           markerType: MARKER_TYPE.TAKEOFF,
           timestampMs: markerTimestampMs,
@@ -3953,52 +3995,7 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
       }
       // Go-around events
       else if (recordType === 'GO_AROUND') {
-        const altitudeFt = toFiniteNumber(row.goaround_altitude_ft) ?? toFiniteNumber(row.ra_ft);
-        const isLateGoAround = Number.isFinite(altitudeFt) && altitudeFt < 200;
-        generatedTimeline.events.push({
-          type: 'marker',
-          markerType: MARKER_TYPE.GO_AROUND,
-          timestampMs,
-          elapsedMs: elapsed,
-          lat: eventCoordinates.lat,
-          lon: eventCoordinates.lon,
-          context: {
-            altitude_ft: altitudeFt,
-            ra: altitudeFt,
-            previous_phase: row.previous_phase,
-            late: isLateGoAround,
-          },
-        });
-        if (isLateGoAround) {
-          generatedTimeline.events.push({
-            type: 'violation_start',
-            timestampMs,
-            elapsedMs: elapsed,
-            ruleId: VIOLATION_RULE.LATE_GO_AROUND,
-            severity: 'warning',
-            lat: eventCoordinates.lat,
-            lon: eventCoordinates.lon,
-            context: {
-              altitude_ft: altitudeFt,
-              previous_phase: row.previous_phase,
-            },
-          });
-        }
-        approachSamples = [];
-        stabilityScorer.reset();
-        lastSampleTimestampMs = null;
-        lastTouchdownTs = null;
-        lastAcceptedTouchdownTimestampMs = null;
-        maxRaFtSinceAirborne = 0;
-        replayBounceCandidate = null;
-        pendingReplayBounceConfirmation = null;
-        replayTouchdownRearmed = true;
-        activeReplayLandingEvent = null;
-        lastGroundAltitudeFt = null;
-        lastGroundRadioHeightFt = null;
-        crossedAltitudes.clear();
-        lastRA = null;
-        wasOnGround = false;
+        this.processGoAround(context);
       }
       // Landing event rows — merged with the WOW-derived SAMPLE event already on the timeline.
       // The LANDING record is written by landing-runner.js at rollout completion and contributes:
@@ -4014,373 +4011,425 @@ function generateTimelineFromRows(csvPath: string, rows: CsvRow[], _options: Any
       // All fields use `?? existing.x` fallbacks so a missing LANDING column falls
       // back to the SAMPLE-derived value.
       else if (recordType === 'LANDING') {
-        replayBounceCandidate = null;
-        pendingReplayBounceConfirmation = null;
-        const runwayExcursion = toBooleanOrNull(row.runway_excursion) === true
-          || isLegacyRunwayExcursionGrade(row.grade);
-        const persistedUltimateStability = extractUltimateStability(row);
-        const ultimateStability = isUsableUltimateStability(persistedUltimateStability)
-          ? persistedUltimateStability
-          : null;
+        this.processRecordedLanding(context);
+      }
+    }
+  }
 
-        // Authoritative runway from live system (heading-filtered, not pure geometry)
-        const landingRunwayHeading = toFiniteNumber(row.runway_heading_true_deg) ??
-          (Number.isFinite(row.runway_heading) ? row.runway_heading : null);
-        const landingRunwayThresholdLat = toFiniteNumber(row.runway_threshold_lat);
-        const landingRunwayThresholdLon = toFiniteNumber(row.runway_threshold_lon);
-        const landingRunwayPhysicalThresholdLat = toFiniteNumber(row.runway_physical_threshold_lat);
-        const landingRunwayPhysicalThresholdLon = toFiniteNumber(row.runway_physical_threshold_lon);
-        const runwayInfo = (row.icao || row.runway)
+  private processGoAround(context: ReplayRowContext): void {
+    const { row, timestampMs, elapsed, eventCoordinates } = context;
+    const altitudeFt = toFiniteNumber(row.goaround_altitude_ft) ?? toFiniteNumber(row.ra_ft);
+    const isLateGoAround = Number.isFinite(altitudeFt) && altitudeFt < 200;
+    this.generatedTimeline.events.push({
+      type: 'marker',
+      markerType: MARKER_TYPE.GO_AROUND,
+      timestampMs,
+      elapsedMs: elapsed,
+      lat: eventCoordinates.lat,
+      lon: eventCoordinates.lon,
+      context: {
+        altitude_ft: altitudeFt,
+        ra: altitudeFt,
+        previous_phase: row.previous_phase,
+        late: isLateGoAround,
+      },
+    });
+    if (isLateGoAround) {
+      this.generatedTimeline.events.push({
+        type: 'violation_start',
+        timestampMs,
+        elapsedMs: elapsed,
+        ruleId: VIOLATION_RULE.LATE_GO_AROUND,
+        severity: 'warning',
+        lat: eventCoordinates.lat,
+        lon: eventCoordinates.lon,
+        context: {
+          altitude_ft: altitudeFt,
+          previous_phase: row.previous_phase,
+        },
+      });
+    }
+    this.approachSamples = [];
+    this.stabilityScorer.reset();
+    this.lastSampleTimestampMs = null;
+    this.lastTouchdownTs = null;
+    this.lastAcceptedTouchdownTimestampMs = null;
+    this.maxRaFtSinceAirborne = 0;
+    this.replayBounceCandidate = null;
+    this.pendingReplayBounceConfirmation = null;
+    this.replayTouchdownRearmed = true;
+    this.activeReplayLandingEvent = null;
+    this.lastGroundAltitudeFt = null;
+    this.lastGroundRadioHeightFt = null;
+    this.crossedAltitudes.clear();
+    this.lastRA = null;
+    this.wasOnGround = false;
+  }
+
+  private processRecordedLanding(context: ReplayRowContext): void {
+    const { row, timestampMs, elapsed, eventCoordinates } = context;
+    this.replayBounceCandidate = null;
+    this.pendingReplayBounceConfirmation = null;
+    const runwayExcursion = toBooleanOrNull(row.runway_excursion) === true
+      || isLegacyRunwayExcursionGrade(row.grade);
+    const persistedUltimateStability = extractUltimateStability(row);
+    const ultimateStability = isUsableUltimateStability(persistedUltimateStability)
+      ? persistedUltimateStability
+      : null;
+
+    // Authoritative runway from live system (heading-filtered, not pure geometry)
+    const landingRunwayHeading = toFiniteNumber(row.runway_heading_true_deg) ??
+      (Number.isFinite(row.runway_heading) ? row.runway_heading : null);
+    const landingRunwayThresholdLat = toFiniteNumber(row.runway_threshold_lat);
+    const landingRunwayThresholdLon = toFiniteNumber(row.runway_threshold_lon);
+    const landingRunwayPhysicalThresholdLat = toFiniteNumber(row.runway_physical_threshold_lat);
+    const landingRunwayPhysicalThresholdLon = toFiniteNumber(row.runway_physical_threshold_lon);
+    const runwayInfo = (row.icao || row.runway)
+      ? {
+          airport_icao: row.icao || null,
+          airport_name: null,
+          runway_id: row.runway != null && row.runway !== '' ? String(row.runway) : null,
+          length_ft: Number.isFinite(row.runway_length_ft) ? row.runway_length_ft : null,
+          width_ft: toFiniteNumber(row.runway_width_ft),
+          runway_heading: landingRunwayHeading,
+          heading_true_deg: landingRunwayHeading,
+          source: typeof row.runway_geometry_source === 'string' ? row.runway_geometry_source : null,
+          physical_length_ft: toFiniteNumber(row.runway_physical_length_ft),
+          displaced_threshold_ft: toFiniteNumber(row.runway_displaced_threshold_ft),
+          threshold: landingRunwayThresholdLat !== null && landingRunwayThresholdLon !== null
+            ? { lat: landingRunwayThresholdLat, lon: landingRunwayThresholdLon }
+            : null,
+          physical_threshold: landingRunwayPhysicalThresholdLat !== null && landingRunwayPhysicalThresholdLon !== null
+            ? { lat: landingRunwayPhysicalThresholdLat, lon: landingRunwayPhysicalThresholdLon }
+            : null,
+        }
+      : null;
+
+    // Authoritative touchdown distance + scoring from landing-runner rollout.
+    // bounce_count was added to the schema in April 2026; older CSVs will have it
+    // as null. The merge below falls back to the WOW-counted value already on the
+    // existing event so old recordings still display bounce count correctly.
+    const touchdownDistance = buildLandingRowTouchdownDistance(row, this.analysisRescoreMode);
+
+    const candidateIndex = findActiveLandingEventIndex(
+      this.generatedTimeline.events,
+      this.activeReplayLandingEvent,
+      row,
+      timestampMs
+    ) ?? findLandingEventByTouchdownIdentity(
+      this.generatedTimeline.events,
+      row,
+      timestampMs
+    ) ?? findLatestUnmergedLandingEventIndex(
+      this.generatedTimeline.events,
+      timestampMs,
+      LANDING_MERGE_WINDOW_MS
+    );
+
+    if (typeof candidateIndex === 'number') {
+      const existing = this.generatedTimeline.events[candidateIndex];
+      const landingGrade = resolveReplayLandingGrade(
+        row,
+        existing,
+        this.analysisRescoreMode,
+      );
+      const landingHeadline = landingGrade.headline;
+      const recordedBounceCount = toFiniteNumber(row.bounce_count);
+      const mergedBounceCount = this.analysisRescoreMode === 'current-preview'
+        ? recordedBounceCount
+        : (recordedBounceCount ?? toFiniteNumber(existing.bounceCount));
+      const bounceCountSource = this.analysisRescoreMode === 'recorded'
+        ? (recordedBounceCount !== null
+          ? 'recorded'
+          : (toFiniteNumber(existing.bounceCount) !== null ? 'reconstructed' : 'unavailable'))
+        : null;
+      const finalizedRunway = this.analysisRescoreMode === 'current-preview'
+        ? runwayInfo
+        : runwayInfo && (
+        landingRunwayHeading !== null ||
+        (landingRunwayThresholdLat !== null && landingRunwayThresholdLon !== null)
+      )
+        ? {
+            ...runwayInfo,
+            heading: runwayInfo.runway_heading ?? null,
+            heading_true_deg: runwayInfo.runway_heading ?? null,
+          }
+        : existing.runway;
+
+      // Ordinary replay preserves a recorded outcome. Sample reconstruction
+      // fills only legacy rows where bounce_count was not persisted.
+      if (touchdownDistance && this.analysisRescoreMode === 'recorded') {
+        touchdownDistance.bounceCount = mergedBounceCount;
+      }
+
+      const replayPolicy = getReplayStabilityPolicyFromRow(row, existing);
+      const rebuiltStability = this.analysisRescoreMode === 'current-preview'
+        ? rebuildCurrentReplayStability(existing, row, replayPolicy)
+        : null;
+      const mergedWindSpeedKts = toFiniteNumber(row.wind_speed_kts) ?? existing.wind_speed_kts ?? null;
+      const mergedWindDirectionDeg = toFiniteNumber(row.wind_dir_deg) ?? existing.wind_dir_deg ?? null;
+      const recordedCrosswindKts = toFiniteNumber(row.xwind_kts);
+      const mergedCrosswindKts = recordedCrosswindKts ?? (
+        toFiniteNumber(row.wind_speed_kts) !== null || toFiniteNumber(row.wind_dir_deg) !== null
+          ? computeCrosswind(
+              mergedWindSpeedKts,
+              mergedWindDirectionDeg,
+              getRunwayTrueHeadingDeg(finalizedRunway),
+            )
+          : existing.xwind_kts ?? null
+      );
+      this.generatedTimeline.events[candidateIndex] = applyReplayLandingGrade({
+        ...existing,
+        _landingRowMerged: true,
+        // Runway stays from the WOW-transition SAMPLE row detection — that uses
+        // hdg_true_deg at the actual touchdown moment (correct approach heading).
+        // The LANDING record contributes grade, stability, touchdown distance, and
+        // bounce scoring (computed live during rollout with the full approach context).
+        grade: landingHeadline.grade,
+        runwayExcursion: runwayExcursion || existing.runwayExcursion === true,
+        aircraftProfileId: toNonEmptyString(row.aircraft_profile_id) || existing.aircraftProfileId || null,
+        bounceCount: mergedBounceCount,
+        ...(bounceCountSource ? { bounceCountSource } : {}),
+        // The SAMPLE touchdown runway is provisional. Prefer finalized
+        // LANDING-row geometry when it contains an actual heading or
+        // threshold; identifier-only context must not replace valid data.
+        runway: finalizedRunway,
+        runwayReferenceElevFt: toFiniteNumber(row.runway_reference_elev_ft)
+          ?? existing.runwayReferenceElevFt
+          ?? null,
+        runwayReferenceElevationSource:
+          toNonEmptyString(row.runway_reference_elevation_source)
+          ?? existing.runwayReferenceElevationSource
+          ?? null,
+        runwayReferenceElevationKind:
+          toNonEmptyString(row.runway_reference_elevation_kind)
+          ?? existing.runwayReferenceElevationKind
+          ?? null,
+        touchdownDistance: this.analysisRescoreMode === 'current-preview'
+          ? touchdownDistance
+          : mergeTouchdownDistance(existing.touchdownDistance, touchdownDistance),
+        ultimateStability: this.analysisRescoreMode === 'current-preview'
+          ? rebuiltStability?.value ?? null
+          : ultimateStability
           ? {
-              airport_icao: row.icao || null,
-              airport_name: null,
-              runway_id: row.runway != null && row.runway !== '' ? String(row.runway) : null,
-              length_ft: Number.isFinite(row.runway_length_ft) ? row.runway_length_ft : null,
-              width_ft: toFiniteNumber(row.runway_width_ft),
-              runway_heading: landingRunwayHeading,
-              heading_true_deg: landingRunwayHeading,
-              source: typeof row.runway_geometry_source === 'string' ? row.runway_geometry_source : null,
-              physical_length_ft: toFiniteNumber(row.runway_physical_length_ft),
-              displaced_threshold_ft: toFiniteNumber(row.runway_displaced_threshold_ft),
-              threshold: landingRunwayThresholdLat !== null && landingRunwayThresholdLon !== null
-                ? { lat: landingRunwayThresholdLat, lon: landingRunwayThresholdLon }
-                : null,
-              physical_threshold: landingRunwayPhysicalThresholdLat !== null && landingRunwayPhysicalThresholdLon !== null
-                ? { lat: landingRunwayPhysicalThresholdLat, lon: landingRunwayPhysicalThresholdLon }
-                : null,
+              ...ultimateStability,
+              scoringContext:
+                ultimateStability.scoringContext
+                || null,
             }
-          : null;
-
-        // Authoritative touchdown distance + scoring from landing-runner rollout.
-        // bounce_count was added to the schema in April 2026; older CSVs will have it
-        // as null. The merge below falls back to the WOW-counted value already on the
-        // existing event so old recordings still display bounce count correctly.
-        const touchdownDistance = buildLandingRowTouchdownDistance(row, analysisRescoreMode);
-
-        const candidateIndex = findActiveLandingEventIndex(
-          generatedTimeline.events,
-          activeReplayLandingEvent,
-          row,
-          timestampMs
-        ) ?? findLandingEventByTouchdownIdentity(
-          generatedTimeline.events,
-          row,
-          timestampMs
-        ) ?? findLatestUnmergedLandingEventIndex(
-          generatedTimeline.events,
-          timestampMs,
-          LANDING_MERGE_WINDOW_MS
-        );
-
-        if (typeof candidateIndex === 'number') {
-          const existing = generatedTimeline.events[candidateIndex];
-          const landingGrade = resolveReplayLandingGrade(
-            row,
-            existing,
-            analysisRescoreMode,
-          );
-          const landingHeadline = landingGrade.headline;
-          const recordedBounceCount = toFiniteNumber(row.bounce_count);
-          const mergedBounceCount = analysisRescoreMode === 'current-preview'
-            ? recordedBounceCount
-            : (recordedBounceCount ?? toFiniteNumber(existing.bounceCount));
-          const bounceCountSource = analysisRescoreMode === 'recorded'
-            ? (recordedBounceCount !== null
-              ? 'recorded'
-              : (toFiniteNumber(existing.bounceCount) !== null ? 'reconstructed' : 'unavailable'))
-            : null;
-          const finalizedRunway = analysisRescoreMode === 'current-preview'
-            ? runwayInfo
-            : runwayInfo && (
-            landingRunwayHeading !== null ||
-            (landingRunwayThresholdLat !== null && landingRunwayThresholdLon !== null)
-          )
-            ? {
-                ...runwayInfo,
-                heading: runwayInfo.runway_heading ?? null,
-                heading_true_deg: runwayInfo.runway_heading ?? null,
-              }
-            : existing.runway;
-
-          // Ordinary replay preserves a recorded outcome. Sample reconstruction
-          // fills only legacy rows where bounce_count was not persisted.
-          if (touchdownDistance && analysisRescoreMode === 'recorded') {
-            touchdownDistance.bounceCount = mergedBounceCount;
-          }
-
-          const replayPolicy = getReplayStabilityPolicyFromRow(row, existing);
-          const rebuiltStability = analysisRescoreMode === 'current-preview'
-            ? rebuildCurrentReplayStability(existing, row, replayPolicy)
-            : null;
-          const mergedWindSpeedKts = toFiniteNumber(row.wind_speed_kts) ?? existing.wind_speed_kts ?? null;
-          const mergedWindDirectionDeg = toFiniteNumber(row.wind_dir_deg) ?? existing.wind_dir_deg ?? null;
-          const recordedCrosswindKts = toFiniteNumber(row.xwind_kts);
-          const mergedCrosswindKts = recordedCrosswindKts ?? (
-            toFiniteNumber(row.wind_speed_kts) !== null || toFiniteNumber(row.wind_dir_deg) !== null
-              ? computeCrosswind(
-                  mergedWindSpeedKts,
-                  mergedWindDirectionDeg,
-                  getRunwayTrueHeadingDeg(finalizedRunway),
-                )
-              : existing.xwind_kts ?? null
-          );
-          generatedTimeline.events[candidateIndex] = applyReplayLandingGrade({
-            ...existing,
-            _landingRowMerged: true,
-            // Runway stays from the WOW-transition SAMPLE row detection — that uses
-            // hdg_true_deg at the actual touchdown moment (correct approach heading).
-            // The LANDING record contributes grade, stability, touchdown distance, and
-            // bounce scoring (computed live during rollout with the full approach context).
-            grade: landingHeadline.grade,
-            runwayExcursion: runwayExcursion || existing.runwayExcursion === true,
-            aircraftProfileId: toNonEmptyString(row.aircraft_profile_id) || existing.aircraftProfileId || null,
-            bounceCount: mergedBounceCount,
-            ...(bounceCountSource ? { bounceCountSource } : {}),
-            // The SAMPLE touchdown runway is provisional. Prefer finalized
-            // LANDING-row geometry when it contains an actual heading or
-            // threshold; identifier-only context must not replace valid data.
-            runway: finalizedRunway,
-            runwayReferenceElevFt: toFiniteNumber(row.runway_reference_elev_ft)
-              ?? existing.runwayReferenceElevFt
-              ?? null,
-            runwayReferenceElevationSource:
-              toNonEmptyString(row.runway_reference_elevation_source)
-              ?? existing.runwayReferenceElevationSource
-              ?? null,
-            runwayReferenceElevationKind:
-              toNonEmptyString(row.runway_reference_elevation_kind)
-              ?? existing.runwayReferenceElevationKind
-              ?? null,
-            touchdownDistance: analysisRescoreMode === 'current-preview'
-              ? touchdownDistance
-              : mergeTouchdownDistance(existing.touchdownDistance, touchdownDistance),
-            ultimateStability: analysisRescoreMode === 'current-preview'
-              ? rebuiltStability?.value ?? null
-              : ultimateStability
-              ? {
-                  ...ultimateStability,
-                  scoringContext:
-                    ultimateStability.scoringContext
-                    || null,
-                }
-              : existing.ultimateStability,
-            // Centerline deviation: use hdg from LANDING row if present (more precise
-            // than the SAMPLE row which can be post-touchdown/decelerating).
-            centerlineDev: _computeCenterlineDev(
-              toFiniteNumber(row.hdg_true_deg) ?? existing.hdg_true_deg,
-              getRunwayTrueHeadingDeg(finalizedRunway)
-            ) ?? (analysisRescoreMode === 'current-preview' ? null : existing.centerlineDev ?? null),
-            // Authoritative per-touchdown values from LANDING record (override SAMPLE estimates)
-            vs_fpm: landingHeadline.vsFpm,
-            gforce: toFiniteNumber(row.g_force) ?? toFiniteNumber(row.gforce) ?? existing.gforce ?? null,
-            bank_deg: toFiniteNumber(row.bank_deg) ?? existing.bank_deg ?? null,
-            gs_kts: toFiniteNumber(row.gs_kts) ?? existing.gs_kts ?? null,
-            xwind_kts: mergedCrosswindKts,
-            wind_speed_kts: mergedWindSpeedKts,
-            wind_dir_deg: mergedWindDirectionDeg,
-            rolloutAnalysis: analysisRescoreMode === 'current-preview'
-              ? null
-              : parseJsonObject(row.rollout_analysis) || existing.rolloutAnalysis || null,
-          }, landingGrade);
-          if (analysisRescoreMode === 'current-preview') {
-            const rescoredEvent = generatedTimeline.events[candidateIndex];
-            setAnalysisRescoreMetric(rescoredEvent, 'stability', rebuiltStability!.metric);
-            setAnalysisRescoreMetric(rescoredEvent, 'touchdownDistance',
-              toFiniteNumber(row.touchdown_distance_ft) === null
-                ? unavailableGeometryMetric('recorded_touchdown_geometry_unavailable')
-                : { applicable: true, available: true, source: 'reconstructed', reason: null });
-            setAnalysisRescoreMetric(rescoredEvent, 'lateralOffset',
-              toFiniteNumber(row.lateral_offset_ft) === null
-                ? unavailableGeometryMetric('recorded_lateral_geometry_unavailable')
-                : { applicable: true, available: true, source: 'reconstructed', reason: null });
-            setAnalysisRescoreMetric(rescoredEvent, 'bounce', recordedBounceCount === null
-              ? { applicable: true, available: false, source: 'unavailable', reason: 'recorded_bounce_evidence_unavailable' }
-              : { applicable: true, available: true, source: 'reconstructed', reason: null });
-          }
-          activeReplayLandingEvent = generatedTimeline.events[candidateIndex];
-        } else {
-          const landingGrade = resolveReplayLandingGrade(
-            row,
-            null,
-            analysisRescoreMode,
-          );
-          const landingHeadline = landingGrade.headline;
-          const standaloneBounceCount = toFiniteNumber(row.bounce_count);
-          generatedTimeline.events.push(applyReplayLandingGrade({
-            type: 'landing',
-            _landingRowMerged: true,
-            timestampMs,
-            elapsedMs: elapsed,
-            lat: eventCoordinates.lat,
-            lon: eventCoordinates.lon,
-            runway: runwayInfo ? {
-              ...runwayInfo,
-              heading: runwayInfo.runway_heading ?? null,
-              heading_true_deg: runwayInfo.runway_heading ?? null,
-            } : null,
-            runwayReferenceElevFt: toFiniteNumber(row.runway_reference_elev_ft),
-            runwayReferenceElevationSource: toNonEmptyString(row.runway_reference_elevation_source),
-            runwayReferenceElevationKind: toNonEmptyString(row.runway_reference_elevation_kind),
-            ias_kts: row.ias_kts,
-            vs_fpm: landingHeadline.vsFpm,
-            pitch_deg: row.pitch_deg,
-            hdg_true_deg: row.hdg_true_deg,
-            gforce: toFiniteNumber(row.g_force) ?? toFiniteNumber(row.gforce),
-            bank_deg: toFiniteNumber(row.bank_deg),
-            gs_kts: toFiniteNumber(row.gs_kts),
-            xwind_kts: toFiniteNumber(row.xwind_kts) ?? computeCrosswind(
-              toFiniteNumber(row.wind_speed_kts),
-              toFiniteNumber(row.wind_dir_deg),
-              runwayInfo ? toFiniteNumber(runwayInfo.runway_heading) : null,
-            ),
-            wind_speed_kts: toFiniteNumber(row.wind_speed_kts),
-            wind_dir_deg: toFiniteNumber(row.wind_dir_deg),
-            grade: landingHeadline.grade,
-            runwayExcursion,
-            aircraftProfileId: toNonEmptyString(row.aircraft_profile_id),
-            bounceCount: standaloneBounceCount,
-            ...(analysisRescoreMode === 'recorded'
-              ? { bounceCountSource: standaloneBounceCount === null ? 'unavailable' : 'recorded' }
-              : {}),
-            centerlineDev: runwayInfo
-              ? _computeCenterlineDev(toFiniteNumber(row.hdg_true_deg), runwayInfo.runway_heading)
-              : null,
-            touchdownDistance,
-            ultimateStability: analysisRescoreMode === 'current-preview' ? null : ultimateStability,
-            rolloutAnalysis: analysisRescoreMode === 'current-preview'
-              ? null
-              : parseJsonObject(row.rollout_analysis),
-          }, landingGrade));
-          if (analysisRescoreMode === 'current-preview') {
-            const rescoredEvent = generatedTimeline.events[generatedTimeline.events.length - 1];
-            setAnalysisRescoreMetric(rescoredEvent, 'stability', {
-              applicable: true,
-              available: false,
-              source: 'unavailable',
-              reason: 'approach_samples_unavailable',
-            });
-            setAnalysisRescoreMetric(rescoredEvent, 'touchdownDistance',
-              toFiniteNumber(row.touchdown_distance_ft) === null
-                ? unavailableGeometryMetric('recorded_touchdown_geometry_unavailable')
-                : { applicable: true, available: true, source: 'reconstructed', reason: null });
-            setAnalysisRescoreMetric(rescoredEvent, 'lateralOffset',
-              toFiniteNumber(row.lateral_offset_ft) === null
-                ? unavailableGeometryMetric('recorded_lateral_geometry_unavailable')
-                : { applicable: true, available: true, source: 'reconstructed', reason: null });
-            setAnalysisRescoreMetric(rescoredEvent, 'bounce', toFiniteNumber(row.bounce_count) === null
-              ? { applicable: true, available: false, source: 'unavailable', reason: 'recorded_bounce_evidence_unavailable' }
-              : { applicable: true, available: true, source: 'reconstructed', reason: null });
-          }
-          activeReplayLandingEvent = generatedTimeline.events[generatedTimeline.events.length - 1];
-        }
+          : existing.ultimateStability,
+        // Centerline deviation: use hdg from LANDING row if present (more precise
+        // than the SAMPLE row which can be post-touchdown/decelerating).
+        centerlineDev: _computeCenterlineDev(
+          toFiniteNumber(row.hdg_true_deg) ?? existing.hdg_true_deg,
+          getRunwayTrueHeadingDeg(finalizedRunway)
+        ) ?? (this.analysisRescoreMode === 'current-preview' ? null : existing.centerlineDev ?? null),
+        // Authoritative per-touchdown values from LANDING record (override SAMPLE estimates)
+        vs_fpm: landingHeadline.vsFpm,
+        gforce: toFiniteNumber(row.g_force) ?? toFiniteNumber(row.gforce) ?? existing.gforce ?? null,
+        bank_deg: toFiniteNumber(row.bank_deg) ?? existing.bank_deg ?? null,
+        gs_kts: toFiniteNumber(row.gs_kts) ?? existing.gs_kts ?? null,
+        xwind_kts: mergedCrosswindKts,
+        wind_speed_kts: mergedWindSpeedKts,
+        wind_dir_deg: mergedWindDirectionDeg,
+        rolloutAnalysis: this.analysisRescoreMode === 'current-preview'
+          ? null
+          : parseJsonObject(row.rollout_analysis) || existing.rolloutAnalysis || null,
+      }, landingGrade);
+      if (this.analysisRescoreMode === 'current-preview') {
+        const rescoredEvent = this.generatedTimeline.events[candidateIndex];
+        setAnalysisRescoreMetric(rescoredEvent, 'stability', rebuiltStability!.metric);
       }
+      this.activeReplayLandingEvent = this.generatedTimeline.events[candidateIndex];
+    } else {
+      const landingGrade = resolveReplayLandingGrade(
+        row,
+        null,
+        this.analysisRescoreMode,
+      );
+      const landingHeadline = landingGrade.headline;
+      const standaloneBounceCount = toFiniteNumber(row.bounce_count);
+      this.generatedTimeline.events.push(applyReplayLandingGrade({
+        type: 'landing',
+        _landingRowMerged: true,
+        timestampMs,
+        elapsedMs: elapsed,
+        lat: eventCoordinates.lat,
+        lon: eventCoordinates.lon,
+        runway: runwayInfo ? {
+          ...runwayInfo,
+          heading: runwayInfo.runway_heading ?? null,
+          heading_true_deg: runwayInfo.runway_heading ?? null,
+        } : null,
+        runwayReferenceElevFt: toFiniteNumber(row.runway_reference_elev_ft),
+        runwayReferenceElevationSource: toNonEmptyString(row.runway_reference_elevation_source),
+        runwayReferenceElevationKind: toNonEmptyString(row.runway_reference_elevation_kind),
+        ias_kts: row.ias_kts,
+        vs_fpm: landingHeadline.vsFpm,
+        pitch_deg: row.pitch_deg,
+        hdg_true_deg: row.hdg_true_deg,
+        gforce: toFiniteNumber(row.g_force) ?? toFiniteNumber(row.gforce),
+        bank_deg: toFiniteNumber(row.bank_deg),
+        gs_kts: toFiniteNumber(row.gs_kts),
+        xwind_kts: toFiniteNumber(row.xwind_kts) ?? computeCrosswind(
+          toFiniteNumber(row.wind_speed_kts),
+          toFiniteNumber(row.wind_dir_deg),
+          runwayInfo ? toFiniteNumber(runwayInfo.runway_heading) : null,
+        ),
+        wind_speed_kts: toFiniteNumber(row.wind_speed_kts),
+        wind_dir_deg: toFiniteNumber(row.wind_dir_deg),
+        grade: landingHeadline.grade,
+        runwayExcursion,
+        aircraftProfileId: toNonEmptyString(row.aircraft_profile_id),
+        bounceCount: standaloneBounceCount,
+        ...(this.analysisRescoreMode === 'recorded'
+          ? { bounceCountSource: standaloneBounceCount === null ? 'unavailable' : 'recorded' }
+          : {}),
+        centerlineDev: runwayInfo
+          ? _computeCenterlineDev(toFiniteNumber(row.hdg_true_deg), runwayInfo.runway_heading)
+          : null,
+        touchdownDistance,
+        ultimateStability: this.analysisRescoreMode === 'current-preview' ? null : ultimateStability,
+        rolloutAnalysis: this.analysisRescoreMode === 'current-preview'
+          ? null
+          : parseJsonObject(row.rollout_analysis),
+      }, landingGrade));
+      if (this.analysisRescoreMode === 'current-preview') {
+        const rescoredEvent = this.generatedTimeline.events[this.generatedTimeline.events.length - 1];
+        setAnalysisRescoreMetric(rescoredEvent, 'stability', {
+          applicable: true,
+          available: false,
+          source: 'unavailable',
+          reason: 'approach_samples_unavailable',
+        });
+      }
+      this.activeReplayLandingEvent = this.generatedTimeline.events[this.generatedTimeline.events.length - 1];
+    }
+    if (this.analysisRescoreMode === 'current-preview') {
+      setAnalysisRescoreMetric(this.activeReplayLandingEvent, 'touchdownDistance',
+        toFiniteNumber(row.touchdown_distance_ft) === null
+          ? unavailableGeometryMetric('recorded_touchdown_geometry_unavailable')
+          : { applicable: true, available: true, source: 'reconstructed', reason: null });
+      setAnalysisRescoreMetric(this.activeReplayLandingEvent, 'lateralOffset',
+        toFiniteNumber(row.lateral_offset_ft) === null
+          ? unavailableGeometryMetric('recorded_lateral_geometry_unavailable')
+          : { applicable: true, available: true, source: 'reconstructed', reason: null });
+      setAnalysisRescoreMetric(this.activeReplayLandingEvent, 'bounce', toFiniteNumber(row.bounce_count) === null
+        ? { applicable: true, available: false, source: 'unavailable', reason: 'recorded_bounce_evidence_unavailable' }
+        : { applicable: true, available: true, source: 'reconstructed', reason: null });
     }
   }
-  
-  // Close any remaining open violations at end of CSV
-  const lastTs = getRowTimestampMs(lastRow);
-  const lastElapsed = getRowElapsedMs(lastRow, startTimestampMs);
-  const endCoordinates = resolveEventCoordinates(lastRow, lastValidCoordinates);
-  highSinkRateState = endHighSinkRateViolation(
-    highSinkRateState,
-    lastTs,
-    lastElapsed,
-    generatedTimeline,
-    endCoordinates.lat,
-    endCoordinates.lon,
-  );
-  endAllViolations(lastTs, lastElapsed, generatedTimeline, activeViolations, endCoordinates.lat, endCoordinates.lon);
-  if (generatedTimeline.events.length > MAX_GENERATED_TIMELINE_EVENTS) {
-    return {
-      success: false,
-      error: 'Timeline contains more events than FlightFabric can process safely.',
+
+  private finish(): TimelineResult {
+    // Close any remaining open violations at end of CSV
+    const lastTs = getRowTimestampMs(this.lastRow);
+    const lastElapsed = getRowElapsedMs(this.lastRow, this.startTimestampMs);
+    const endCoordinates = resolveEventCoordinates(this.lastRow, this.lastValidCoordinates);
+    this.highSinkRateState = endHighSinkRateViolation(
+      this.highSinkRateState,
+      lastTs,
+      lastElapsed,
+      this.generatedTimeline,
+      endCoordinates.lat,
+      endCoordinates.lon,
+    );
+    endAllViolations(lastTs, lastElapsed, this.generatedTimeline, this.activeViolations, endCoordinates.lat, endCoordinates.lon);
+    if (this.generatedTimeline.events.length > MAX_GENERATED_TIMELINE_EVENTS) {
+      return {
+        success: false,
+        error: 'Timeline contains more events than FlightFabric can process safely.',
+      };
+    }
+
+    attachRolloutLateralDiagnostics(this.generatedTimeline, this.rows, this.analysisRescoreMode);
+    applyRolloutAnalysis(this.generatedTimeline, this.rows, this.analysisRescoreMode);
+    const automationMergeError = mergeAutomationTimelineEvents(
+      this.generatedTimeline,
+      this.rows,
+      this.options,
+      this.startTimestampMs,
+    );
+    if (automationMergeError) return { success: false, error: automationMergeError };
+    mergeAircraftTimelineProjectionEvents(
+      this.generatedTimeline,
+      this.rows,
+      this.options,
+      this.startTimestampMs,
+    );
+
+    // Sort events by timestamp (violations may have been inserted out of order)
+    this.generatedTimeline.events = applyRecordedApproachAssessments(this.generatedTimeline.events, this.startTimestampMs);
+    this.generatedTimeline.events.sort((a, b) => a.timestampMs - b.timestampMs);
+    attachSimulatorDateTimesToEvents(this.generatedTimeline.events, this.rows, this.startTimestampMs);
+    finalizeAnalysisRescore(this.generatedTimeline, this.analysisRescoreMode);
+
+    // Compute summary stats
+    this.generatedTimeline.eventCount = this.generatedTimeline.events.length;
+    this.generatedTimeline.durationMs = Math.max(
+      0,
+      getRowElapsedMs(this.lastRow, this.startTimestampMs) - getRowElapsedMs(this.firstRow, this.startTimestampMs),
+    );
+    this.generatedTimeline.durationFormatted = formatDuration(this.generatedTimeline.durationMs);
+    this.generatedTimeline.sampleCount = this.rows.reduce((count, row) => {
+      const recordType = String(row?.record_type || 'SAMPLE').trim().toUpperCase() || 'SAMPLE';
+      return recordType === 'SAMPLE' ? count + 1 : count;
+    }, 0);
+
+    // Find worst moment (most violations in a 30-second window)
+    this.generatedTimeline.worstMoment = findWorstMoment(this.generatedTimeline.events);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Retrospective Flight Type Classification
+    // ═══════════════════════════════════════════════════════════════════════
+    // Classify based on altitude, landing count, and timing patterns.
+    // This enables pattern work detection for GA training flights.
+    const flightClassification = flightTypeClassifier.classifyFlight(this.rows, {
+      wowKey: 'on_ground',  // CSV uses 'on_ground' not 'wow'
+      raKey: 'ra_ft',
+      tsKey: 'ts',
+    });
+
+    this.generatedTimeline.flightType = flightClassification.flightType;
+    this.generatedTimeline.flightClassification = {
+      type: flightClassification.flightType,
+      confidence: flightClassification.confidence,
+      isPatternWork: flightClassification.isPatternWork,
+      landingCount: flightClassification.landingCount,
+      circuitCount: flightClassification.circuitCount,
+      maxAltAglFt: flightClassification.maxAltAglFt,
+      avgTimeBetweenLandingsMs: flightClassification.avgTimeBetweenLandingsMs,
     };
-  }
 
-  attachRolloutLateralDiagnostics(generatedTimeline, rows, analysisRescoreMode);
-  applyRolloutAnalysis(generatedTimeline, rows, analysisRescoreMode);
-  const automationMergeError = mergeAutomationTimelineEvents(
-    generatedTimeline,
-    rows,
-    _options,
-    startTimestampMs,
-  );
-  if (automationMergeError) return { success: false, error: automationMergeError };
-  mergeAircraftTimelineProjectionEvents(
-    generatedTimeline,
-    rows,
-    _options,
-    startTimestampMs,
-  );
-
-  // Sort events by timestamp (violations may have been inserted out of order)
-  generatedTimeline.events = applyRecordedApproachAssessments(generatedTimeline.events, startTimestampMs);
-  generatedTimeline.events.sort((a, b) => a.timestampMs - b.timestampMs);
-  attachSimulatorDateTimesToEvents(generatedTimeline.events, rows, startTimestampMs);
-  finalizeAnalysisRescore(generatedTimeline, analysisRescoreMode);
-  
-  // Compute summary stats
-  generatedTimeline.eventCount = generatedTimeline.events.length;
-  generatedTimeline.durationMs = Math.max(
-    0,
-    getRowElapsedMs(lastRow, startTimestampMs) - getRowElapsedMs(firstRow, startTimestampMs),
-  );
-  generatedTimeline.durationFormatted = formatDuration(generatedTimeline.durationMs);
-  generatedTimeline.sampleCount = rows.reduce((count, row) => {
-    const recordType = String(row?.record_type || 'SAMPLE').trim().toUpperCase() || 'SAMPLE';
-    return recordType === 'SAMPLE' ? count + 1 : count;
-  }, 0);
-  
-  // Find worst moment (most violations in a 30-second window)
-  generatedTimeline.worstMoment = findWorstMoment(generatedTimeline.events);
-  
-  // ═══════════════════════════════════════════════════════════════════════
-  // Retrospective Flight Type Classification
-  // ═══════════════════════════════════════════════════════════════════════
-  // Classify based on altitude, landing count, and timing patterns.
-  // This enables pattern work detection for GA training flights.
-  const flightClassification = flightTypeClassifier.classifyFlight(rows, {
-    wowKey: 'on_ground',  // CSV uses 'on_ground' not 'wow'
-    raKey: 'ra_ft',
-    tsKey: 'ts',
-  });
-  
-  generatedTimeline.flightType = flightClassification.flightType;
-  generatedTimeline.flightClassification = {
-    type: flightClassification.flightType,
-    confidence: flightClassification.confidence,
-    isPatternWork: flightClassification.isPatternWork,
-    landingCount: flightClassification.landingCount,
-    circuitCount: flightClassification.circuitCount,
-    maxAltAglFt: flightClassification.maxAltAglFt,
-    avgTimeBetweenLandingsMs: flightClassification.avgTimeBetweenLandingsMs,
-  };
-
-  // Attach flight summary (violations, envelope stats) to each landing event so
-  // that the landing detail card shows identical data whether viewed live or when
-  // revisiting from the logbook. Computed from the rows already in memory —
-  // no extra disk I/O.
-  try {
-    const flightSummary = computeFlightSummaryFromRows(rows);
-    if (flightSummary) {
-      removeRetiredSpoilerViolationSummaries(flightSummary);
-      for (const event of generatedTimeline.events) {
-        if (event.type === 'landing') {
-          event.flightSummary = flightSummary;
+    // Attach flight summary (violations, envelope stats) to each landing event so
+    // that the landing detail card shows identical data whether viewed live or when
+    // revisiting from the logbook. Computed from the rows already in memory —
+    // no extra disk I/O.
+    try {
+      const flightSummary = computeFlightSummaryFromRows(this.rows);
+      if (flightSummary) {
+        removeRetiredSpoilerViolationSummaries(flightSummary);
+        for (const event of this.generatedTimeline.events) {
+          if (event.type === 'landing') {
+            event.flightSummary = flightSummary;
+          }
         }
       }
-    }
-  } catch (_e) { /* non-critical — landing card falls back gracefully */ }
+    } catch (_e) { /* non-critical — landing card falls back gracefully */ }
 
-  // `_landingRowMerged` is replay-only association state. Do not expose it in
-  // timeline JSON or history responses.
-  for (const event of generatedTimeline.events) {
-    if (event && Object.prototype.hasOwnProperty.call(event, '_landingRowMerged')) {
-      delete event._landingRowMerged;
+    // `_landingRowMerged` is replay-only association state. Do not expose it in
+    // timeline JSON or history responses.
+    for (const event of this.generatedTimeline.events) {
+      if (event && Object.prototype.hasOwnProperty.call(event, '_landingRowMerged')) {
+        delete event._landingRowMerged;
+      }
     }
+
+    return { success: true, timeline: this.generatedTimeline };
   }
+}
 
-  return { success: true, timeline: generatedTimeline };
+function generateTimelineFromRows(csvPath: string, rows: CsvRow[], options: AnyRecord = {}): TimelineResult {
+  return new TimelineReplaySession(csvPath, rows, options).build();
 }
 
 /**
@@ -4749,27 +4798,6 @@ async function generateMissing(): Promise<GenerateMissingResult> {
 // CSV File Listing
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Build the empty result shape used when a CSV cannot be inspected.
- */
-function createEmptyQuickPeekResult(): QuickPeekResult {
-  return {
-    firstRow: null,
-    lastRow: null,
-    firstCoordRow: null,
-    lastCoordRow: null,
-    aircraftProfileId: null,
-    firstFuelRow: null,
-    lastFuelRow: null,
-    distanceNm: null,
-    rowCount: 0,
-    sampleCount: 0,
-    strictBundle: false,
-    bundleStatusRequired: false,
-    manifestIdentity: null,
-  };
-}
-
 // Auto-start can leave tiny CSV fragments if the lifecycle gate opens and then
 // immediately ends. Keep them on disk, but don't promote them to timeline items.
 const MIN_LISTED_FLIGHT_SAMPLE_COUNT = 5;
@@ -4937,6 +4965,7 @@ function shouldListCsvFlight(sampleCount: number): boolean {
   return Number.isFinite(sampleCount) && sampleCount >= MIN_LISTED_FLIGHT_SAMPLE_COUNT;
 }
 
+/** Empty metadata for unreadable, empty or malformed CSVs. */
 function createEmptyCsvExactScanResult(): CsvExactScanResult {
   return {
     firstRow: null,
@@ -5240,19 +5269,15 @@ function countCsvRowsExact(filePath: string): CsvExactScanResult {
   }
 }
 
-/**
- * Quick-read first and last lines of a CSV to extract metadata without full parse.
- * @param {string} filePath - Path to CSV file
- * @returns {{ firstRow: Object|null, lastRow: Object|null, firstCoordRow: Object|null, lastCoordRow: Object|null, rowCount: number }}
- */
-function quickPeekCSV(filePath: string): QuickPeekResult {
+/** Scan CSV metadata without retaining the full telemetry stream. */
+function quickPeekCSV(filePath: string): CsvExactScanResult {
   try {
     // The exact streaming scan is also the metadata scan. Keeping one parser
     // prevents head/tail chunk boundaries or an unterminated EOF fragment from
     // disagreeing with the row and sample counts shown in Timeline.
     return countCsvRowsExact(filePath);
   } catch {
-    return createEmptyQuickPeekResult();
+    return createEmptyCsvExactScanResult();
   }
 }
 
@@ -5265,7 +5290,7 @@ function buildListedCsvFlight(filePath: string, fileName: string, stat: AnyRecor
     const parts = basename.split('_');
     const flightId = parts[0];
     
-    // Quick peek at CSV for route/duration
+    // Read aggregate CSV metadata for route/duration
     const {
       firstRow,
       lastRow,

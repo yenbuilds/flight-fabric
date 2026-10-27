@@ -490,7 +490,8 @@ function calculateTouchdownOffsetFromRolloutTrack(
   const n = pts.length;
   // Weight ramp: first quartile gets 0, third+fourth quartile get 1, second
   // quartile linearly ramps from 0 to 1. Caller passes samples in time
-  // order, so index is a faithful proxy for along-track progress.
+  // order, so index is a faithful proxy for along-track progress. With at
+  // least five points, at least three weights are 1, so wSum is positive.
   const weights = new Array<number>(n);
   let wSum = 0;
   for (let i = 0; i < n; i++) {
@@ -501,11 +502,6 @@ function calculateTouchdownOffsetFromRolloutTrack(
     else w = 1;
     weights[i] = w;
     wSum += w;
-  }
-  // Defensive: if weights collapse (degenerate input), fall back to uniform.
-  if (wSum < 1e-6) {
-    for (let i = 0; i < n; i++) weights[i] = 1;
-    wSum = n;
   }
 
   // Weighted sample mean
@@ -626,7 +622,7 @@ function scoreLateralOffset(offsetFt: NullableNumber, runwayWidthFt: NullableNum
     // Off runway - serious
     const overshoot = absOffset - halfWidth;
     const extraPenalty = Math.min(50, Math.round(overshoot / 10)); // +1 penalty per 10ft past edge
-    return { score: Math.max(0, 50 - extraPenalty), grade: 'Outside runway reference', penalty: 50 + extraPenalty, zone: 'outside reference edge' };
+    return { score: 50 - extraPenalty, grade: 'Outside runway reference', penalty: 50 + extraPenalty, zone: 'outside reference edge' };
   }
 }
 
@@ -702,17 +698,17 @@ function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
   if (bounceCount === 1) {
     // Single bounce - minor issue
     penalty = 5 + Math.min(10, Math.round(distanceTraveledFt / 100)); // +1 per 100ft traveled
-    score = Math.max(70, 95 - penalty);
+    score = 95 - penalty;
     grade = 'Single Bounce';
   } else if (bounceCount === 2) {
     // Double bounce - moderate issue
     penalty = 15 + Math.min(15, Math.round(distanceTraveledFt / 50)); // +1 per 50ft traveled
-    score = Math.max(50, 85 - penalty);
+    score = 85 - penalty;
     grade = 'Multiple Bounces';
   } else if (bounceCount === 3) {
     // Triple bounce - significant issue
     penalty = 25 + Math.min(20, Math.round(distanceTraveledFt / 30)); // +1 per 30ft traveled
-    score = Math.max(30, 75 - penalty);
+    score = 75 - penalty;
     grade = 'Repeated Bounces';
   } else {
     // 4+ bounces - porpoise, dangerous
@@ -744,7 +740,7 @@ function scoreBounce(bounceData: BounceData | null | undefined): BounceScore {
  *   PERFECT         aim + (T - aim) / 4          (1,500 ft when T = 3,000)
  *   GOOD            aim + (T - aim) * 2 / 3      (2,333 ft when T = 3,000)
  *   ACCEPTABLE      T = min(3,000, L / 3)        (the touchdown zone end)
- *   POOR            max(T, min(5,000, L / 2))    (Long Landing)
+ *   POOR            min(5,000, L / 2)    (Long Landing)
  *   DANGEROUS       beyond
  *
  * On a runway so short that T falls at or before the aiming point, the three
@@ -759,10 +755,10 @@ function getAdjustedBands(runwayLengthFt: NullableNumber, _surface: string | nul
   const zoneEndFt = touchdownZoneEndFt(lengthFt);
   const zoneSpanFt = Math.max(0, zoneEndFt - AIMING_POINT_FT);
   const idealMaxFt = Math.min(zoneEndFt, Math.round(AIMING_POINT_FT + zoneSpanFt * IDEAL_ZONE_FRACTION));
-  const goodMaxFt = Math.max(idealMaxFt, Math.min(zoneEndFt, Math.round(AIMING_POINT_FT + zoneSpanFt * GOOD_ZONE_FRACTION)));
+  const goodMaxFt = Math.min(zoneEndFt, Math.round(AIMING_POINT_FT + zoneSpanFt * GOOD_ZONE_FRACTION));
   const longMaxFt = lengthFt === null
-    ? Math.max(zoneEndFt, LONG_LANDING_MAX_FT)
-    : Math.max(zoneEndFt, Math.min(LONG_LANDING_MAX_FT, Math.round(lengthFt * LONG_LANDING_RUNWAY_FRACTION)));
+    ? LONG_LANDING_MAX_FT
+    : Math.min(LONG_LANDING_MAX_FT, Math.round(lengthFt * LONG_LANDING_RUNWAY_FRACTION));
 
   return {
     // The ideal band starts at NEAR_THRESHOLD_FT, so the near-threshold band

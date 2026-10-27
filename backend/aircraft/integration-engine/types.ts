@@ -121,8 +121,10 @@ export type AircraftIntegrationActionPrecondition = Readonly<{
 
 /** Conditions that must remain true throughout a control transaction. */
 export type AircraftIntegrationActionCondition =
-  | (AircraftIntegrationActionPrecondition & Readonly<{ freshness: 'field' }>)
-  | Readonly<{ fieldId: string; freshness: 'field'; min: number; max: number }>;
+  (Readonly<{ failureHint?: string }> & (
+    | (AircraftIntegrationActionPrecondition & Readonly<{ freshness: 'field' }>)
+    | Readonly<{ fieldId: string; freshness: 'field'; min: number; max: number }>
+  ));
 
 export type MobiFlightCalculatorActionRoute =
   | (MobiFlightCalculatorActionRouteBase & Readonly<{

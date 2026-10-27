@@ -152,10 +152,5 @@ export function initDebugRuntime({
 
   return {
     cleanup,
-    processDebugFrame,
-    startCapture,
-    stopCapture,
-    toggleDebugPanel,
-    updateDebugConnectionStatus,
   };
 }

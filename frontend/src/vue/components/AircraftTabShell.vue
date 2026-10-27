@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, watch } from 'vue';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
-import { AIRCRAFT_CATEGORY_PROFILE_IDS, FEATURED_AIRCRAFT_PROFILE_IDS, resolveAircraftSpecificTemplate } from '../aircraft-specific/template-registry.js';
+import { AIRCRAFT_CATEGORY_PROFILE_IDS, FEATURED_AIRCRAFT_LABELS, FEATURED_AIRCRAFT_PROFILE_IDS, resolveAircraftSpecificTemplate } from '../aircraft-specific/template-registry.js';
 import { useAircraftSpecificStore } from '../stores/aircraft-specific.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useTabsStore } from '../stores/tabs.js';
@@ -97,7 +97,8 @@ const msfsAircraft = computed(() => profiles.builtInProfiles
   .sort((left, right) => left.name.localeCompare(right.name)));
 const featuredAircraft = computed(() => FEATURED_AIRCRAFT_PROFILE_IDS
   .map(id => msfsAircraft.value.find(profile => profile.id === id))
-  .filter(Boolean));
+  .filter(Boolean)
+  .map(profile => ({ ...profile, name: FEATURED_AIRCRAFT_LABELS[profile.id] })));
 const otherAircraft = computed(() => msfsAircraft.value
   .filter(profile => !FEATURED_AIRCRAFT_PROFILE_IDS.includes(profile.id)));
 const avionicsPlacement = {
@@ -107,13 +108,13 @@ const avionicsPlacement = {
 const hasStructuredLayout = computed(() => hasResolvedAircraftTemplate.value
   && Object.hasOwn(avionicsPlacement, aircraftSpecific.templateId));
 const pageSections = computed(() => [
-  ...(LIVE_AUTOTAXI_ENABLED
-    ? [{ id: 'page-autotaxi', label: 'Pushback & taxi', title: 'Pushback & taxi', detail: 'Automatic pushback towards your departure taxi route, then manual taxi guidance. Optional Autotaxi.', targetId: 'aircraft-page-autotaxi' }] : []),
   ...(['radios.com1.setStandby', 'radios.com2.setStandby', 'baro.both.qnhHpa',
     'surveillance.squawk.set', 'surveillance.ident.activate', 'approach.minimums.baro',
     'navigation.captain.range', 'navigation.firstOfficer.range'].some(id => controls.isAircraftCommandSupported(id))
     ? [{ id: 'page-avionics', label: 'Radios / approach', title: 'Radios & approach',
       targetId: 'aircraft-page-avionics', after: avionicsPlacement[aircraftSpecific.templateId] || 'radios' }] : []),
+  ...(LIVE_AUTOTAXI_ENABLED
+    ? [{ id: 'page-autotaxi', label: 'Pushback & taxi', title: 'Pushback & taxi', detail: 'Automatic pushback towards your departure taxi route, then manual taxi guidance. Optional Autotaxi.', targetId: 'aircraft-page-autotaxi', after: 'page-avionics' }] : []),
 ]);
 provide(AIRCRAFT_PAGE_SECTIONS, pageSections);
 const searchableContent = ref(null);
@@ -482,14 +483,11 @@ function configureVoice() {
         :key="aircraftSpecific.activeProfileKey" :family="aircraftSpecific.templateId" :profile-key="aircraftSpecific.activeProfileKey"
         :sdk-connected="aircraftSpecific.sourceStatuses.sdk === 'connected'" />
       <AircraftSpecificSection v-if="hasResolvedAircraftTemplate" :controls-visible="aircraftView === 'controls'" :aircraft-name="status.aircraftNameLabel">
-        <template #before-controls>
-          <AutotaxiPanel v-if="LIVE_AUTOTAXI_ENABLED && !hasStructuredLayout" id="aircraft-page-autotaxi" class="aircraft-mobile-navigable-section mb-5" tabindex="-1" />
-        </template>
-        <template #presets>
-          <AutotaxiPanel v-if="LIVE_AUTOTAXI_ENABLED && hasStructuredLayout" id="aircraft-page-autotaxi" class="aircraft-mobile-navigable-section" tabindex="-1" />
-        </template>
         <template #avionics><AircraftAvionics /></template>
-        <template #after-controls><AircraftAvionics v-if="!hasStructuredLayout" class="mt-5" /></template>
+        <template #after-controls>
+          <AircraftAvionics v-if="!hasStructuredLayout" class="mt-5" />
+          <AutotaxiPanel v-if="LIVE_AUTOTAXI_ENABLED" id="aircraft-page-autotaxi" class="aircraft-mobile-navigable-section mt-5" tabindex="-1" />
+        </template>
       </AircraftSpecificSection>
       <div v-if="!waitingForAircraft" id="aircraft-presets-view" v-show="aircraftView === 'presets'" :inert="aircraftView !== 'presets'"
         role="tabpanel" aria-labelledby="aircraft-presets-tab" tabindex="0">
@@ -503,11 +501,10 @@ function configureVoice() {
       </div>
       <div v-if="!waitingForAircraft && !hasResolvedAircraftTemplate" id="aircraft-cockpit-view"
         v-show="aircraftView === 'controls'" :inert="aircraftView !== 'controls'" role="tabpanel" aria-labelledby="aircraft-cockpit-tab" tabindex="0">
-        <AutopilotControlsTab>
-          <template #page-tasks><AutotaxiPanel v-if="LIVE_AUTOTAXI_ENABLED" id="aircraft-page-autotaxi" class="aircraft-mobile-navigable-section" tabindex="-1" /></template>
-        </AutopilotControlsTab>
+        <AutopilotControlsTab />
         <AircraftAvionics class="mt-5" />
         <ExteriorLightControls class="mt-5" />
+        <AutotaxiPanel v-if="LIVE_AUTOTAXI_ENABLED" id="aircraft-page-autotaxi" class="aircraft-mobile-navigable-section mt-5" tabindex="-1" />
       </div>
     </div>
     <AircraftIntegrationCheatSheetModal

@@ -76,7 +76,6 @@ export function attachTimelinePfdOverlayFitter({
 
   windowRef.requestAnimationFrame(fitPfdOverlayToMap);
   return {
-    fit: fitPfdOverlayToMap,
     destroy() {
       stopCollapsedWatch?.();
       windowRef.removeEventListener('resize', handleResize);

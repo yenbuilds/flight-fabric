@@ -62,7 +62,7 @@ const voice = target => target === 'cockpit' ? 'set cockpit lighting fifty perce
     aria-label="Cockpit brightness presets" data-cockpit-lighting-presets>
     <h2 v-if="!displaysOnly && !embedded" class="text-sm font-semibold text-gray-100">Cockpit lighting</h2>
     <p v-if="!embedded" class="mb-3 text-xs leading-relaxed text-gray-400" :class="{ 'mt-1': !displaysOnly }">
-      Set the cockpit lighting, then adjust the flight displays to their own brightness.
+      Adjust cockpit lighting and flight-display brightness independently.
     </p>
     <div class="grid gap-3" :class="{ 'lg:grid-cols-2': targets.length > 1 }">
       <form v-for="target in targets" :key="target" class="min-w-0 rounded border border-cyan-400/25 bg-cyan-400/[0.06] p-3"

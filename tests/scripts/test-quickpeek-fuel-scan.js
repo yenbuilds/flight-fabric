@@ -29,7 +29,8 @@ const { createHarness } = require(resolveBackendRuntimeFile('test-support', 'min
 
 const { test, assertEqual, assertTrue, summary } = createHarness();
 
-const PEEK_BYTES = 32 * 1024; // must match timeline-generator constant
+// Historical head/tail window; fixtures cross it to guard the original fuel-scan regression.
+const PEEK_BYTES = 32 * 1024;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -227,6 +228,54 @@ function buildLongSampledTailFuelJumpCsv() {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+for (const failure of ['missing file', 'directory', 'empty file', 'malformed committed row', 'invalid UTF-8']) {
+  test(`${failure}: unavailable metadata does not leak into the next valid scan`, () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-quickpeek-unavailable-'));
+    const filePath = path.join(tmpDir, 'recording.csv');
+    const validCsv = [
+      HEADERS.join(','),
+      makeRow({ fuel: 500 }),
+      makeRow({ ts: 1700000600000, elapsedMs: 600000, fuel: 490 }),
+      '',
+    ].join('\n');
+    try {
+      if (failure === 'directory') fs.mkdirSync(filePath);
+      if (failure === 'empty file') fs.writeFileSync(filePath, '');
+      if (failure === 'malformed committed row') {
+        // Deliberately invalid CSV: a terminated row with missing columns must
+        // invalidate the scan instead of exposing the earlier fuel/route data.
+        fs.writeFileSync(filePath, `${validCsv}test-flight,broken\n`, 'utf8');
+      }
+      if (failure === 'invalid UTF-8') {
+        // Deliberately invalid encoding after otherwise usable telemetry.
+        fs.writeFileSync(filePath, Buffer.concat([Buffer.from(validCsv), Buffer.from([0xc3, 0x28])]));
+      }
+
+      const unavailable = _quickPeekCSV(filePath);
+      assertEqual(unavailable.rowCount, 0, 'failed or empty input must not report retained rows');
+      assertEqual(unavailable.sampleCount, 0, 'unavailable input must not qualify as a recorded flight');
+      assertEqual(unavailable.firstRow, null, 'unavailable input must not expose a start time');
+      assertEqual(unavailable.lastRow, null, 'unavailable input must not expose an end time');
+      assertEqual(unavailable.firstCoordRow, null, 'unavailable input must not imply a departure');
+      assertEqual(unavailable.lastCoordRow, null, 'unavailable input must not imply an arrival');
+      assertEqual(unavailable.distanceNm, null, 'unavailable distance must stay unknown');
+      const unavailableFuel = summarizeFuelUsage(unavailable.firstFuelRow, unavailable.lastFuelRow);
+      assertEqual(unavailableFuel.fuelBurnGal, null, 'unavailable input must not publish fuel burn');
+
+      if (failure === 'directory') fs.rmdirSync(filePath);
+      fs.writeFileSync(filePath, validCsv, 'utf8');
+      const recovered = _quickPeekCSV(filePath);
+      assertEqual(recovered.sampleCount, 2, 'a later readable file must scan normally');
+      assertEqual(Number(recovered.firstRow.ts), 1700000000000, 'recovery must restore the recorded start');
+      assertEqual(Number(recovered.lastRow.ts), 1700000600000, 'recovery must restore the recorded end');
+      const recoveredFuel = summarizeFuelUsage(recovered.firstFuelRow, recovered.lastFuelRow);
+      assertEqual(recoveredFuel.fuelBurnGal, 10, 'recovery must use the new scan fuel samples');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+}
 
 test('small file: finds firstFuelRow in head (baseline)', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-quickpeek-'));

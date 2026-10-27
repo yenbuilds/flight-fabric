@@ -430,7 +430,6 @@ async function main() {
     { createLandingController },
     { initMockLandingRuntime },
     { createLvarInspectorController },
-    { createStatusIndicatorsController },
     { createLiveMapController },
     { buildPlaneIconHtml, normalizeHeadingDeg },
     { getGreatCirclePath, unwrapLatLngPath, unwrapLongitudeNear },
@@ -503,7 +502,6 @@ async function main() {
     import(toFrontendUrl('src', 'landing', 'controller.js')),
     import(toFrontendUrl('src', 'landing', 'mock-runtime.js')),
     import(toFrontendUrl('src', 'data-sources', 'lvar-inspector-controller.js')),
-    import(toFrontendUrl('src', 'app', 'message-handlers.js')),
     import(toFrontendUrl('src', 'live-map', 'map-controller.js')),
     import(toFrontendUrl('src', 'live-map', 'plane-icon.js')),
     import(toFrontendUrl('src', 'live-map', 'geo.js')),
@@ -1302,7 +1300,6 @@ async function main() {
       aircraftControl: { setFeedback() {} },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -1356,7 +1353,6 @@ async function main() {
       },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -1433,7 +1429,6 @@ async function main() {
       aircraftControl,
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -1479,7 +1474,6 @@ async function main() {
       aircraftControl: { setFeedback() {} },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: {
         apply(settings, options) {
@@ -1542,7 +1536,6 @@ async function main() {
       aircraftControl: { setFeedback() {} },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -1599,7 +1592,6 @@ async function main() {
       aircraftControl: { setFeedback() {} },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -1689,7 +1681,6 @@ async function main() {
       },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: { handleDataSourcesMessage() {} },
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -1823,7 +1814,6 @@ async function main() {
       },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -1897,7 +1887,6 @@ async function main() {
       voiceController,
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -1940,7 +1929,6 @@ async function main() {
       aircraftControl: { setFeedback() {} },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {
@@ -1990,7 +1978,6 @@ async function main() {
       aircraftControl: { setFeedback() {} },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -2031,7 +2018,6 @@ async function main() {
       aircraftControl: { setFeedback() {} },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines(data, options) {
@@ -2084,7 +2070,6 @@ async function main() {
       aircraftControl: { setFeedback() {} },
       landingController: {},
       telemetryWarnings: {},
-      statusIndicators: {},
       lvarInspector: {},
       appSettingsController: { apply() {} },
       updateEngines: () => {},
@@ -3371,21 +3356,23 @@ async function main() {
   });
 
   console.log('\n--- status indicators ---\n');
-  await test('assists indicator delegates active assist state to the status store', () => {
-    const documentRef = new FakeDocument();
+  await test('app message handler routes active and cleared assists to the status store', () => {
     setActivePinia(createPinia());
     const statusStore = useStatusStore();
 
-    const controller = createStatusIndicatorsController({
-      $: (id) => documentRef.getElementById(id),
-      documentRef,
+    const handleMessage = createAppMessageHandler({
+      alertRef() {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
       statusStore,
     });
 
-    controller.updateAssistsIndicator({
-      landingAssist: true,
-      unlimitedFuel: true,
-      slewActive: false,
+    handleMessage({
+      type: 'assists',
+      data: {
+        landingAssist: true,
+        unlimitedFuel: true,
+        slewActive: false,
+      },
     });
 
     assert.equal(statusStore.assistsVisible, true, 'active assists should show the Vue indicator');
@@ -3395,20 +3382,25 @@ async function main() {
       ['Landing Assist', 'Unlimited Fuel'],
       'active assist labels should be derived by the store',
     );
+    handleMessage({ type: 'assists', data: {} });
+    assert.equal(statusStore.assistsVisible, false, 'cleared assists should hide the indicator');
+    assert.equal(statusStore.activeAssistCount, 0, 'cleared assists should reset the count');
   });
 
-  await test('recording indicator delegates recording state to the status store', () => {
-    const documentRef = new FakeDocument();
+  await test('app message handler routes recording states to the status store and desktop badge', () => {
     setActivePinia(createPinia());
     const statusStore = useStatusStore();
+    const badgeMessages = [];
 
-    const controller = createStatusIndicatorsController({
-      $: (id) => documentRef.getElementById(id),
-      documentRef,
+    const handleMessage = createAppMessageHandler({
+      alertRef() {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
       statusStore,
+      desktopIntegration: { setRecordingBadge: (message) => badgeMessages.push(message) },
     });
 
-    controller.updateRecordingIndicator({
+    handleMessage({
+      type: 'flightRecording',
       status: 'recording',
       filePath: 'C:/Flights/active-flight.csv',
     });
@@ -3417,7 +3409,8 @@ async function main() {
     assert.equal(statusStore.recordingBadgeLabel, 'Flight REC', 'recording badge should be store-backed');
     assert.equal(statusStore.recordingDetail, 'C:/Flights/active-flight.csv', 'recording path should be store-backed');
 
-    controller.updateRecordingIndicator({
+    handleMessage({
+      type: 'flightRecording',
       status: 'failed',
       error: 'Failed to start recording',
     });
@@ -3426,48 +3419,55 @@ async function main() {
     assert.equal(statusStore.recordingBadgeLabel, 'Flight recording failed', 'failure badge should be store-backed');
     assert.equal(statusStore.recordingDetail, 'Failed to start recording', 'failure copy should be store-backed');
 
-    controller.updateRecordingIndicator({ status: 'stopped' });
+    handleMessage({ type: 'flightRecording', status: 'stopped' });
     assert.equal(statusStore.recordingVisible, false, 'stopped recording should hide the Vue indicator');
+    assert.deepEqual(badgeMessages, [
+      { type: 'flightRecording', status: 'recording', filePath: 'C:/Flights/active-flight.csv' },
+      { type: 'flightRecording', status: 'failed', error: 'Failed to start recording' },
+      { type: 'flightRecording', status: 'stopped' },
+    ], 'each recording message should still reach the desktop badge once');
   });
 
-  await test('surface indicator delegates ground surface state to the status store', () => {
-    const documentRef = new FakeDocument();
+  await test('app message handler routes ground and airborne surface states to the status store', () => {
     setActivePinia(createPinia());
     const statusStore = useStatusStore();
 
-    const controller = createStatusIndicatorsController({
-      $: (id) => documentRef.getElementById(id),
-      documentRef,
+    const handleMessage = createAppMessageHandler({
+      alertRef() {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
       statusStore,
     });
 
-    controller.updateSurfaceIndicator({
-      onGround: true,
-      name: 'WATER',
-      class: 'WATER',
-      runwayLike: false,
+    handleMessage({
+      type: 'surface',
+      value: {
+        onGround: true,
+        name: 'WATER',
+        class: 'WATER',
+        runwayLike: false,
+      },
     });
 
     assert.equal(statusStore.surfaceVisible, true, 'ground surface should show the Vue indicator');
     assert.equal(statusStore.surfaceLabel, 'WATER', 'surface label should be store-backed');
     assert.match(statusStore.surfaceToneClass, /red/, 'non-runway surfaces should use danger tone classes');
 
-    controller.updateSurfaceIndicator({ onGround: false });
+    handleMessage({ type: 'surface', value: { onGround: false } });
     assert.equal(statusStore.surfaceVisible, false, 'airborne surface state should hide the Vue indicator');
   });
 
-  await test('VRE sampling indicator surfaces active band and reason', () => {
-    const documentRef = new FakeDocument();
+  await test('app message handler routes VRE sampling band, reason and inactive state to the status store', () => {
     setActivePinia(createPinia());
     const statusStore = useStatusStore();
 
-    const controller = createStatusIndicatorsController({
-      $: (id) => documentRef.getElementById(id),
-      documentRef,
+    const handleMessage = createAppMessageHandler({
+      alertRef() {},
+      LIVE_TELEMETRY_MESSAGE_TYPES: new Set(),
       statusStore,
     });
 
-    controller.updateVreSamplingIndicator({
+    handleMessage({
+      type: 'vreSampling',
       active: true,
       band: 'HIGH_FIDELITY',
       rateHz: 10,
@@ -3489,7 +3489,7 @@ async function main() {
     assert.match(statusStore.vreSamplingDecisionLabel, /waiting 40 ms/);
     assert.match(statusStore.vreSamplingLastLabel, /APPROACH RA 240 ft VS -720 fpm/);
 
-    controller.updateVreSamplingIndicator({ active: false });
+    handleMessage({ type: 'vreSampling', active: false });
     assert.equal(statusStore.vreSamplingVisible, false, 'inactive sampling should hide the Vue indicator');
   });
 
@@ -3926,8 +3926,6 @@ async function main() {
     const flightStore = useFlightStore();
     const landingStore = useLandingStore();
     const controller = createLandingController({
-      $: (id) => documentRef.getElementById(id),
-      windowRef,
       flightStore,
       landingStore,
     });
@@ -4002,8 +4000,6 @@ async function main() {
 
     const landingStore = useLandingStore();
     const controller = createLandingController({
-      $: (id) => documentRef.getElementById(id),
-      windowRef,
       landingStore,
     });
 
@@ -4047,8 +4043,6 @@ async function main() {
 
     const landingStore = useLandingStore();
     const controller = createLandingController({
-      $: (id) => documentRef.getElementById(id),
-      windowRef,
       landingStore,
       flightStore: {
         updateLandingPreview(rawLanding) {
@@ -4111,8 +4105,6 @@ async function main() {
     const landingPreviews = [];
     const landingStore = useLandingStore();
     const controller = createLandingController({
-      $: (id) => documentRef.getElementById(id),
-      windowRef,
       landingStore,
       flightStore: {
         updateLandingPreview(rawLanding) {
@@ -4224,8 +4216,6 @@ async function main() {
 
     const landingStore = useLandingStore();
     const controller = createLandingController({
-      $: (id) => documentRef.getElementById(id),
-      windowRef,
       landingStore,
     });
 
@@ -6985,8 +6975,6 @@ async function main() {
     });
 
     const controller = createLandingController({
-      $: (id) => documentRef.getElementById(id),
-      windowRef,
       landingStore,
       tabsStore,
     });
@@ -8045,7 +8033,7 @@ async function main() {
   });
 
   await test('tabs runtime ignores retired workspaces without resetting page memory or other preferences', async () => {
-    assert.equal(resolveInitialTabId(), 'flight');
+    assert.equal(resolveInitialTabId(), 'livemap');
     assert.equal(resolveInitialTabId({ persistedTabId: 'timeline' }), 'timeline');
     assert.equal(resolveInitialTabId({ requestedTabId: 'livemap', persistedTabId: 'settings' }), 'livemap');
     assert.equal(resolveInitialTabId({ requestedTabId: 'invalid', persistedTabId: 'settings' }), 'settings');
@@ -8075,7 +8063,7 @@ async function main() {
     resetGlobals(windowRef, documentRef, storage); setActivePinia(createPinia());
     const tabs = useTabsStore();
     const cleanup = initTabsRuntime({ tabsStore: tabs, windowRef, documentRef, storage });
-    assert.equal(tabs.activeTabId, 'flight', 'a fresh browser starts at Overview without a picker');
+    assert.equal(tabs.activeTabId, 'livemap', 'a fresh browser starts at Map without a picker');
     cleanup();
   });
 
@@ -8329,7 +8317,7 @@ async function main() {
       subscribeLandingReceivedSignal: subscribeLandingReceived,
       storage, windowRef, documentRef, now: () => clock,
     });
-    const controller = createLandingController({ windowRef, landingStore: useLandingStore() });
+    const controller = createLandingController({ landingStore: useLandingStore() });
     controller.showTimelineLanding({ type: 'landing', vs_fpm: -100, grade: 'Good' });
     logbook.ingestMessage({ type: 'logbook', stats: { total: 10, airports: 3 } });
     await nextTick();
@@ -8819,14 +8807,15 @@ async function main() {
   });
 
   await test('tabs runtime drives tab store state from startup, keyboard, and touch interactions', async () => {
-    assert.equal(resolveInitialTabId(), 'flight', 'first use should open Overview');
+    assert.equal(resolveInitialTabId(), 'livemap', 'first use should open Map');
+    assert.equal(resolveInitialTabId({ persistedTabId: 'flight' }), 'flight', 'saved Overview selection survives the new-install default');
     assert.equal(resolveInitialTabId({ persistedTabId: 'timeline' }), 'timeline', 'returning users should restore their last primary tab');
     assert.equal(resolveInitialTabId({ persistedTabId: 'landing' }), 'landing', 'returning users should restore the landing debrief after a refresh');
     assert.equal(resolveInitialTabId({ persistedTabId: 'lvars' }), 'lvars', 'returning users should restore the LVAR inspector after a refresh');
-    assert.equal(resolveInitialTabId({ persistedTabId: 'not-a-tab' }), 'flight', 'invalid remembered tabs should fall back to Overview');
+    assert.equal(resolveInitialTabId({ persistedTabId: 'not-a-tab' }), 'livemap', 'invalid remembered tabs should fall back to Map');
     for (const retiredTab of ['cues', 'zen']) {
-      assert.equal(resolveInitialTabId({ persistedTabId: retiredTab }), 'flight', 'retired saved tabs fall back to Overview');
-      assert.equal(resolveInitialTabId({ requestedTabId: retiredTab }), 'flight', 'retired deep links fall back to Overview');
+      assert.equal(resolveInitialTabId({ persistedTabId: retiredTab }), 'livemap', 'retired saved tabs fall back to Map');
+      assert.equal(resolveInitialTabId({ requestedTabId: retiredTab }), 'livemap', 'retired deep links fall back to Map');
       assert.equal(resolveInitialTabId({ requestedTabId: retiredTab, persistedTabId: 'timeline' }), 'timeline', 'retired deep links preserve valid saved-page fallback');
     }
     assert.equal(resolveInitialTabId({ requestedTabId: 'systems', persistedTabId: 'timeline' }), 'system', 'valid deep links should override remembered navigation');

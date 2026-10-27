@@ -44,22 +44,34 @@ export interface VSMessage extends BaseMessage {
   value: number;
 }
 
-/** Independent altitude and barometer diagnostics */
+/** Independent altitude and barometer diagnostics; heights are in feet. */
 export interface AltitudeMessage extends BaseMessage {
   type: 'altitude';
-  /** Legacy pilot-adjustable indicated altitude. */
+  /** Legacy pilot-adjustable indicated altitude, rounded. */
   msl: number;
+  /** Pilot-adjustable indicated altitude. */
   indicated: number | null;
+  /** Indicated altitude calibrated to current sea-level pressure. */
   calibrated: number | null;
+  /** MSFS geometric/world-position aircraft altitude. */
   plane: number | null;
+  /** Radio altitude above ground, rounded. */
   ra: number;
+  /** Height above world terrain. */
   aircraftAgl: number | null;
+  /** Height above terrain including obstacles. */
   aircraftAboveObstacles: number | null;
+  /** MSFS PLANE ALT ABOVE GROUND. */
   planeAgl: number | null;
+  /** MSFS PLANE ALT ABOVE GROUND MINUS CG. */
   planeAglMinusCg: number | null;
+  /** Pressure altitude; null when unavailable. */
   pressureAlt: number | null;
+  /** Effective altimeter setting in hPa; standard pressure while STD is selected. */
   kohlsmanSettingMb: number | null;
+  /** Tuned altimeter setting in hPa, including while STD is selected. */
   kohlsmanTunedMb: number | null;
+  /** Whether altimeter index 1 is in STD mode. */
   kohlsmanStd: boolean | null;
 }
 
@@ -137,15 +149,23 @@ export interface StabilityScoreMessage extends BaseMessage {
 /** Ultimate stability score (emitted once on touchdown) */
 export interface UltimateStabilityScoreMessage extends BaseMessage {
   type: 'ultimateStabilityScore';
+  /** Overall score, 0-100; null when the scorer has insufficient data. */
   score: number | null;
+  /** User-facing approach verdict; gateStable retains the strict audit result. */
   verdict: ApproachStabilityVerdict;
+  /** Per-criterion scores; null when there is insufficient data. */
   breakdown: StabilityBreakdown | null;
+  /** Number of approach samples used in scoring. */
   samples: number;
+  /** Whether the aircraft was stabilized at the stability gate. */
   gateStable: boolean | null;
+  /** Criteria that failed the stability gate check. */
   gateFailures: string[];
+  /** Recorded profile identity, effective limits and gate reference for this score. */
   scoringContext: Record<string, unknown> | null;
+  /** Approach samples for rendering. */
   approachProfile: unknown[];
-  /** Preferred name: Facilities/airport runway elevation datum. */
+  /** Preferred runway/airport elevation reference in feet; null when unresolved. */
   runwayReferenceElevFt?: number | null;
   /** Geometry provider that supplied the reference, when known. */
   runwayReferenceElevationSource?: string | null;
@@ -153,17 +173,24 @@ export interface UltimateStabilityScoreMessage extends BaseMessage {
   runwayReferenceElevationKind?: 'runway' | 'airport' | string | null;
   /** Backward-compatible alias for runwayReferenceElevFt. */
   thresholdElevFt: number | null;
+  /** Runway heading in degrees; null when unidentified. */
   runwayHdg: number | null;
+  /** Runway width in feet; null when unavailable. */
   runwayWidthFt: number | null;
+  /** Runway length in feet; null when unavailable. */
   runwayLengthFt: number | null;
+  /** Runway threshold coordinates; null when unidentified. */
   runwayThreshold: { lat: number; lon: number } | null;
+  /** Runway identifier, such as '27L'; null when unidentified. */
   runwayId: string | null;
+  /** Resolved glidepath angle and source used for stability scoring. */
   glidepathAngle: { angleDeg: number; source: string } | null;
 }
 
 /** Variable Rate Encoding sampling diagnostics for the active flight CSV logger */
 export interface VreSamplingMessage extends BaseMessage {
   type: 'vreSampling';
+  /** True while a real flight recording session is active. */
   active: boolean;
   band: 'BASELINE' | 'ELEVATED' | 'HIGH_FIDELITY' | 'ULTRA_FIDELITY';
   /** Evaluator-requested rate before applying the telemetry poll ceiling. */
@@ -172,21 +199,32 @@ export interface VreSamplingMessage extends BaseMessage {
   effectiveRateHz?: number;
   /** Backward-compatible alias for effectiveRateHz. */
   rateHz: number;
+  /** Whether the current evaluator tick wrote a CSV row. */
   shouldSample: boolean;
+  /** Current escalation reason. */
   reason: string;
+  /** Bitmask of active escalation reasons. */
   escalationReasons: number;
   phase: string | null;
   raFt: number | null;
   vsFpm: number | null;
   /** Effective minimum interval between fresh CSV samples. */
   intervalMs: number;
+  /** Elapsed milliseconds since the last CSV sample. */
   timeSinceLastSampleMs: number | null;
+  /** Approximate milliseconds until the next CSV sample. */
   nextSampleInMs: number | null;
+  /** Whether ultra-fidelity capture is locked out. */
   ultraFidelityDisabled: boolean;
+  /** Remaining ultra-fidelity time budget in milliseconds. */
   ultraFidelityTimeRemaining: number;
+  /** Remaining ultra-fidelity sample budget. */
   ultraFidelitySamplesRemaining: number;
+  /** Significant transition event, if any. */
   event: string | null;
+  /** Unix epoch milliseconds. */
   timestamp_ms: number;
+  /** ISO 8601 UTC timestamp. */
   timestamp_utc: string;
 }
 
@@ -446,18 +484,31 @@ export interface SafetyDataMessage extends BaseMessage {
 
 export interface AttitudeMessage extends BaseMessage {
   type: 'attitude';
+  /** True when attitude data is valid and both angles are finite. */
   valid: boolean;
+  /** Degrees, positive nose up; null when invalid. */
   pitchDeg: number | null;
+  /** Degrees, positive right wing down; null when invalid. */
   bankDeg: number | null;
+  /** Radians; present when valid and finite. */
   pitchRad?: number;
+  /** Radians; present when valid and finite. */
   bankRad?: number;
+  /** Pitch data source identifier. */
   pitchSource?: string;
+  /** Bank data source identifier. */
   bankSource?: string;
+  /** Raw pitch before processing; present when finite. */
   pitchRaw?: number;
+  /** Raw bank before processing; present when finite. */
   bankRaw?: number;
+  /** Primary-source pitch before fallback merging. */
   pitchDegPrimary?: number;
+  /** Primary-source bank before fallback merging. */
   bankDegPrimary?: number;
+  /** Primary-source interpretation mode for pitch. */
   pitchModePrimary?: string;
+  /** Primary-source interpretation mode for bank. */
   bankModePrimary?: string;
 }
 
@@ -478,7 +529,9 @@ export interface SurfaceMessage extends BaseMessage {
 
 export interface PositionMessage extends BaseMessage {
   type: 'position';
+  /** Latitude in degrees. */
   lat: number;
+  /** Longitude in degrees. */
   lon: number;
   /** Heading in degrees; null when unavailable */
   hdg: number | null;
@@ -690,7 +743,7 @@ export interface SignalReliabilityMessage extends BaseMessage {
 //
 // ============================================================================
 
-/** Autopilot MCP state broadcast once per telemetry frame when connected */
+/** Autopilot MCP state broadcast once per telemetry frame when connected. Null means unavailable. */
 export interface AutopilotMessage extends BaseMessage {
   type: 'autopilot';
   master: boolean | null;
@@ -708,13 +761,21 @@ export interface AutopilotMessage extends BaseMessage {
   expedHold: boolean | null;
   apprHold: boolean | null;
   spdHold: boolean | null;
+  /** Selected heading in degrees. */
   hdgTarget: number | null;
+  /** Selected altitude in feet. */
   altTarget: number | null;
+  /** Selected vertical speed in feet per minute. */
   vsTarget: number | null;
+  /** Selected airspeed in knots. */
   spdTarget: number | null;
+  /** Selected Mach number. */
   machTarget: number | null;
+  /** False when the autopilot state cannot be trusted. */
   apReliable: boolean;
+  /** False when the autothrottle state cannot be trusted. */
   athrReliable: boolean;
+  /** Human-readable explanation of the reliability assessment. */
   reliabilityReason: string;
 }
 
@@ -735,8 +796,11 @@ export interface GSMessage extends BaseMessage {
 /** Pilot control input positions (yoke/sidestick + rudder) and ground handling */
 export interface ControlsMessage extends BaseMessage {
   type: 'controls';
+  /** Normalized lateral input, -1 to 1; null when unavailable. */
   yokeX: number | null;
+  /** Normalized longitudinal input, -1 to 1; null when unavailable. */
   yokeY: number | null;
+  /** Rudder pedal input percentage; null when unavailable. */
   rudderPedalPct: number | null;
   /** Nose-gear steer angle as a percentage of full travel, right positive. */
   noseSteerPct: number | null;
@@ -748,9 +812,13 @@ export interface ControlsMessage extends BaseMessage {
 /** Cabin pressurization and outside air temperature */
 export interface EnvironmentMessage extends BaseMessage {
   type: 'environment';
+  /** Cabin pressure altitude in feet, rounded; null when unavailable. */
   cabinAltFt: number | null;
+  /** Cabin altitude rate in feet per minute; null when unavailable. */
   cabinAltRateFpm: number | null;
+  /** Target cabin altitude in feet; null when unavailable. */
   cabinAltTargetFt: number | null;
+  /** Outside air temperature in degrees Celsius; null when unavailable. */
   oatC: number | null;
 }
 

@@ -37,7 +37,7 @@
 
   var DEFAULT_PREFS = {
     theme: 'dark',
-    scale: 'l',
+    scale: 's',
     density: 'comfortable',
     timeZone: 'utc',
     weightUnit: 'plan',
@@ -106,7 +106,6 @@
     voice: null,
     fuelUnit: '',
     updateAvailable: null,
-    voiceReference: null,
     activeTab: 'flight',
     voiceSearch: '',
     settingsOpen: false,
@@ -116,6 +115,7 @@
   var socket = null;
   var presetToken = '';
   var presetPanel = FlightFabricToolbarPresets.createPresetPanel({
+    formatText: toolbarText,
     document: document, setTimeout: setTimeout, clearTimeout: clearTimeout,
     send: function (message) {
       if (!socket || socket.readyState !== 1 || !state.visible || state.connection !== 'connected') return false;
@@ -124,6 +124,7 @@
   });
 
   var taxiPanel = FlightFabricToolbarTaxi.createTaxiPanel({
+    formatText: toolbarText,
     document: document, setTimeout: setTimeout, clearTimeout: clearTimeout,
     send: function (message) {
       var stopping = message.type === 'pushback' && message.operation === 'stop';
@@ -140,7 +141,6 @@
   }
 
   var bootstrapRequest = null;
-  var voiceReferenceRequest = null;
   var socketConnectTimer = null;
   var reloadTimer = null;
   var reloadPending = false;
@@ -157,16 +157,31 @@
 
   function $(id) { return document.getElementById(id); }
 
+  // Coherent's simulator font can lack these punctuation glyphs even when
+  // UTF-8 is decoded correctly. Convert display text only, never wire values.
+  function toolbarText(value) {
+    return String(value === null || value === undefined ? '' : value)
+      .replace(/[\u00b7\u2022]/g, '|')
+      .replace(/\u2026/g, '...')
+      .replace(/[\u2013\u2014\u2212]/g, '-')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/\u2192/g, '->')
+      .replace(/\u2190/g, '<-')
+      .replace(/\u00b0/g, ' deg')
+      .replace(/\u00a0/g, ' ');
+  }
+
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
-    if (text !== undefined && text !== null) node.textContent = String(text);
+    if (text !== undefined && text !== null) node.textContent = toolbarText(text);
     return node;
   }
 
   function clear(node) {
-    // DOM removal does not fire blur consistently. Drop the stale control
-    // focus, but keep keyboard capture until the user leaves the panel.
+    // DOM removal does not fire blur consistently. Drop stale editing focus;
+    // an actual held key keeps its claim until keyup.
     var active = document.activeElement;
     if (isKeyboardControl(active) && typeof node.contains === 'function' && node.contains(active)) blurKeyboardControl();
     while (node.firstChild) node.removeChild(node.firstChild);
@@ -389,6 +404,7 @@
   // ------------------------------------------------------------------ parent frame
 
   var keyboardSequence = 0;
+  var keyboardKeysDown = {};
 
   function postToParent(message) {
     if (!window.parent || window.parent === window) return;
@@ -406,10 +422,8 @@
       && (typeof data.sequence !== 'number' || data.sequence === keyboardSequence)) releaseKeyboardFocus();
   }
 
-  // The simulator keeps acting on keyboard bindings while the panel is open
-  // (Backspace resets the view, letters toggle systems) unless the panel
-  // claims the keyboard. Sliders, buttons and keyboard navigation need the
-  // same protection as typing. DOM event cancellation alone cannot do this.
+  // DOM focus is useful for navigation without a persistent simulator input
+  // claim. Only text editing and actual held keys need that native claim.
   function isKeyboardControl(node) {
     if (!node || typeof node.tagName !== 'string') return false;
     var tag = node.tagName.toLowerCase();
@@ -425,14 +439,27 @@
     postToParent({ action: 'keyboard', focused: focused === true, sequence: keyboardSequence });
   }
 
+  function isTextEditor(node) {
+    if (!node || node.disabled || node.readOnly) return false;
+    if (node.isContentEditable === true) return true;
+    var tag = String(node.tagName || '').toLowerCase();
+    return tag === 'textarea' || (tag === 'input'
+      && /^(text|search|number|email|password|tel|url)$/.test(String(node.type || 'text').toLowerCase()));
+  }
+
+  function syncKeyboardFocus(node) {
+    reportKeyboardFocus(state.visible && (isTextEditor(node) || Object.keys(keyboardKeysDown).length > 0));
+  }
+
   function blurKeyboardControl() {
     var active = document.activeElement;
     if (isKeyboardControl(active) && typeof active.blur === 'function') active.blur();
+    syncKeyboardFocus(null);
   }
 
   function releaseKeyboardFocus() {
+    keyboardKeysDown = {};
     blurKeyboardControl();
-    reportKeyboardFocus(false);
   }
 
   function setVisible(visible) {
@@ -452,7 +479,6 @@
     }
     cancelReconnect();
     cancelBootstrap();
-    cancelVoiceReference();
     cancelPageReload();
     // A hidden panel must not keep the simulator's keyboard.
     releaseKeyboardFocus();
@@ -886,54 +912,6 @@
 
   // ------------------------------------------------------------------ voice helpers
 
-  function sampleSpeechValue(command) {
-    var input = command.input || {};
-    if (input.units === 'squawk') return '0042';
-    var id = String(command.id || '').toLowerCase();
-    if (id.indexOf('heading') >= 0) return '270';
-    if (id.indexOf('altitude') >= 0) return '10,000';
-    if (id.indexOf('verticalspeed') >= 0) return '1,000';
-    if (id.indexOf('speed') >= 0) return '250';
-    if (id.indexOf('mach') >= 0) return '0.78';
-    if (input.kind === 'boolean') return 'on';
-    if (input.kind === 'enum') return String(Array.isArray(input.values) && input.values.length ? input.values[0] : 'on');
-    if (input.kind === 'number') return String(isFiniteNumber(input.min) ? input.min : 1);
-    return '';
-  }
-
-  // Acronyms the catalogue spells in lower case for the recognizer; show them
-  // the way a pilot writes them.
-  var SPOKEN_ACRONYMS = /\b(apu|mcp|ils|vor|qnh|std|efis|fpa|trk|hdg|rto|pfd|tcas|atc|adf|dme|irs|rmp|fmc|fms|mfd|vhf|ecam|eicas|fcu|nd)\b/gi;
-
-  function spokenCase(phrase) {
-    var text = phrase.charAt(0).toUpperCase() + phrase.slice(1);
-    return text
-      .replace(SPOKEN_ACRONYMS, function (match) { return match.toUpperCase(); })
-      .replace(/\bsimbrief\b/gi, 'SimBrief');
-  }
-
-  function speechExample(command) {
-    var pattern = command.patterns[0];
-    if (!pattern) return '';
-    var phrase = pattern.split('{value}').join(sampleSpeechValue(command)).trim();
-    return phrase ? spokenCase(phrase) : '';
-  }
-
-  function isNumberTarget(command, units, fragment) {
-    return command.input && command.input.kind === 'number' && command.input.units === units
-      && String(command.id).toLowerCase().indexOf(fragment) >= 0;
-  }
-
-  function voiceExamples(commands) {
-    var ordered = commands.slice();
-    var altitudeIndex = -1;
-    for (var i = 0; i < ordered.length; i += 1) {
-      if (isNumberTarget(ordered[i], 'feet', 'altitude')) { altitudeIndex = i; break; }
-    }
-    if (altitudeIndex > 0) ordered.unshift(ordered.splice(altitudeIndex, 1)[0]);
-    return ordered.map(speechExample).filter(Boolean).slice(0, 3);
-  }
-
   function inputHint(input, id) {
     if (!input || input.kind === 'none' || (!input.kind && !input.type)) return '';
     if (input.units === 'squawk') return 'four digits 0-7';
@@ -961,7 +939,7 @@
     var parts = pattern.split('{value}');
     parts.forEach(function (part, index) {
       if (index > 0) node.appendChild(el('span', 'slot', '<value>'));
-      if (part) node.appendChild(document.createTextNode(part));
+      if (part) node.appendChild(document.createTextNode(toolbarText(part)));
     });
     return node;
   }
@@ -1011,7 +989,7 @@
       return;
     }
     notice.className = 'notice ' + messages[0].tone;
-    notice.textContent = messages[0].text;
+    notice.textContent = toolbarText(messages[0].text);
   }
 
   function availableTabs() {
@@ -1381,7 +1359,7 @@
           namesNode.appendChild(svgIcon(arrowPath, 'route-name-arrow'));
           namesNode.appendChild(document.createTextNode(' '));
         }
-        namesNode.appendChild(document.createTextNode(name));
+        namesNode.appendChild(document.createTextNode(toolbarText(name)));
       });
       route.appendChild(namesNode);
     }
@@ -1572,7 +1550,6 @@
 
   function renderVoice() {
     if (!state.visible || state.activeTab !== 'voice') return;
-    loadVoiceReference();
     var restoreFocus = rememberControlFocus($('tab-voice'));
     var panel = clear($('tab-voice'));
     panel.appendChild(voiceStatusCard());
@@ -1584,20 +1561,6 @@
         aircraftTitle() ? 'This FlightFabric profile has no voice-enabled commands yet.' : 'Voice commands are listed once FlightFabric detects your aircraft.',
       ));
     } else {
-      var examples = voiceExamples(commands);
-      var tryCard = null;
-      if (examples.length) {
-        tryCard = card('Try saying', aircraftTitle());
-        var list = el('ul', 'phrase-list');
-        examples.forEach(function (phrase) {
-          var item = el('li', 'phrase');
-          item.appendChild(el('span', 'phrase-quote', '"'));
-          item.appendChild(el('span', 'phrase-text', phrase + '"'));
-          list.appendChild(item);
-        });
-        tryCard.appendChild(list);
-      }
-
       var reference = card('Commands', commands.length + ' voice-enabled');
       var search = el('input', 'search');
       search.type = 'search';
@@ -1615,10 +1578,7 @@
       reference.appendChild(results);
       renderCommandList(results, commands);
       panel.appendChild(reference);
-      if (tryCard) panel.appendChild(tryCard);
     }
-
-    panel.appendChild(renderQuestions());
     restoreFocus();
   }
 
@@ -1668,44 +1628,6 @@
       group.className += ' voice-system';
       container.appendChild(group);
     });
-  }
-
-  function renderQuestions() {
-    var node = card('Questions you can ask', 'read-only, spoken back');
-    var reference = state.voiceReference;
-    var key = profileKey();
-    var aircraftQuestions = reference && reference.aircraftQueries && key && Array.isArray(reference.aircraftQueries[key])
-      ? reference.aircraftQueries[key]
-      : [];
-    var planQuestions = reference && Array.isArray(reference.flightPlanQueries) ? reference.flightPlanQueries : [];
-    if (!reference) {
-      node.appendChild(el('div', 'muted', 'Question reference unavailable.'));
-      return node;
-    }
-    if (aircraftQuestions.length) {
-      node.appendChild(section('voice-questions-aircraft', 'About the aircraft', aircraftQuestions.length + (aircraftQuestions.length === 1 ? ' question' : ' questions'), function (body) {
-        body.appendChild(phraseList(aircraftQuestions));
-      }));
-    } else if (key) {
-      node.appendChild(el('div', 'kv-sub', 'Aircraft state questions are not available for this profile.'));
-    }
-    if (planQuestions.length) {
-      node.appendChild(section('voice-questions-plan', 'About the flight plan', planQuestions.length + (planQuestions.length === 1 ? ' question' : ' questions'), function (body) {
-        body.appendChild(phraseList(planQuestions));
-      }));
-    }
-    return node;
-  }
-
-  function phraseList(phrases) {
-    var list = el('ul', 'phrase-list');
-    phrases.forEach(function (phrase) {
-      var item = el('li', 'phrase');
-      item.appendChild(el('span', 'phrase-quote', '"'));
-      item.appendChild(el('span', 'phrase-text', spokenCase(phrase) + '"'));
-      list.appendChild(item);
-    });
-    return list;
   }
 
   // ------------------------------------------------------------------ rendering: settings
@@ -1810,40 +1732,6 @@
     renderSettingsVersion();
   }
 
-  // ------------------------------------------------------------------ voice reference
-
-  function loadVoiceReference() {
-    if (unloading || !state.visible || voiceReferenceRequest || state.voiceReference) return;
-    var request = new XMLHttpRequest();
-    voiceReferenceRequest = request;
-    request.open('GET', '/toolbar/voice-reference.json', true);
-    request.timeout = 5000;
-    request.onload = function () {
-      if (voiceReferenceRequest !== request || unloading || !state.visible) return;
-      voiceReferenceRequest = null;
-      if (request.status !== 200) return;
-      try {
-        var payload = JSON.parse(request.responseText);
-        if (payload && typeof payload === 'object') {
-          state.voiceReference = payload;
-          renderVoice();
-        }
-      } catch (error) { /* reference stays unavailable */ }
-    };
-    request.onerror = request.ontimeout = function () {
-      if (voiceReferenceRequest === request) voiceReferenceRequest = null;
-    };
-    request.send();
-  }
-
-  function cancelVoiceReference() {
-    if (!voiceReferenceRequest) return;
-    var request = voiceReferenceRequest;
-    voiceReferenceRequest = null;
-    request.onload = request.onerror = request.ontimeout = null;
-    try { request.abort(); } catch (error) { /* already completed */ }
-  }
-
   // ------------------------------------------------------------------ boot
 
   // Local cache bridges page reloads. The backend's authoritative history
@@ -1941,27 +1829,34 @@
       }
       containSettingsFocus(event);
     });
-    // Keep the claim across Tab navigation, rerenders and controls disabled by
-    // a pending command. Otherwise the rest of a held Enter/Space/arrow press
-    // can reach the simulator. Release on leaving the iframe, an outside click,
-    // hiding or unloading, rather than an individual control's blur.
+    // Browsing/clicking the toolbar must not leave simulator inputs captured.
+    // Preserve a held-key claim across focus changes and disabled controls, but
+    // release it on keyup unless the user is still editing a text field.
     document.addEventListener('focus', function (event) {
       if (state.visible && state.settingsOpen && !$('settings-sheet').contains(event.target)) {
         var controls = settingsFocusables();
         if (controls.length) controls[0].focus();
         return;
       }
-      if (state.visible && isKeyboardControl(event.target)) reportKeyboardFocus(true);
+      syncKeyboardFocus(event.target);
     }, true);
-    document.addEventListener('mousedown', function () {
-      // Clicking panel whitespace also starts keyboard scrolling/navigation.
-      if (state.visible) reportKeyboardFocus(true);
+    document.addEventListener('blur', function () { syncKeyboardFocus(null); }, true);
+    document.addEventListener('mousedown', function (event) {
+      if (!isTextEditor(event.target)) blurKeyboardControl();
+      syncKeyboardFocus(event.target);
     }, true);
     document.addEventListener('keydown', function (event) {
+      if (!state.visible) return;
+      if (event.key) keyboardKeysDown[event.code || event.key] = true;
+      syncKeyboardFocus(event.target);
       // A held activation key must not reapply a fast-completing preset. Keep
       // native text editing, slider arrows and Tab navigation working.
       if (event.repeat && (event.key === 'Enter' || ((event.key === ' ' || event.key === 'Spacebar')
         && event.target && event.target.tagName === 'BUTTON'))) event.preventDefault();
+    }, true);
+    document.addEventListener('keyup', function (event) {
+      delete keyboardKeysDown[event.code || event.key];
+      syncKeyboardFocus(document.activeElement);
     }, true);
     window.addEventListener('blur', releaseKeyboardFocus);
     window.addEventListener('message', onParentMessage);
@@ -1972,7 +1867,6 @@
       reportKeyboardFocus(false);
       cancelReconnect();
       cancelBootstrap();
-      cancelVoiceReference();
       cancelPageReload();
       if (hiddenTimer !== null) clearTimeout(hiddenTimer);
       closeSocket();
@@ -1982,7 +1876,6 @@
     // The loader needs to know the page loaded even while the backend socket
     // is unavailable. Socket reconnects must not cause iframe navigations.
     postToParent({ action: 'ready' });
-    loadVoiceReference();
     connect();
   }
 

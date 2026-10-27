@@ -538,7 +538,8 @@ async function main() {
         integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } });
     const controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
     controls.applyControlCapabilities(capability); controls.setAvailability({ enabled: scenario !== 'viewer' });
-    const fields = controls.getAircraftCommand('configuration.lighting.cockpit')?.brightnessFields || [];
+    const fields = ['cockpit', 'displays'].flatMap(target =>
+      controls.getAircraftCommand(`configuration.lighting.${target}`)?.brightnessFields || []);
     const updatedAt = new Date().toISOString();
     const values = Object.fromEntries(fields.map(field => [field, 50]));
     const valueUpdatedAt = Object.fromEntries(fields.map(field => [field, updatedAt]));
@@ -561,7 +562,11 @@ async function main() {
         const { html } = await renderComponent(path.join('src', 'vue', 'components', 'CockpitLightingPresets.vue'), () => configureLighting(id, scenario));
         const buttons = html.match(/<button[^>]*data-aircraft-command="configuration\.lighting\.[^"]+"[^>]*>/g) || [];
         assert.equal(buttons.length, 2, `${id}: both settings must be visible`);
-        assert.ok(buttons.every(button => /\sdisabled(?:\s|=|>)/.test(button) === !['ready', 'mixed'].includes(scenario)), `${id}: ${scenario}`);
+        for (const button of buttons) {
+          const allowed = ['ready', 'mixed'].includes(scenario)
+            || (['missing', 'stale'].includes(scenario) && button.includes('configuration.lighting.cockpit'));
+          assert.equal(/\sdisabled(?:\s|=|>)/.test(button), !allowed, `${id}: ${scenario}`);
+        }
         assert.match(html, /All flight displays/); assert.match(html, /set display brightness seventy five percent/);
         if (scenario === 'mixed') assert.match(html, /data-lighting-current="displays">Mixed</);
         if (scenario === 'ready') assert.match(html, /data-lighting-current="displays">50%</);
@@ -598,20 +603,22 @@ async function main() {
       const input = label => nodes.find(node => node.props['aria-label'] === label);
       const button = target => nodes.find(node => node.props['data-aircraft-command'] === `configuration.lighting.${target}`);
       const submit = target => form(target).props.onSubmit({ preventDefault() {} });
-      input('Global cockpit lighting percentage').props['onUpdate:modelValue']('40');
+      input('Cockpit lighting percentage').props['onUpdate:modelValue']('40');
       input('All flight displays percentage').props['onUpdate:modelValue']('80');
       await nextTick(); const first = submit('cockpit'); await nextTick();
       assert.equal(button('displays').props.disabled, true);
       await submit('displays'); assert.equal(sent.length, 1);
       release(); await first; await nextTick();
+      const displays = controls.getAircraftCommand('configuration.lighting.displays').brightnessFields;
+      for (const field of displays) assert.equal(specific.values[field], 50, 'cockpit lighting preserves screens');
       await submit('displays'); await nextTick();
       assert.deepEqual(sent, [
         { type: 'canonical', commandId: 'configuration.lighting.cockpit', input: { value: 40 } },
         { type: 'canonical', commandId: 'configuration.lighting.displays', input: { value: 80 } },
       ]);
-      const displays = controls.getAircraftCommand('configuration.lighting.displays').brightnessFields;
+      for (const field of displays) assert.equal(specific.values[field], 80);
       for (const field of controls.getAircraftCommand('configuration.lighting.cockpit').brightnessFields) {
-        assert.equal(specific.values[field], displays.includes(field) ? 80 : 40);
+        assert.equal(specific.values[field], 40);
       }
       for (const invalid of ['', '-1', '101', '50.5']) {
         input('All flight displays percentage').props['onUpdate:modelValue'](invalid); await nextTick();
@@ -1811,7 +1818,7 @@ async function main() {
       path.join('src', 'vue', 'components', 'MobileTabs.vue'),
       ({ useTabsStore }) => {
         useTabsStore().setActiveTab('cues');
-        assert.equal(useTabsStore().activeTabId, 'flight', 'retired cues should fall back to Overview');
+        assert.equal(useTabsStore().activeTabId, 'livemap', 'retired cues should fall back to Map');
         useTabsStore().toggleMoreSheet();
       },
     );
@@ -1851,10 +1858,20 @@ async function main() {
   });
 
   console.log('\n--- support ---\n');
-  await test('AppFooter exposes Help without mixing support actions into operational state', async () => {
-    const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AppFooter.vue'));
-    assert.match(html, /Help &amp; shortcuts/, 'Help must remain reachable from the operational footer');
-    assert.doesNotMatch(html, /id="footer-support-link"/, 'the support link now belongs to the Help dialog');
+  await test('AppFooter keeps source access available to desktop and paired clients without Help', async () => {
+    for (const scope of ['full-control', 'read-only', 'aircraft-control', 'unknown']) {
+      const { html } = await renderComponent(path.join('src', 'vue', 'components', 'AppFooter.vue'), ({ useProfilesStore }) => {
+        useProfilesStore().setAuthorizationScope(scope);
+      });
+      assert.match(html, /<a id="footer-source-link"[^>]*href="https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases"[^>]*aria-label="Source code \(AGPL\)"/, `${scope} keeps corresponding source accessible outside desktop-only Settings`);
+      assert.doesNotMatch(html, /Help &amp; shortcuts/, 'the retired Help link stays out of the footer');
+      assert.doesNotMatch(html, /id="footer-support-link"/, 'the footer does not duplicate the sidebar support link');
+      const mobile = await renderComponent(path.join('src', 'vue', 'components', 'MobileTabs.vue'), ({ useProfilesStore, useTabsStore }) => {
+        useProfilesStore().setAuthorizationScope(scope);
+        useTabsStore().toggleMoreSheet();
+      });
+      assert.match(mobile.html, /<a id="mobile-source-link"[^>]*href="https:\/\/github\.com\/yenbuilds\/flight-fabric\/releases"[^>]*>Source code \(AGPL\)<\/a>/, `${scope} retains source access when the desktop footer is hidden`);
+    }
   });
 
   await test('SupportPrompt shows the value delivered, then a thank-you stage after the coffee link', async () => {
@@ -2107,8 +2124,8 @@ async function main() {
     assert.equal(Object.hasOwn(pinia.state.value, 'flightCues'), false, 'removed Flight Cues must not start its background store');
     assert.equal(sharedSettings.TAKEOFF_SCORING_ENABLED, true);
     for (const id of ['vue-takeoff-root', 'vue-last-takeoff-root', 'takeoff-card']) assert.match(html, new RegExp(`id="${id}"`), 'takeoff panels render in the normal build');
-    assert.match(html, /id="tab-flight" class="tab-section active"/, 'Overview should keep the state-driven active marker for first paint');
-    assert.doesNotMatch(html, /id="tab-livemap" class="tab-section active"/, 'Live should not remain the first-paint default');
+    assert.match(html, /id="tab-livemap" class="tab-section active"/, 'Map should keep the state-driven active marker for first paint');
+    assert.doesNotMatch(html, /id="tab-flight" class="tab-section active"/, 'Overview should not be the first-paint default');
 
     const { html: disabled } = await renderComponent(
       path.join('src', 'vue', 'components', 'MainContentShell.vue'),
@@ -2616,7 +2633,7 @@ async function main() {
     );
 
     assert.match(html, /id="app-version"/, 'footer should expose app version target');
-    assert.match(html, /Help &amp; shortcuts/, 'footer should give access to Help and its release/source links');
+    assert.doesNotMatch(html, /Help &amp; shortcuts/, 'the footer omits the retired Help link');
     assert.match(html, /id="msfs-installs-btn"/, 'footer should expose MSFS installs button target');
     assert.match(html, /id="vue-datasources-button-root"/, 'footer should keep data sources wrapper id');
     assert.match(html, /SimConnect \+ LVAR/, 'embedded data sources button should render from status store');
@@ -3599,8 +3616,9 @@ async function main() {
       assert.match(html, new RegExp(connected ? 'Load an aircraft to get started' : 'Waiting for your simulator'));
       assert.match(html, /Your aircraft controls will appear here/);
       assert.match(html, /Set up voice control/);
-      assert.match(html, /PMDG 737-800/);
-      assert.equal(html.match(/PMDG 737-800/g).length, 1, 'featured aircraft is not repeated in the other list');
+      assert.match(html, /PMDG Boeing 737/);
+      assert.doesNotMatch(html, /PMDG 737-800/, 'waiting-page overview uses the family name');
+      assert.equal(html.match(/PMDG Boeing 737/g).length, 1, 'featured aircraft is not repeated in the other list');
       assert.match(html, /TFDi Design MD-11/);
       assert.doesNotMatch(html, /Generic|Abstract base|Regional Jet Base|Zibo|<select|controls-diagnostics|data-aircraft-controls-trigger|data-aircraft-autotaxi-section/);
     }
@@ -3794,7 +3812,7 @@ async function main() {
     assert.match((await renderPanelState('unmatched')).html, /bg-amber-400/, 'unmatched speech should use the same attention tone as the launcher');
   });
 
-  await test('VoiceControlPanel exposes aircraft-specific state questions in a closed compact guide', async () => {
+  await test('VoiceControlPanel keeps aircraft question examples out of the operational panel', async () => {
     for (const profile of ['fbw-a32nx', 'fenix-a320', 'pmdg-777']) {
       const { html } = await renderComponent(path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
         ({ useAircraftSpecificStore }) => {
@@ -3802,26 +3820,18 @@ async function main() {
           specific.activeProfileKey = `bundled/msfs/${profile}`; specific.activeProfileRevision = 1;
           specific.sourceStatus = 'connected';
         });
-      assert.match(html, /data-more-state-queries/);
-      assert.doesNotMatch(html.match(/<details[^>]*data-more-state-queries[^>]*>/)[0], /\bopen(?:[ =>])/);
-      assert.match(html, /what is the autobrake setting/);
-      if (profile !== 'pmdg-777') {
-        assert.match(html, /what is captain qnh/);
-        assert.match(html, /are both altimeters on std/);
-      } else assert.doesNotMatch(html, /what is captain qnh/);
+      assert.doesNotMatch(html, /data-state-query-guide|data-more-state-queries|Ask about the aircraft/);
     }
   });
 
-  await test('VoiceControlPanel offers SimBrief flight plan questions whenever voice can dispatch', async () => {
+  await test('VoiceControlPanel omits flight plan examples across available and unavailable aircraft', async () => {
     const panel = path.join('src', 'vue', 'components', 'VoiceControlPanel.vue');
     const queryOnly = await renderComponent(panel, ({ useAircraftSpecificStore }) => {
       const specific = useAircraftSpecificStore();
       specific.activeProfileKey = 'bundled/msfs/pmdg-777'; specific.activeProfileRevision = 1;
       specific.sourceStatus = 'connected';
     });
-    assert.match(queryOnly.html, /data-flight-plan-query-guide/, 'query-capable aircraft should list flight plan questions');
-    assert.match(queryOnly.html, /what is the simbrief flight plan/);
-    assert.match(queryOnly.html, /what is the departure · what is the arrival · what is the planned altitude/);
+    assert.doesNotMatch(queryOnly.html, /data-flight-plan-query-guide|Ask about the flight plan/);
 
     const commandsOnly = await renderComponent(panel, ({ useAircraftControlsStore }) => {
       useAircraftControlsStore().applyControlCapabilities({
@@ -3834,7 +3844,7 @@ async function main() {
       });
       useAircraftControlsStore().setAvailability({ enabled: true, reason: 'Ready.' });
     });
-    assert.match(commandsOnly.html, /data-flight-plan-query-guide/, 'aircraft with voice commands but no state queries should still list flight plan questions');
+    assert.doesNotMatch(commandsOnly.html, /data-flight-plan-query-guide|Try saying/);
 
     const blocked = await renderComponent(panel, ({ useAircraftControlsStore }) => {
       useAircraftControlsStore().setAvailability({ enabled: false, reason: 'Simulator is in a menu or loading state.' });
@@ -3842,7 +3852,7 @@ async function main() {
     assert.doesNotMatch(blocked.html, /data-flight-plan-query-guide/, 'flight plan questions must not be offered when nothing can dispatch');
   });
 
-  await test('VoiceControlPanel keeps an available altitude target in the three visible examples', async () => {
+  await test('VoiceControlPanel omits command example chips from the voice modal', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'),
       ({ useAircraftControlsStore }) => {
@@ -3879,14 +3889,8 @@ async function main() {
       { props: { presentation: 'modal' } },
     );
 
-    assert.match(html, /Try saying[\s\S]*Set altitude 10,000/, 'the 777 examples should advertise its altitude command');
-    assert.match(html, /Set speed 250/, 'the compact panel should retain a speed example');
-    assert.match(html, /Set mach 0\.78/, 'the compact panel should retain a Mach example');
-    assert.doesNotMatch(html, /Set heading 270/, 'the fourth catalogue command should remain outside the three-example limit');
-    assert.ok(
-      html.indexOf('Set altitude 10,000') < html.indexOf('Set speed 250'),
-      'the altitude target should be prioritized ahead of catalogue-order examples',
-    );
+    assert.doesNotMatch(html, /Try saying|Set altitude 10,000|Set speed 250|Set mach 0\.78|Set heading 270/);
+    assert.match(html, /data-voice-control-panel/, 'the operational panel remains available');
   });
 
   await test('VoiceControlPanel discloses the release tail without overstating microphone-close timing', async () => {
@@ -5029,6 +5033,10 @@ async function main() {
       });
       assert.equal((html.match(/data-aircraft-autotaxi-section/g) || []).length, 1, `${profile}: one shared Autotaxi panel`);
       assert.equal((html.match(/id="aircraft-page-autotaxi"/g) || []).length, 1, `${profile}: one navigation destination`);
+      assert.doesNotMatch(html, /<details[^>]*data-aircraft-autotaxi-section[^>]*\sopen(?:\s|>)/, `${profile}: pushback and taxi starts collapsed`);
+      const panelIndex = html.indexOf('data-aircraft-autotaxi-section');
+      assert.ok(panelIndex > html.lastIndexOf('data-aircraft-template='), `${profile}: taxi follows the aircraft template`);
+      assert.ok(panelIndex > html.lastIndexOf('data-aircraft-avionics-section'), `${profile}: taxi follows avionics`);
       assert.match(html, /Experimental[^<]*MSFS 2024/, `${profile}: Experimental status is visible`);
     }
   });
@@ -5097,7 +5105,7 @@ async function main() {
     assert.doesNotMatch(html, /pmdg-737-section-autotaxi/, 'Autotaxi belongs to the shared page, without a duplicate PMDG panel');
     assert.match(html, /id="aircraft-page-autotaxi"/, 'Autotaxi has a shared navigation destination');
     assert.ok(html.includes(`>1 of ${expectedSections.length + 1} · All sections<`), 'the ribbon should count the shared Taxi destination and cockpit sections');
-    assert.match(html, /aria-label="Open next section: Mode Control Panel"/, 'navigation should follow the shared Taxi section with MCP');
+    assert.match(html, /aria-label="Open next section: Navigation Radios"/, 'navigation should follow MCP with radios');
     assert.deepEqual(
       [...html.matchAll(/data-pmdg-737-section="([^"]+)"/g)].map((match) => match[1]),
       expectedSections,
@@ -5189,7 +5197,7 @@ async function main() {
     assert.match(html, /aria-label="PMDG 777 page sections"/, 'the ribbon should have aircraft-specific navigation semantics');
     assert.match(html, /aria-label="Open all PMDG 777 sections"/, 'the center target should open the complete 777 section chooser');
     assert.match(html, />1 of 11 /, 'the ribbon should count shared Taxi alongside the ten practical 777 groups');
-    assert.match(html, /aria-label="Open next section: Mode Control Panel"/, 'the shared Taxi section should lead into MCP');
+    assert.match(html, /aria-label="Open next section: Lights &amp; Cabin"/, 'navigation should follow MCP with lights');
     assert.deepEqual(
       [...html.matchAll(/id="pmdg-777-section-([^" ]+)"/g)].map((match) => match[1]),
       ['mcp', 'lights', 'electrical', 'hydraulics-ice', 'fuel-engines', 'air', 'gear-high-lift', 'displays', 'utilities', 'outcomes'],
@@ -11074,43 +11082,13 @@ async function main() {
     assert.doesNotMatch(generic.html, /data-cdu-trigger/, 'aircraft without a CDU integration should not offer the launcher');
   });
 
-  await test('AircraftCduModal offers persisted skins that keep the display colour semantics', async () => {
-    const { CDU_SKINS, DEFAULT_CDU_SKIN, CDU_SKIN_STORAGE_KEY } = await import(pathToFileURL(path.join(frontendRoot, 'src', 'aircraft', 'cdu-skins.js')).href);
-    const modalSource = fs.readFileSync(path.join(frontendRoot, 'src', 'vue', 'components', 'AircraftCduModal.vue'), 'utf8');
+  await test('AircraftCduModal keeps the default appearance despite a saved retired skin', async () => {
     const modalPath = path.join('src', 'vue', 'components', 'AircraftCduModal.vue');
-
     const { html } = await renderComponent(modalPath, () => {}, { props: { open: true } });
-    assert.match(html, new RegExp(`class="cdu-dialog cdu-integrated" data-cdu-skin="${DEFAULT_CDU_SKIN}"`), 'the CDU should open in the default skin when nothing is stored');
-    assert.match(html, /<select[^>]*aria-label="CDU skin"[^>]*data-cdu-skin-select/, 'the toolbar should expose an accessible skin selector');
-    for (const skin of CDU_SKINS) {
-      assert.match(html, new RegExp(`<option[^>]*value="${skin.id}"[^>]*>${skin.label.replace('&', '&amp;')}</option>`), `the selector should list the ${skin.label} skin`);
-    }
-    assert.match(html, /aria-label="CDU unit"[\s\S]*aria-label="CDU skin"[\s\S]*Keyboard off/, 'the skin selector should sit between the unit selector and the keyboard toggle');
-
-    const stored = await renderComponent(modalPath, () => {}, { props: { open: true }, storage: createStorage({ [CDU_SKIN_STORAGE_KEY]: 'neon' }) });
-    assert.match(stored.html, /data-cdu-skin="neon"/, 'a previously chosen skin should be restored from browser storage');
-    const bogus = await renderComponent(modalPath, () => {}, { props: { open: true }, storage: createStorage({ [CDU_SKIN_STORAGE_KEY]: 'not-a-skin' }) });
-    assert.match(bogus.html, new RegExp(`data-cdu-skin="${DEFAULT_CDU_SKIN}"`), 'an unknown stored skin should fall back to the default instead of an unstyled dialog');
-
-    const inks = ['white', 'cyan', 'green', 'magenta', 'amber', 'yellow', 'red'];
-    const defaultBlock = modalSource.slice(modalSource.indexOf('.cdu-dialog {'), modalSource.indexOf('.cdu-integrated {'));
-    for (const ink of inks) {
-      assert.match(defaultBlock, new RegExp(`--cdu-ink-${ink}:`), `the default skin should define the ${ink} display colour`);
-      assert.match(modalSource, new RegExp(`\\.cdu-cell\\[data-color='${ink}'\\] \\{ --cdu-ink: var\\(--cdu-ink-${ink}\\); \\}`), `${ink} cells should read their colour from the skin`);
-    }
-    for (const skin of CDU_SKINS) {
-      if (skin.id === DEFAULT_CDU_SKIN) continue;
-      const marker = `.cdu-dialog[data-cdu-skin='${skin.id}'] {`;
-      const blockStart = modalSource.indexOf(marker);
-      assert.ok(blockStart >= 0, `the ${skin.label} skin should have a style block`);
-      const block = modalSource.slice(blockStart, modalSource.indexOf('\n}', blockStart));
-      const colours = inks.map((ink) => block.match(new RegExp(`--cdu-ink-${ink}: (#[0-9a-f]{3,8})`))?.[1]);
-      assert.ok(colours.every(Boolean), `the ${skin.label} skin should restyle every display colour`);
-      assert.equal(new Set(colours).size, inks.length, `the ${skin.label} skin must keep the aircraft's display colours distinguishable`);
-      assert.match(block, /--cdu-key-font:/, `the ${skin.label} skin should set its own key lettering`);
-    }
-    assert.match(modalSource, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.cdu-screen::after \{ animation: none; \}/, 'skin animations should respect reduced motion');
-    assert.match(modalSource, /\.cdu-cell\.reverse \{ background: var\(--cdu-ink\); color: var\(--cdu-screen-solid\)/, 'inverse-video cells should contrast against the skin display, not the app background');
+    const stored = await renderComponent(modalPath, () => {}, { props: { open: true }, storage: createStorage({ 'ff-cdu-skin': 'neon' }) });
+    assert.equal(stored.html, html, 'retired preferences must not alter the default panel');
+    assert.doesNotMatch(html, /data-cdu-skin|CDU skin/, 'the theme dropdown is removed');
+    assert.match(html, /aria-label="CDU unit"[\s\S]*Keyboard off/, 'unit selection and keyboard controls remain');
   });
 
   await test('AircraftCduModal explains physical keyboard input', async () => {

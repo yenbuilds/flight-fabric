@@ -13,6 +13,9 @@
 //   Telemetry push messages like { type: 'ias', value: ... } which are emitted
 //   by the backend and consumed by clients.
 
+import type { FlightCsvStore } from '../flight-recording/flight-csv-store';
+import type { TargetLocation } from './destination-target-store';
+
 const { MSG } = require('./message-types');
 const path = require('path');
 const timeSource = require('./time-source');
@@ -49,11 +52,71 @@ type WsLike = {
 };
 type DebugLike = { log: (_scope: string, _event: string, _payload?: AnyRecord) => void };
 
+type ClientRecordingStats = {
+  filePath?: string | null;
+  flightId?: string | null;
+  rowCount?: number;
+};
+type ClientProviderRequest = (
+  message: AnyRecord,
+  owner: unknown,
+  isCurrent: () => boolean,
+) => AnyRecord | Promise<AnyRecord>;
+
+// Dependencies are optional because each message uses a subset. Denied requests
+// need only Debug; the core's normal dispatch supplies the complete key set.
+export type ClientMessageContext = {
+  lastSimState?: Record<string, unknown> | null;
+  getSimState?: () => Record<string, unknown> | null;
+  getPhase?: () => string | null;
+  flightCsvWriter?: {
+    isRecording: () => boolean;
+    getStats: () => ClientRecordingStats | null;
+    isFinalizing?: () => boolean;
+    getFinalizingStats?: () => ClientRecordingStats | null;
+    flush?: () => boolean | void | Promise<boolean | void>;
+  } | null;
+  getFlightRecordingStatus?: () => AnyRecord;
+  flightCsvStore?: FlightCsvStore;
+  recordingBundleGuard?: {
+    isOwnedCsvPath?: (csvPath: unknown) => boolean;
+    isFinalizing?: () => boolean;
+    isBusy?: () => boolean;
+    getActiveCsvPath?: () => string | null;
+    flushActiveBundle?: () => Promise<boolean>;
+  } | null;
+  flightActive?: boolean;
+  flightId?: string | null;
+  flightStartIso?: string | null;
+  flightStartAircraftTitle?: string | null;
+  recordingSession?: { getState: () => { isRecording: boolean } };
+  startFlightManual?: () => AnyRecord | Promise<AnyRecord> | null;
+  endFlight?: (nowEpochMs: number, reason: string) => ClientRecordingStats | Promise<ClientRecordingStats> | null;
+  getDestinationTarget?: () => TargetLocation | null;
+  setDestinationTarget?: (target: TargetLocation) => TargetLocation | null;
+  clearDestinationTarget?: () => void;
+  getOriginTarget?: () => TargetLocation | null;
+  setOriginTarget?: (target: TargetLocation) => TargetLocation | null;
+  clearOriginTarget?: () => void;
+  replayMessages?: ReadonlyArray<Record<string, unknown>>;
+  provider?: {
+    requestCdu?: (message: AnyRecord, canWrite: () => boolean) => AnyRecord | Promise<AnyRecord>;
+    requestPushback?: ClientProviderRequest;
+    requestTaxiGuidance?: ClientProviderRequest;
+    requestAutotaxi?: ClientProviderRequest;
+  };
+  broadcast?: (message: AnyRecord) => void;
+  getCabinAnnouncementsConfig?: () => AnyRecord | null;
+  reconfigureCabinAnnouncements?: (settings: AnyRecord) => unknown;
+  timeNow?: () => number;
+  Debug?: DebugLike;
+};
+
 let aircraftControlRequestTail: Promise<void> = Promise.resolve();
 let autotaxiRequestGeneration = 0;
 let pushbackRequestGeneration = 0;
 
-function serializeAircraftControlRequest<T>(operation: () => Promise<T>): Promise<T> {
+function serializeAircraftControlRequest<T>(operation: () => T | Promise<T>): Promise<T> {
   const result = aircraftControlRequestTail.then(operation, operation);
   aircraftControlRequestTail = result.then(() => undefined, () => undefined);
   return result;
@@ -646,7 +709,7 @@ function clearRouteTarget(ws: WsLike, clearTarget: unknown, broadcast: (_payload
  * @param {Object} context - Backend capabilities required to service client commands
  *                           (state accessors, lifecycle controls, broadcaster, logger)
  */
-async function handleClientMessage(ws, msg, context) {
+async function handleClientMessage(ws, msg, context: ClientMessageContext) {
   const {
     lastSimState,
     getSimState,
@@ -1056,9 +1119,9 @@ async function handleClientMessage(ws, msg, context) {
           const finalizeResult = typeof endFlight === 'function'
             ? endFlight(nowEpochMs, 'user_manual')
             : null;
-          const csvStats = finalizeResult && typeof finalizeResult.then === 'function'
+          const csvStats = finalizeResult && typeof (finalizeResult as Promise<ClientRecordingStats>).then === 'function'
             ? await finalizeResult
-            : finalizeResult;
+            : finalizeResult as ClientRecordingStats | null;
           const stoppedMessage = {
             type: MSG.FLIGHT_RECORDING,
             status: 'stopped',

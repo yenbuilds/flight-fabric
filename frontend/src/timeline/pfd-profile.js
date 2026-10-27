@@ -154,7 +154,6 @@ export function createTimelineProfileController({
   }
 
   return {
-    redraw: drawProfile,
     setPoints,
     updateCursorByOffset,
   };

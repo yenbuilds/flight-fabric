@@ -1,9 +1,14 @@
 import { defineAsyncComponent } from 'vue';
 
-// Presentation priorities only. Labels and availability come from the bundled profile list.
-export const FEATURED_AIRCRAFT_PROFILE_IDS = Object.freeze([
-  'pmdg-737', 'pmdg-777', 'fenix-a320', 'fbw-a32nx', 'inibuilds-a350-900',
-]);
+// Waiting-page family labels only. Availability still comes from bundled profiles.
+export const FEATURED_AIRCRAFT_LABELS = Object.freeze({
+  'pmdg-737': 'PMDG Boeing 737',
+  'pmdg-777': 'PMDG Boeing 777',
+  'fenix-a320': 'Fenix Airbus A32X',
+  'fbw-a32nx': 'FlyByWire A32NX',
+  'inibuilds-a350-900': 'iniBuilds Airbus A350',
+});
+export const FEATURED_AIRCRAFT_PROFILE_IDS = Object.freeze(Object.keys(FEATURED_AIRCRAFT_LABELS));
 
 // These selectable fallback profiles describe categories, not individual aircraft.
 export const AIRCRAFT_CATEGORY_PROFILE_IDS = Object.freeze([

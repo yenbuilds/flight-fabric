@@ -103,10 +103,12 @@ test('network-facing and distribution surfaces provide corresponding source', ()
   assert.ok(installerNotice.includes(sourceUrl));
 
   const aboutPanel = read('frontend/src/vue/components/SettingsAboutLegal.vue');
-  const appHelp = read('frontend/src/vue/components/AppNavigator.vue');
+  const appFooter = read('frontend/src/vue/components/AppFooter.vue');
+  const mobileTabs = read('frontend/src/vue/components/MobileTabs.vue');
   assert.match(aboutPanel, /complete corresponding source code/i);
   assert.ok(aboutPanel.includes(sourceUrl));
-  assert.ok(appHelp.includes(sourceUrl));
+  assert.ok(appFooter.includes(sourceUrl));
+  assert.ok(mobileTabs.includes(sourceUrl));
 });
 
 test('installation and legal surfaces include alpha, intended-use, and non-reliance warnings', () => {

@@ -149,11 +149,13 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
       assert.equal(await evaluate('return workbenchTest.tabs.moreSheetOpen;'), false, 'More releases focus before Setup opens');
       assert.equal(await evaluate("return document.querySelector('.onboarding-form').dataset.onboardingStep;"), '1');
       assert(await evaluate(`return document.querySelector(${JSON.stringify(voiceOn)}).checked;`), 'Setup starts with saved voice preference');
+      assert(await evaluate("const button=document.querySelector('[data-close-intro-top]').getBoundingClientRect(); const dialog=document.querySelector('.onboarding-dialog').getBoundingClientRect(); const progress=document.querySelector('.onboarding-progress').getBoundingClientRect(); return button.width>=44 && button.height>=44 && button.right<=dialog.right && button.top>=dialog.top && (button.left>=progress.right || button.bottom<=progress.top);"), 'top-right close has a visible touch target without overlapping progress');
+      await capture(`setup-close-${width}`);
       await click(voiceOff);
       await click(next);
       assert(await evaluate(`return document.querySelector(${JSON.stringify(manual)}).checked;`), 'Setup starts with saved recording preference');
       await click(automatic);
-      await click('[data-close-intro]');
+      await click('[data-close-intro-top]');
       assert.equal(await isOpen(), false);
       assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), origin, 'closing Setup preserves the current page');
       assert.equal(await evaluate('return document.activeElement.id || document.activeElement.dataset.setupNavigation;'), width < 760 ? 'mobile-more-btn' : '', 'closing Setup returns focus to its visible entry');
@@ -731,6 +733,7 @@ module.exports = async function checkOnboarding({ win, evaluate, capture, wait, 
     await capture(`replay-${width}-toolbar`);
     await click(next);
     assert(await evaluate('return document.querySelector("[data-close-intro]").disabled;'), 'cannot close while saving');
+    assert(await evaluate('return document.querySelector("[data-close-intro-top]").disabled;'), 'top-right close also respects pending saves');
     await key('Escape', 27);
     assert(await isOpen(), 'Escape cannot interrupt an active save');
     assert.deepEqual(await evaluate('return workbenchTest.setupFixture.requests[0].patch;'), { onboarding: { completed: true }, recording: { autoStart: false } });

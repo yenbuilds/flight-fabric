@@ -8,9 +8,6 @@ const { parseCsvLine, splitCsvLines } = require('../utils/csv.js') as {
 const { VIOLATION_RULE } = require('../../shared/violation-rules.js') as {
   VIOLATION_RULE: { CONVECTIVE_EXPOSURE: string };
 };
-const { detectDutchRollSummary } = require('./dutch-roll-summary.js') as {
-  detectDutchRollSummary: (rows: SummaryRow[]) => unknown | null;
-};
 const { detectHoldingPatternSummary } = require('./holding-pattern-summary.js') as {
   detectHoldingPatternSummary: (rows: SummaryRow[]) => { end_ts?: unknown } | null;
 };
@@ -40,7 +37,6 @@ type FlightSummary = {
   go_around_count: number;
   overspeed_count: number;
   violations: ViolationSummary[];
-  dutch_roll: unknown | null;
   holding: unknown | null;
   insights: unknown | null;
 };
@@ -48,7 +44,6 @@ type FlightSummary = {
 type ViolationStart = {
   label: string | null;
   severity: string | null;
-  startMs: number | null;
 };
 
 type SummaryRow = {
@@ -69,8 +64,6 @@ type SummaryRow = {
   ra_ft?: unknown;
   bank_deg?: unknown;
   roll_rate_rad_s?: unknown;
-  yaw_rate_rad_s?: unknown;
-  sideslip_deg?: unknown;
   hdg_true_deg?: unknown;
   track_true_deg?: unknown;
   lat_deg?: unknown;
@@ -113,7 +106,6 @@ function buildSummary(
   goAroundCount: number,
   overspeedCount: number,
   violationsFinished: ViolationSummary[],
-  dutchRoll: unknown | null,
   holding: unknown | null,
   insights: unknown | null,
 ): FlightSummary {
@@ -125,7 +117,6 @@ function buildSummary(
     go_around_count: goAroundCount,
     overspeed_count: overspeedCount,
     violations: violationsFinished,
-    dutch_roll: dutchRoll,
     holding,
     insights,
   };
@@ -175,8 +166,6 @@ function readFlightSummary(filePath: string): FlightSummary | null {
   const raIdx = col('ra_ft');
   const bankIdx = col('bank_deg');
   const rollRateIdx = col('roll_rate_rad_s');
-  const yawRateIdx = col('yaw_rate_rad_s');
-  const sideslipIdx = col('sideslip_deg');
   const headingIdx = col('hdg_true_deg');
   const trackIdx = col('track_true_deg');
   const latIdx = col('lat_deg');
@@ -254,8 +243,6 @@ function readFlightSummary(filePath: string): FlightSummary | null {
         ra_ft: raIdx >= 0 ? toFiniteNumber(values[raIdx]) : null,
         bank_deg: bankIdx >= 0 ? toFiniteNumber(values[bankIdx]) : null,
         roll_rate_rad_s: rollRateIdx >= 0 ? toFiniteNumber(values[rollRateIdx]) : null,
-        yaw_rate_rad_s: yawRateIdx >= 0 ? toFiniteNumber(values[yawRateIdx]) : null,
-        sideslip_deg: sideslipIdx >= 0 ? toFiniteNumber(values[sideslipIdx]) : null,
         hdg_true_deg: headingIdx >= 0 ? toFiniteNumber(values[headingIdx]) : null,
         track_true_deg: trackIdx >= 0 ? toFiniteNumber(values[trackIdx]) : null,
         lat_deg: latIdx >= 0 ? toFiniteNumber(values[latIdx]) : null,
@@ -288,7 +275,6 @@ function readFlightSummary(filePath: string): FlightSummary | null {
         violationStarts.set(ruleId, {
           label: labelIdx >= 0 ? toNonEmptyString(values[labelIdx]) : null,
           severity: severityIdx >= 0 ? toNonEmptyString(values[severityIdx]) : null,
-          startMs: tsMsIdx >= 0 ? toFiniteNumber(values[tsMsIdx]) : null,
         });
       }
       continue;
@@ -338,7 +324,6 @@ function readFlightSummary(filePath: string): FlightSummary | null {
     goAroundCount,
     overspeedCount,
     violationsFinished,
-    detectDutchRollSummary(sampleRows),
     holding,
     computePostFlightInsights(sampleRows, {
       goAroundCount,
@@ -388,7 +373,6 @@ function computeFlightSummaryFromRows(rows: SummaryRow[]): FlightSummary | null 
         violationStarts.set(ruleId, {
           label: toNonEmptyString(row.label),
           severity: toNonEmptyString(row.severity),
-          startMs: toFiniteNumber(row.timestamp_ms),
         });
       }
       continue;
@@ -435,7 +419,6 @@ function computeFlightSummaryFromRows(rows: SummaryRow[]): FlightSummary | null 
     goAroundCount,
     overspeedCount,
     violationsFinished,
-    detectDutchRollSummary(sampleRows),
     holding,
     computePostFlightInsights(sampleRows, {
       goAroundCount,

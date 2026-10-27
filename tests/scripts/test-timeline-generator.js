@@ -596,6 +596,71 @@ test('high-frequency moving samples produce timed breadcrumb track points', () =
   assert(result.timeline.track.at(-1).timestampMs === baseTs + 10000, 'expected final track point to be retained');
 });
 
+test('artificial event flood respects the replay limit and the next flight remains usable', () => {
+  // Deliberately excessive duplicate warning rows exercise the defensive limit;
+  // this is a robustness fixture, not a realistic flight or scoring scenario.
+  const baseTs = 1700000400000;
+  const warnings = Array.from({ length: 10002 }, (_, index) => ({
+    flight_id: 'event-limit-robustness',
+    ts: baseTs + index * 1000,
+    flight_elapsed_ms: index * 1000,
+    record_type: 'OVERSPEED',
+    ra_ft: 5000,
+    on_ground: false,
+    ias_kts: 300,
+    gs_kts: 300,
+    vs_fpm: 0,
+  }));
+  const boundary = generateTimelineFromRows('event-limit.csv', warnings.slice(0, 10000));
+  assert(boundary.success === true, `the 10,000-event boundary should be accepted: ${boundary.error}`);
+  assert(boundary.timeline.eventCount === 10000, 'the boundary result must retain all events');
+  for (const count of [10001, 10002]) {
+    const result = generateTimelineFromRows('event-limit.csv', warnings.slice(0, count));
+    assert(result.success === false && /more events/.test(result.error),
+      `expected a controlled event-limit failure for ${count} rows`);
+    assert(!result.timeline, 'a rejected replay must not expose a partial timeline');
+  }
+  const recovered = generateTimelineFromRows('next-flight.csv', [{
+    ...warnings[0], flight_id: 'next-flight', record_type: 'SAMPLE', phase: 'CRUISE',
+  }]);
+  assert(recovered.success === true && recovered.timeline.eventCount === 1,
+    'a successful flight after overflow must have only its own phase event');
+});
+
+test('artificial event flood applies the replay limit after closing final violations', () => {
+  // Deliberately duplicated warnings put the final open bank-angle episode at
+  // the event boundary. Its EOF closure counts toward the same output limit.
+  const baseTs = 1700000400000;
+  for (const warningCount of [9997, 9998]) {
+    const rows = Array.from({ length: warningCount }, (_, index) => ({
+      flight_id: 'event-limit-eof-robustness',
+      ts: baseTs + index * 1000,
+      flight_elapsed_ms: index * 1000,
+      record_type: 'OVERSPEED',
+      ra_ft: 1000,
+      on_ground: false,
+      ias_kts: 120,
+      gs_kts: 120,
+      vs_fpm: -650,
+    }));
+    rows.push({
+      ...rows.at(-1), ts: baseTs + warningCount * 1000,
+      flight_elapsed_ms: warningCount * 1000, record_type: 'SAMPLE', phase: 'FINAL', bank_deg: 35,
+    });
+    const result = generateTimelineFromRows('event-limit-eof.csv', rows);
+    if (warningCount === 9997) {
+      assert(result.success === true && result.timeline.eventCount === 10000,
+        'the final phase, bank warning and its closure should fill the accepted boundary');
+      const bankEvents = result.timeline.events.filter((event) => event.ruleId === 'BANK_ANGLE');
+      assert(bankEvents.map((event) => event.type).join(',') === 'violation_start,violation_end',
+        'the accepted result must retain the complete bank-angle episode');
+    } else {
+      assert(result.success === false && /more events/.test(result.error) && !result.timeline,
+        'EOF violation closure must reject an oversized result without exposing partial output');
+    }
+  }
+});
+
 test('profile-backed flap detent changes appear as reliable configuration events', () => {
   const baseTs = 1700000450000;
   const flapNotches = [0, 1, 1, 3, 3, 2, 2];
@@ -3532,6 +3597,124 @@ async function runAsyncTests() {
     });
   });
 
+  await testAsync('current preview distinguishes missing and zero measurements for merged and standalone LANDING rows', async () => {
+    await withMockRunway({
+      icao: 'TEST',
+      airportName: 'Test Field',
+      runway: '36',
+      runwayId: '36',
+      threshold: { lat: 37, lon: -122 },
+      heading: 360,
+      heading_true_deg: 360,
+      lengthFt: 6000,
+      widthFt: 150,
+      surface: 'ASPHALT',
+      elevation_ft: 700,
+      source: 'msfs-facilities',
+      elevationReference: 'runway',
+    }, async (timelineGenerator) => {
+      const baseTs = 1700000206250;
+      const speedFtPerSecond = 65 * 6076.12 / 3600;
+      const feetPerLatitudeDegree = 60 * 6076.12;
+      // A light aircraft descends 60 -> 6 ft in nine seconds at -360 fpm,
+      // then flares for three seconds at -120 fpm. At 65 kt it covers about
+      // 1,317 ft before contacting the runway exactly at its threshold.
+      const sample = (second) => {
+        const heightFt = second <= 9 ? 60 - second * 6 : (12 - second) * 2;
+        return {
+          flight_id: 'preview-measurement-availability',
+          timestamp_utc: new Date(baseTs + second * 1000).toISOString(),
+          ts: baseTs + second * 1000,
+          flight_elapsed_ms: second * 1000,
+          record_type: 'SAMPLE',
+          phase: second < 12 ? 'FINAL' : 'LANDING',
+          lat_deg: 37 + (second - 12) * speedFtPerSecond / feetPerLatitudeDegree,
+          lon_deg: -122,
+          ra_ft: heightFt,
+          on_ground: second === 12,
+          ias_kts: 65,
+          gs_kts: 65,
+          vs_fpm: second < 9 ? -360 : -120,
+          alt_msl_ft: 700 + heightFt,
+          alt_plane_ft: 700 + heightFt,
+          hdg_true_deg: 360,
+          g_force: second === 12 ? 1.1 : 1,
+          aircraft: 'Generic light aircraft',
+          aircraft_profile_id: 'generic',
+        };
+      };
+      const measurementFields = ['touchdown_distance_ft', 'lateral_offset_ft', 'bounce_count'];
+      const metricNames = ['touchdownDistance', 'lateralOffset', 'bounce'];
+      const outputFields = ['distanceFt', 'lateralOffsetFt', 'bounceCount'];
+      const missingReasons = [
+        'recorded_touchdown_geometry_unavailable',
+        'recorded_lateral_geometry_unavailable',
+        'recorded_bounce_evidence_unavailable',
+      ];
+      const cases = [
+        { name: 'all zero', values: [0, 0, 0] },
+        { name: 'all missing', values: [null, null, null] },
+        { name: 'missing touchdown distance', values: [null, 0, 0] },
+        { name: 'missing lateral offset', values: [0, null, 0] },
+        { name: 'missing bounce count', values: [0, 0, null] },
+      ];
+      for (const merged of [true, false]) {
+        for (const scenario of cases) {
+          const label = `${merged ? 'merged' : 'standalone'}: ${scenario.name}`;
+          // LANDING retains touchdown measurements when finalized after the
+          // rollout. The standalone case models a recording without approach samples.
+          const landingRow = {
+            ...sample(12),
+            timestamp_utc: new Date(baseTs + 32000).toISOString(),
+            ts: baseTs + 32000,
+            flight_elapsed_ms: 32000,
+            record_type: 'LANDING',
+            sample_index: 1001,
+            icao: 'TEST',
+            runway: '36',
+            runway_heading_true_deg: 360,
+            runway_length_ft: 6000,
+            runway_width_ft: 150,
+            runway_threshold_lat: 37,
+            runway_threshold_lon: -122,
+            runway_reference_elev_ft: 700,
+            runway_geometry_source: 'msfs-facilities',
+            lateral_offset_suspect: false,
+            ...Object.fromEntries(measurementFields.map((field, index) => [field, scenario.values[index]])),
+          };
+          const rows = [...(merged ? Array.from({ length: 13 }, (_, second) => sample(second)) : []), landingRow];
+          const originalRows = JSON.stringify(rows);
+          const result = timelineGenerator._generateTimelineFromRows('preview-measurement-availability.csv', rows, {
+            scoringMode: 'current-preview',
+          });
+          assert(result.success === true, `${label}: ${result.error}`);
+          const landings = result.timeline.events.filter((event) => event.type === 'landing');
+          assert(landings.length === 1, `${label}: expected one landing, got ${landings.length}`);
+          assert(landings[0].timestampMs === baseTs + (merged ? 12000 : 32000), `${label}: unexpected LANDING association`);
+          const analysis = result.timeline.analysisRescore.landings[0];
+          for (let index = 0; index < metricNames.length; index += 1) {
+            const metric = analysis.metrics[metricNames[index]];
+            const hasMeasurement = scenario.values[index] !== null;
+            // Missing optional geometry is inapplicable and does not block a
+            // preview; missing bounce evidence remains applicable but unavailable.
+            const optionalGeometry = index < 2;
+            assert(metric.applicable === (optionalGeometry ? hasMeasurement : true), `${label}: wrong ${metricNames[index]} applicability`);
+            assert(metric.available === (optionalGeometry || hasMeasurement), `${label}: wrong ${metricNames[index]} availability`);
+            assert(metric.source === (hasMeasurement ? 'reconstructed' : 'unavailable'), `${label}: wrong ${metricNames[index]} source`);
+            assert(metric.reason === (hasMeasurement ? null : missingReasons[index]), `${label}: wrong ${metricNames[index]} reason`);
+            assert(landings[0].touchdownDistance[outputFields[index]] === scenario.values[index], `${label}: ${outputFields[index]} must preserve zero or missing evidence`);
+          }
+          if (!merged) {
+            assert(analysis.metrics.stability.available === false, `${label}: standalone stability must remain unavailable`);
+            assert(analysis.metrics.stability.reason === 'approach_samples_unavailable', `${label}: standalone stability must retain its reason`);
+            assert(landings[0].ultimateStability === null, `${label}: must not fabricate standalone stability`);
+          }
+          assert(JSON.stringify(rows) === originalRows, `${label}: preview must not mutate recording rows`);
+        }
+      }
+    });
+  });
+
   await testAsync('replay confirms a sparse bounce from delayed post-impact load', async () => {
     await withMockRunway({
       icao: 'TEST',
@@ -4254,6 +4437,78 @@ async function runAsyncTests() {
       const landings = result.timeline.events.filter((event) => event.type === 'landing');
       assert(landings.length === 1, `expected one landing after the gap, got ${landings.length}`);
       assert(landings[0].touchdownDistance?.tdzAchieved === true, 'generated replay should retain the formal 3,000 ft TDZ result');
+    });
+  });
+
+  await testAsync('replay invocations isolate crash, violation and approach state across different flights', async () => {
+    await withMockRunway(null, async (timelineGenerator) => {
+      const baseTs = 1700000210000;
+      const speedFtPerSecond = 65 * 6076.12 / 3600;
+      const feetPerLatitudeDegree = 60 * 6076.12;
+      const approachRows = (flightId, startMs, crashes) => Array.from({ length: 13 }, (_, second) => {
+        // Both excerpts cover 1,317 ft at 65 kt. The normal approach descends
+        // 60 ft at -360 fpm, then flares at -120 fpm; the accident approach
+        // descends 240 ft at -1,200 fpm and ends in a recorded impact.
+        const heightFt = crashes ? 240 - second * 20 : (second <= 9 ? 60 - second * 6 : (12 - second) * 2);
+        return {
+          flight_id: flightId,
+          timestamp_utc: new Date(startMs + second * 1000).toISOString(),
+          ts: startMs + second * 1000,
+          flight_elapsed_ms: second * 1000,
+          record_type: crashes && second === 12 ? 'CRASH' : 'SAMPLE',
+          phase: second < 12 ? 'FINAL' : 'LANDING',
+          lat_deg: 37 + (second - 12) * speedFtPerSecond / feetPerLatitudeDegree,
+          lon_deg: -122,
+          ra_ft: heightFt,
+          alt_msl_ft: 700 + heightFt,
+          alt_plane_ft: 700 + heightFt,
+          on_ground: second === 12,
+          ias_kts: 65,
+          gs_kts: 65,
+          vs_fpm: crashes ? -1200 : (second < 9 ? -360 : -120),
+          hdg_true_deg: 360,
+          bank_deg: 0,
+          aircraft: 'Generic light aircraft',
+          aircraft_profile_id: 'generic',
+        };
+      });
+      const cleanRows = approachRows('isolated-clean-flight', baseTs, false);
+      const crashRows = approachRows('isolated-crash-flight', baseTs + 3600000, true);
+      const cleanOptions = { scoringMode: 'current-preview' };
+      const originalInputs = JSON.stringify({ cleanRows, crashRows, cleanOptions });
+      const generate = (rows, options = {}) => {
+        const result = timelineGenerator._generateTimelineFromRows(`${rows[0].flight_id}.csv`, rows, options);
+        assert(result.success === true, `expected replay success, got ${result.error}`);
+        return result;
+      };
+      const comparable = (result) => JSON.stringify({
+        ...result,
+        timeline: { ...result.timeline, generatedAt: null },
+      });
+
+      const clean = generate(cleanRows, cleanOptions);
+      const cleanLandings = clean.timeline.events.filter((event) => event.type === 'landing');
+      assert(cleanLandings.length === 1,
+        'the clean flight must establish a landing and approach result');
+      assert(cleanLandings[0].approachProfile.length >= 2, 'the clean flight must exercise approach sample ownership');
+      assert(!clean.timeline.events.some((event) => event.type === 'crash' || event.ruleId === VIOLATION_RULE.HIGH_SINK_RATE),
+        'the clean flight must not contain accident-flight events');
+      const cleanSnapshot = comparable(clean);
+      const crash = generate(crashRows);
+      assert(crash.timeline.events.some((event) => event.type === 'crash'), 'the second flight must exercise terminal crash state');
+      assert(crash.timeline.events.some((event) => event.type === 'violation_start' && event.ruleId === VIOLATION_RULE.HIGH_SINK_RATE),
+        'the second flight must exercise an approach violation before the crash');
+      const crashSnapshot = comparable(crash);
+      assert(comparable(clean) === cleanSnapshot, 'a different flight must not mutate the first result');
+
+      assert(comparable(generate(cleanRows, cleanOptions)) === cleanSnapshot,
+        'reopening the clean flight after a crash must reproduce every timeline field except generation time');
+      assert(comparable(clean) === cleanSnapshot, 'later replays must not mutate an earlier clean result');
+      assert(comparable(generate(crashRows)) === crashSnapshot,
+        'reopening the accident flight must reproduce its own terminal and violation state');
+      assert(comparable(crash) === crashSnapshot, 'later replays must not mutate an earlier crash result');
+      assert(JSON.stringify({ cleanRows, crashRows, cleanOptions }) === originalInputs,
+        'repeated recorded and preview replays must not mutate their input rows or options');
     });
   });
 

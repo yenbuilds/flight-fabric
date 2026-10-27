@@ -1,3 +1,6 @@
+import type { FlightCsvStore } from '../flight-recording/flight-csv-store';
+import type { ClientMessageContext } from './client-message-handler';
+
 // simbridge-core.js
 // - Broadcast payload compatibility is preserved while tick timing uses measured cadence.
 // - This module must not reference offsets or mock mode logic.
@@ -11,8 +14,6 @@ const { computeCrosswind } = require('../utils/aviation-frames');
 const { decodeGearState } = require('../telemetry-provider/simulator-state');
 const { rad2deg } = require('../utils/units');
 const {
-  runStability,
-  resetStability,
   SimpleStabilityScorer,
   frameToSample,
   getStabilityCriteria,
@@ -56,7 +57,7 @@ const { computeIasTrend, computePitchBankRates } = require('../utils/flight-kine
 const flightCsvWriter = require('../flight-recording/flight-csv-writer');
 const { getRecordingSizeBytes } = require('../flight-recording/recording-progress') as typeof import('../flight-recording/recording-progress');
 const { createFlightCsvStore } = require('../flight-recording/flight-csv-store') as {
-  createFlightCsvStore: (_options?: AnyRecord) => AnyRecord;
+  createFlightCsvStore: (_options?: AnyRecord) => FlightCsvStore;
 };
 const {
   createLowDiskError,
@@ -136,9 +137,10 @@ const {
   resolveSpoilersForBroadcast: (params: { baseSpoilers: AnyRecord | null | undefined; profile: AnyRecord | null | undefined; frame: AnyRecord | null | undefined; sourceContext: AnyRecord }) => AnyRecord | null | undefined;
 };
 const { createVreEvaluator } = require('../events/vre-evaluator');
-const { handleClientMessage: handleClientMessageImpl } = require('./client-message-handler');
+const { handleClientMessage: handleClientMessageImpl } = require('./client-message-handler') as {
+  handleClientMessage: (ws: unknown, msg: unknown, context: ClientMessageContext) => Promise<void>;
+};
 const { isClientMessageAuthorized } = require('./client-message-authorization');
-const { buildClientMessageContext } = require('./client-message-context');
 const { createWsServer } = require('./ws-bootstrap');
 const { createDevicePairingManager } = require('./device-pairing');
 const { createBroadcast } = require('./ws-broadcaster');
@@ -579,7 +581,7 @@ async function runSimbridgeCore({
   let httpServerHandle = null;
   let cabinAnnouncementsHandle = null;
   let updateCheckerHandle = null;
-  let flightCsvStore: AnyRecord | null = null;
+  let flightCsvStore: FlightCsvStore | null = null;
   let coreShutdownStarted = false;
   let activeUpdateBoundaryRequests = 0;
   let updateObservedAt = 0;
@@ -846,7 +848,7 @@ async function runSimbridgeCore({
         }));
         return;
       }
-      const context = buildClientMessageContext({
+      const context: ClientMessageContext = {
           lastSimState: runtimeState.sim.lastState,
           getSimState: () => runtimeState.sim.lastState,
           getPhase,
@@ -889,7 +891,7 @@ async function runSimbridgeCore({
           },
           timeNow: timeSource.now,
           Debug
-      });
+      };
       if (msg.type === 'lvarDebugWatch') {
         const rawSubscriptions = Array.isArray(msg.subscriptions) ? msg.subscriptions : [];
         if (capabilities.isMock || typeof provider.setDebugLvarSubscriptions !== 'function') {
@@ -1237,9 +1239,6 @@ async function runSimbridgeCore({
     });
     
     try {
-      // Reset scoring state (stability windows, etc.)
-      resetStability();
-      
       // Reset landing runner state (prevents stale WOW/touchdown data across flights)
       // Guard: do NOT reset if a rollout is in progress — the aircraft polling fires
       // every 2 seconds and can trigger a spurious title change event during the 20-second
@@ -1488,77 +1487,12 @@ async function runSimbridgeCore({
         if (!recordingBundleFailureHandling && flightCsvWriter.isRecording()) {
           const csvStatsBeforeLanding = flightCsvWriter.getStats();
           landingCsvReadPath = csvStatsBeforeLanding?.filePath || null;
-          // Pass full landing payload to CSV writer for complete record
-          // The payload from buildLandingPayload includes all fields needed for analysis
+          // The contract owns the landing fields and CSV aliases.
           const writeOk = flightCsvWriter.writeEvent('LANDING', {
             ...buildLandingCsvEventData(payload, createEventId('landing')),
-            // Core metrics
+            // Preserve captured touchdown VS, including absence, without the
+            // contract helper's fallback to a generic `vs` value.
             vs: payload.vs_fpm,
-            gforce: payload.gforce,
-            ias_kts: payload.ias_kts,
-            gs_kts: payload.gs_kts,
-            grade: payload.grade,
-            // Location
-            icao: payload.icao,
-            runway: payload.runway,
-            lat_deg: payload.lat_deg,
-            lon_deg: payload.lon_deg,
-            alt_msl_ft: payload.alt_msl_ft,
-            ra_ft: payload.ra_ft,
-            hdg_true_deg: payload.hdg_true_deg,
-            hdg_mag_deg: payload.hdg_mag_deg,
-            // Touchdown distance + scoring (authoritative — from landing-runner rollout calculation)
-            touchdown_distance_ft: payload.touchdown_distance_ft,
-            touchdown_distance_score: payload.touchdown_distance_score,
-            touchdown_distance_grade: payload.touchdown_distance_grade,
-            runway_length_ft: payload.runway_length_ft,
-            // Bounce scoring
-            bounce_count: payload.bounce_count,
-            bounce_grade: payload.bounce_grade,
-            bounce_score: payload.bounce_score,
-            bounce_distance_ft: payload.bounce_distance_ft,
-            bounce_worst_gforce: payload.bounce_worst_gforce,
-            // Timestamps
-            timestamp_ms: payload.timestamp_ms,
-            timestamp_utc: payload.timestamp_utc,
-            // Weather
-            wind_speed_kts: payload.wind_speed_kts,
-            wind_dir_deg: payload.wind_dir_deg,
-            xwind_kts: payload.xwind_kts,
-            fdm_surface_condition: payload.fdm_surface_condition,
-            fdm_precip_state: payload.fdm_precip_state,
-            fdm_precip_rate_mm: payload.fdm_precip_rate_mm,
-            fdm_oat_c: payload.fdm_oat_c,
-            // Attitude
-            pitch_deg: payload.pitch_deg,
-            bank_deg: payload.bank_deg,
-            // Config
-            flaps_notch: payload.flaps_notch,
-            spoiler_state: payload.spoiler_state,
-            // Ultimate stability (retrospective)
-            ultimate_stability_score: payload.ultimate_stability_score,
-            ultimate_stability_verdict: payload.ultimate_stability_verdict,
-            ultimate_stability_samples: payload.ultimate_stability_samples,
-            ultimate_stability_gate_stable: payload.ultimate_stability_gate_stable,
-            ultimate_stability_gate_failures: payload.ultimate_stability_gate_failures,
-            ultimate_stability_breakdown: payload.ultimate_stability_breakdown,
-            ultimate_stability_context: payload.ultimate_stability_context,
-            ultimate_stability_gear_ok_pct: payload.ultimate_stability_gear_ok_pct,
-            ultimate_stability_flaps_ok_pct: payload.ultimate_stability_flaps_ok_pct,
-            ultimate_stability_spoilers_ok_pct: payload.ultimate_stability_spoilers_ok_pct,
-            ultimate_stability_config_ok_pct: payload.ultimate_stability_config_ok_pct,
-            ultimate_stability_speed_ok_pct: payload.ultimate_stability_speed_ok_pct,
-            ultimate_stability_speed_trend_ok_pct: payload.ultimate_stability_speed_trend_ok_pct,
-            ultimate_stability_vs_ok_pct: payload.ultimate_stability_vs_ok_pct,
-            ultimate_stability_glidepath_ok_pct: payload.ultimate_stability_glidepath_ok_pct,
-            ultimate_stability_glidepath_below_ok_pct: payload.ultimate_stability_glidepath_below_ok_pct,
-            ultimate_stability_glidepath_above_ok_pct: payload.ultimate_stability_glidepath_above_ok_pct,
-            ultimate_stability_thrust_ok_pct: payload.ultimate_stability_thrust_ok_pct,
-            ultimate_stability_thrust_not_idle_ok_pct: payload.ultimate_stability_thrust_not_idle_ok_pct,
-            ultimate_stability_thrust_stable_ok_pct: payload.ultimate_stability_thrust_stable_ok_pct,
-            ultimate_stability_pitch_ok_pct: payload.ultimate_stability_pitch_ok_pct,
-            ultimate_stability_bank_ok_pct: payload.ultimate_stability_bank_ok_pct,
-            ultimate_stability_lateral_offset_ok_pct: payload.ultimate_stability_lateral_offset_ok_pct,
           });
           
           if (writeOk) {
@@ -1629,54 +1563,7 @@ async function runSimbridgeCore({
       // render immediately. The CSV-replay path remains authoritative for
       // historical/timeline views.
       try {
-        if (currentApproachScorePayload) {
-          const {
-            stabScore,
-            approachProfile,
-            thresholdElevFt,
-            runwayReferenceElevationSource,
-            runwayReferenceElevationKind,
-            runwayHdg,
-            runwayWidthFt,
-            runwayLengthFt,
-            runwayThreshold,
-            runwayId,
-            glidepathAngle,
-            scoringContext,
-          } = currentApproachScorePayload;
-          publishCurrentApproachStabilityStatus({
-            state: 'scored',
-            event: 'landing_scored',
-            reason: 'landing_final',
-            sampleCount: stabScore.samples,
-            hasScored: true,
-            scorerPresent: false,
-            score: stabScore.score,
-            gateStable: stabScore.gateStable,
-            gateFailures: stabScore.gateFailures,
-          }, { force: true });
-          broadcast({
-            type: MSG.ULTIMATE_STABILITY_SCORE,
-            score: stabScore.score,
-            verdict: stabScore.verdict,
-            breakdown: stabScore.breakdown,
-            samples: stabScore.samples,
-            gateStable: stabScore.gateStable,
-            gateFailures: stabScore.gateFailures,
-            scoringContext,
-            approachProfile,
-            runwayReferenceElevFt: thresholdElevFt,
-            runwayReferenceElevationSource,
-            runwayReferenceElevationKind,
-            thresholdElevFt,
-            runwayHdg,
-            runwayWidthFt,
-            runwayLengthFt,
-            runwayThreshold,
-            runwayId,
-            glidepathAngle,
-          });
-        } else if (currentApproachScorer && !currentApproachScorer.hasScored) {
+        if (!currentApproachScorePayload && currentApproachScorer && !currentApproachScorer.hasScored) {
           // Resolve the runway elevation reference FIRST so the scorer uses
           // runway-relative height for gate detection (fixes high-elevation
           // and terrain-heavy airports where raFt diverges from HAT).
@@ -1715,17 +1602,40 @@ async function runSimbridgeCore({
           const approachProfile = currentApproachScorer.getApproachProfile(120);
           currentApproachScorer = null; // consumed — prevent accidental re-use
           currentApproachScoringInputs = null;
-          publishCurrentApproachStabilityStatus({
-            state: 'scored',
-            event: 'landing_scored',
-            reason: 'landing_final',
-            sampleCount: stabScore.samples,
-            hasScored: true,
-            scorerPresent: false,
-            score: stabScore.score,
-            gateStable: stabScore.gateStable,
-            gateFailures: stabScore.gateFailures,
-          }, { force: true });
+          currentApproachScorePayload = {
+            stabScore,
+            approachProfile,
+            // Compatibility name: the resolved value can describe the whole
+            // runway or airport rather than a surveyed individual threshold.
+            thresholdElevFt,
+            runwayReferenceElevationSource,
+            runwayReferenceElevationKind,
+            runwayHdg,
+            runwayWidthFt,
+            runwayLengthFt,
+            runwayThreshold,
+            runwayId,
+            glidepathAngle,
+            scoringContext,
+          };
+        }
+
+        // Both scoring paths publish the same public message contract.
+        if (currentApproachScorePayload) {
+          const {
+            stabScore,
+            approachProfile,
+            thresholdElevFt,
+            runwayReferenceElevationSource,
+            runwayReferenceElevationKind,
+            runwayHdg,
+            runwayWidthFt,
+            runwayLengthFt,
+            runwayThreshold,
+            runwayId,
+            glidepathAngle,
+            scoringContext,
+          } = currentApproachScorePayload;
           broadcast({
             type: MSG.ULTIMATE_STABILITY_SCORE,
             score: stabScore.score,
@@ -1760,19 +1670,9 @@ async function runSimbridgeCore({
       // This ensures the simmer gets fresh scoring on their next approach.
       try {
         currentApproachScorer = resetGoAroundScoringState({
-          resetStability,
           landingRunner,
           createCurrentApproachScorer,
         });
-        publishCurrentApproachStabilityStatus({
-          state: 'reset',
-          event: 'go_around_reset',
-          reason: 'go_around',
-          sampleCount: 0,
-          phase: PHASES.GO_AROUND,
-          raFt: payload?.altitude_ft,
-          vsFpm: payload?.vs_fpm,
-        }, { force: true });
       } catch (e) {
         console.error('[stability] Reset on go-around failed:', e.message);
       }
@@ -2157,11 +2057,6 @@ async function runSimbridgeCore({
       ? currentApproachScoringInputs.criteria.gateRaFt
       : CURRENT_APPROACH_GATE_ALTITUDE_FT;
     return new SimpleStabilityScorer(gateRaFt);
-  }
-
-  function publishCurrentApproachStabilityStatus(_status: AnyRecord = {}, _options: { force?: boolean } = {}) {
-    // Deliberately no-op: we keep the in-memory current-approach scorer only to
-    // produce the retrospective landing score/profile, not a live approach monitor.
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2813,12 +2708,6 @@ async function runSimbridgeCore({
 
     // Fresh approach scorer for this flight
     currentApproachScorer = createCurrentApproachScorer();
-    publishCurrentApproachStabilityStatus({
-      state: 'idle',
-      event: 'flight_started',
-      reason: 'flight_started',
-      sampleCount: 0,
-    }, { force: true });
     
     flightId = timestampIso;
     flightStartEpochMs = nowEpochMs;
@@ -2979,13 +2868,6 @@ async function runSimbridgeCore({
     recorderFieldCatalog = [];
     currentApproachScorer = null;     // Discard approach samples after flight ends
     currentApproachScoringInputs = null;
-    publishCurrentApproachStabilityStatus({
-      state: 'reset',
-      event: 'flight_ended',
-      reason,
-      sampleCount: 0,
-      scorerPresent: false,
-    }, { force: true });
     publishVreSamplingStatus(null, null, { force: true, active: false, event: 'flight_ended' });
 
     let finalizePromise: Promise<unknown> = preExistingRecordingFinalization
@@ -3136,11 +3018,6 @@ async function runSimbridgeCore({
       finalizePromise = trackedFinalization;
 
     }
-
-    // Reset transient scoring state between flights.
-    try {
-      resetStability();
-    } catch {}
 
     // Reset motion detector baseline to prevent immediate re-start
     // This ensures the aircraft must show NEW movement to start another flight
@@ -3386,7 +3263,6 @@ async function runSimbridgeCore({
 
   function resetStabilityForHighAltOrParked(raFeet, phase) {
     if (raFeet > STABILITY_HIGH_ALT_RESET_RA_FT || phase === PHASES.PARKED) {
-      resetStability();
       if (!flightActive) return;
       if (
         phase === PHASES.PARKED &&
@@ -3397,26 +3273,10 @@ async function runSimbridgeCore({
           sampleCount: getCurrentApproachSampleCount(),
         })
       ) {
-        publishCurrentApproachStabilityStatus({
-          state: 'preserved',
-          event: 'approach_preserved',
-          reason: 'parked_before_landing_final',
-          sampleCount: getCurrentApproachSampleCount(),
-          phase,
-          raFt: Number.isFinite(raFeet) ? raFeet : null,
-        });
         return;
       }
       // Also reset the current approach scorer so a new approach starts clean
       currentApproachScorer = createCurrentApproachScorer();
-      publishCurrentApproachStabilityStatus({
-        state: 'reset',
-        event: 'approach_reset',
-        reason: phase === PHASES.PARKED ? 'parked' : 'high_altitude',
-        sampleCount: 0,
-        phase,
-        raFt: Number.isFinite(raFeet) ? raFeet : null,
-      });
     }
   }
 
@@ -3453,7 +3313,7 @@ async function runSimbridgeCore({
     );
   }
 
-  function updateLandingRunnerIfEnabled(frame, xwind, stability, nowEpochMs, timestampIso, phaseHint = null, hdgMagDeg = null, hdgTrueDeg = null, sampleDtMs = null, flapsForScoring = null) {
+  function updateLandingRunnerIfEnabled(frame, xwind, nowEpochMs, timestampIso, phaseHint = null, hdgMagDeg = null, hdgTrueDeg = null, sampleDtMs = null, flapsForScoring = null) {
     if (!capabilities.enableLandingRunner || !flightActive) return;
 
     const sc = frame && frame.simconnect;
@@ -3505,19 +3365,9 @@ async function runSimbridgeCore({
         hasScored: currentApproachScorer?.hasScored === true,
       })) {
         currentApproachScorer = createCurrentApproachScorer();
-        publishCurrentApproachStabilityStatus({
-          state: 'armed',
-          event: 'approach_started',
-          reason: 'eligible_sample_after_reset',
-          sampleCount: 0,
-          phase,
-          raFt,
-          vsFpm,
-        }, { force: true });
       }
 
       if (currentApproachScorer && !currentApproachScorer.hasScored) {
-        let sampleAccepted = false;
         if (eligible) {
           // frame.pitch and frame.bank are stored in radians by the SimConnect provider.
           // Augment with explicit degree fields so normalizeFrame picks them up preferentially.
@@ -3546,19 +3396,8 @@ async function runSimbridgeCore({
           const sample = frameToSample(augFrame);
           if (sample) {
             currentApproachScorer.addSample(sample);
-            sampleAccepted = true;
           }
         }
-        publishCurrentApproachStabilityStatus({
-          state: sampleAccepted ? 'collecting' : undefined,
-          collecting: sampleAccepted,
-          eligible,
-          reason: sampleAccepted ? 'sample_collected' : (telemetryWarmup ? 'telemetry_warmup' : (eligible ? 'sample_rejected' : 'outside_collection_gate')),
-          sampleCount: getCurrentApproachSampleCount(),
-          phase,
-          raFt,
-          vsFpm,
-        });
       }
     } catch { /* non-fatal */ }
 
@@ -3567,14 +3406,12 @@ async function runSimbridgeCore({
       broadcast,
       {
         nowEpochMs,
-        nowIso: timestampIso,
         flightStartEpochMs,
         flightStartIso,
       },
       {
         phase,
         xwind_kts: xwind,
-        stability,
         aircraftName: (sc && sc.aircraftLoadedName) || null,
         icao: null,
         runway: null,
@@ -4047,9 +3884,7 @@ async function runSimbridgeCore({
    * 1) Normalize/derive display values from the current frame.
    * 2) Broadcast UI streams (IAS/VS/altitude/lights/gear/flaps/spoilers/surface/etc.).
    * 3) Update phase and runway context.
-  * 4) Compute rates every tick, and run the stability pipeline in retrospective mode
-  *    (no continuous per-tick stability score). If/when an ultimate landing stability
-  *    score becomes available (typically on touchdown), broadcast that score output.
+   * 4) Compute rates and reset the current approach scorer when appropriate.
    * 5) Return a compact snapshot object used by later tick stages
    *    (especially VRE sample persistence) to avoid recomputing the same values.
    *
@@ -4060,7 +3895,6 @@ async function runSimbridgeCore({
     timestampIso,
     nowEpochMs,
     targetPeriodMs,
-    engineLevels,
   }) {
     const maxContinuousGapMs = Math.max(1000, targetPeriodMs * 5);
     const measuredDeltaMs = frame?.meta?.actualDeltaMs;
@@ -4082,8 +3916,6 @@ async function runSimbridgeCore({
 
     const {
       ias,
-      vs,
-      ra,
       wow,
       gearDownLocked,
       lights,
@@ -4198,7 +4030,6 @@ async function runSimbridgeCore({
       sendEnvironment(broadcast, {
         cabinAltFt: fdmForFuel.cabinAltFt,
         cabinAltRateFpm: fdmForFuel.cabinAltRateFpm,
-        cabinDeltaPPsi: fdmForFuel.cabinDeltaPPsi,
         cabinAltTargetFt: fdmForFuel.cabinAltTargetFt,
         oatC: fdmForFuel.oatC,
       });
@@ -4224,23 +4055,10 @@ async function runSimbridgeCore({
         sdkConnected: sourceOverlayContext.sdkConnected,
         sdkHasData: sourceOverlayContext.sdkHasData,
         sdkHasAutomationData: sourceOverlayContext.sdkHasAutomationData,
-        sdkSource: sourceOverlayContext.sdkSource,
       });
       fdmForRecording = finalOverlay;
 
-      sendAutopilot(broadcast, finalOverlay, {
-        profile: activeProfile,
-        lvarSidecarConnected: sourceOverlayContext.lvarSidecarConnected,
-        lvarHasModeSelectorData: sourceOverlayContext.lvarHasModeSelectorData,
-        lvarHasAutopilotData: sourceOverlayContext.lvarHasAutopilotData,
-        lvarHasAutothrottleData: sourceOverlayContext.lvarHasAutothrottleData,
-        lvarSource: sourceOverlayContext.lvarSidecarSource,
-        sdkConnected: sourceOverlayContext.sdkConnected,
-        sdkHasData: sourceOverlayContext.sdkHasData,
-        sdkHasAutomationData: sourceOverlayContext.sdkHasAutomationData,
-        sdkSource: sourceOverlayContext.sdkSource,
-        reliability: autopilotReliabilityForRecording,
-      });
+      sendAutopilot(broadcast, finalOverlay, { reliability: autopilotReliabilityForRecording });
 
       if (!capabilities.isMock && !recordingBundleFailureHandling && flightCsvWriter.isRecording?.() === true) {
         try {
@@ -4361,38 +4179,6 @@ async function runSimbridgeCore({
     broadcastSimTimeIfDue(nowEpochMs, frame?.simTime);
     resetStabilityForHighAltOrParked(raFeet, phase);
 
-    const fdmForVisibility = mergeFdmData(frame.fdm, frame.simconnect);
-    const visibilityM = fdmForVisibility?.visibilityM ?? null;
-
-    const stability = runStability({
-      ias,
-      vs,
-      ra,
-      display,
-      alt_msl_ft,
-      altCalibratedFt: frame.fdm?.altCalibratedFt ?? null,
-      altPlaneFt: frame.fdm?.altPlaneFt ?? null,
-      pressureAltFt: frame.fdm?.pressureAltFt ?? null,
-      aircraftAglFt: frame.fdm?.aircraftAglFt ?? null,
-      aircraftAboveObstaclesFt: frame.fdm?.aircraftAboveObstaclesFt ?? null,
-      planeAglFt: frame.fdm?.planeAglFt ?? null,
-      planeAglMinusCgFt: frame.fdm?.planeAglMinusCgFt ?? null,
-      gearDownLocked,
-      lights,
-      flaps,
-      spoilers: spoilersObj,
-      pitch,
-      bank,
-      heading,
-      lat: frame.lat,
-      lon: frame.lon,
-      engineLevels,
-      gs,
-      wow,
-      dtMs: evaluationDeltaMs,
-      visibilityM,
-    });
-
     const { trend, nextPreviousIAS } = computeIasTrend({ ias, previousIAS });
     const trendKnots = Math.round(trend);
     broadcast({ type: MSG.IAS_TREND, value: trendKnots });
@@ -4424,9 +4210,6 @@ async function runSimbridgeCore({
     return {
       spoilersObj,
       flapsView: flapsObj,
-      ias,
-      vs,
-      ra,
       wow,
       gearDownLocked,
       flaps,
@@ -4436,7 +4219,6 @@ async function runSimbridgeCore({
       windSpeed,
       windDir,
       heading,
-      surface,
       timestamp,
       xwind,
       iasKnots,
@@ -4444,7 +4226,6 @@ async function runSimbridgeCore({
       vsFeetPerMin,
       alt_msl_ft,
       phase,
-      stability,
       trend,
       pitchRateDeg,
       bankRateDeg,
@@ -4455,6 +4236,35 @@ async function runSimbridgeCore({
       stabilityDtMs: evaluationDeltaMs,
     };
   }
+
+  type VreSampleLoggingInputs = Pick<
+    ReturnType<typeof processStreamingAndScoring>,
+    | 'spoilersObj'
+    | 'flapsView'
+    | 'wow'
+    | 'gearDownLocked'
+    | 'flaps'
+    | 'pitch'
+    | 'bank'
+    | 'gs'
+    | 'windSpeed'
+    | 'windDir'
+    | 'heading'
+    | 'timestamp'
+    | 'xwind'
+    | 'iasKnots'
+    | 'raFeet'
+    | 'vsFeetPerMin'
+    | 'alt_msl_ft'
+    | 'trend'
+    | 'pitchRateDeg'
+    | 'bankRateDeg'
+    | 'fdmForRecording'
+    | 'autopilotReliabilityForRecording'
+  > & {
+    nowEpochMs: number;
+    slewActiveNow: boolean;
+  };
 
   function processVreSampleLogging(frame: AnyRecord, {
     nowEpochMs,
@@ -4481,7 +4291,7 @@ async function runSimbridgeCore({
     bankRateDeg,
     fdmForRecording,
     autopilotReliabilityForRecording,
-  }: AnyRecord) {
+  }: VreSampleLoggingInputs) {
     if (!flightActive || capabilities.isMock) return;
 
     const now = nowEpochMs;
@@ -4527,6 +4337,13 @@ async function runSimbridgeCore({
     const stableStr = '--';
 
     try {
+      // Keep evaluation/status live, but prepare CSV samples only while recording.
+      // Recheck each due sample so any mid-flight start or restart resumes normally.
+      if (!flightCsvWriter.isRecording()) {
+        if (SLEW_SUPPRESS_SAMPLES && slewActiveNow) slewSamplesSuppressed++;
+        return;
+      }
+
       const sc = frame && frame.simconnect;
       const aircraftName = (sc && sc.aircraftLoadedName) || null;
 
@@ -4767,9 +4584,6 @@ async function runSimbridgeCore({
     const {
       spoilersObj,
       flapsView,
-      ias,
-      vs,
-      ra,
       wow,
       gearDownLocked,
       flaps,
@@ -4779,7 +4593,6 @@ async function runSimbridgeCore({
       windSpeed,
       windDir,
       heading,
-      surface,
       timestamp,
       xwind,
       iasKnots,
@@ -4787,7 +4600,6 @@ async function runSimbridgeCore({
       vsFeetPerMin,
       alt_msl_ft,
       phase,
-      stability,
       trend,
       pitchRateDeg,
       bankRateDeg,
@@ -4800,7 +4612,6 @@ async function runSimbridgeCore({
       timestampIso,
       nowEpochMs,
       targetPeriodMs: frame.pollRateMs,
-      engineLevels,
     });
 
     // ------------------------------
@@ -4828,9 +4639,6 @@ async function runSimbridgeCore({
       slewActiveNow,
       spoilersObj,
       flapsView,
-      ias,
-      vs,
-      ra,
       wow,
       gearDownLocked,
       flaps,
@@ -4840,14 +4648,12 @@ async function runSimbridgeCore({
       windSpeed,
       windDir,
       heading,
-      surface,
       timestamp,
       xwind,
       iasKnots,
       raFeet,
       vsFeetPerMin,
       alt_msl_ft,
-      stability,
       trend,
       pitchRateDeg,
       bankRateDeg,
@@ -4865,7 +4671,6 @@ async function runSimbridgeCore({
           ? fdmForRecording.apSpeedTargetKts : null,
       },
       xwind,
-      stability,
       nowEpochMs,
       timestampIso,
       phase,

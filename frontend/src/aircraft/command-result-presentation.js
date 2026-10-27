@@ -103,5 +103,6 @@ export function flightGuidanceObservationFailureText(result = {}, request = resu
       ? /^afds\.(headingSelect|headingHold|approach)\.engage$/.exec(request.actionId || request.target || '')?.[1]
       : null;
   const label = { headingSelect: 'Heading select', headingHold: 'Heading hold', approach: 'Approach selection' }[mode];
+  if (mode === 'approach') return 'Approach selection not confirmed. Check the flight mode annunciator before trying again.';
   return label ? `${label} not confirmed. Check the flight mode annunciator.` : null;
 }

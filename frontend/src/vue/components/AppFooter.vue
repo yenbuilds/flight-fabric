@@ -5,7 +5,6 @@ import FlightStatusBadges from './FlightStatusBadges.vue';
 import { useDebugStore } from '../stores/debug.js';
 import { useStatusStore } from '../stores/status.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
-import { useShellStore } from '../stores/shell.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useVoiceControlStore } from '../stores/voice-control.js';
 import { useDocumentEvent } from '../composables/useDocumentEvent.js';
@@ -13,7 +12,6 @@ import { useDocumentEvent } from '../composables/useDocumentEvent.js';
 const debug = useDebugStore();
 const status = useStatusStore();
 const settingsUi = useSettingsUiStore();
-const shell = useShellStore();
 const tabs = useTabsStore();
 const voice = useVoiceControlStore();
 const diagnostics = ref(null);
@@ -51,10 +49,10 @@ useDocumentEvent('focusin', event => {
             {{ voiceLabel }}
           </span>
           <span id="runway-context" :class="{ hidden: !status.runwayContextVisible }">{{ status.runwayContextLabel }}</span>
-          <button type="button" title="Help and keyboard shortcuts" @click="shell.openNavigator('help')">Help &amp; shortcuts</button>
         </div>
         <div class="flex items-center gap-3">
           <span id="app-version"></span>
+          <a id="footer-source-link" class="ff-button-ghost" href="https://github.com/yenbuilds/flight-fabric/releases" target="_blank" rel="noopener noreferrer" aria-label="Source code (AGPL)">Source</a>
           <details ref="diagnostics" class="footer-diagnostics" @keydown.esc.stop.prevent="closeDiagnostics(true)">
             <summary>Connection details</summary>
             <div class="footer-diagnostics-panel" @click="handleDiagnosticAction">

@@ -51,9 +51,12 @@ const precondition = strictObject({
 const freshPrecondition = strictObject({
   fieldId: logicalIdSchema, expectedValue: primitive, freshness: { const: 'field' },
 });
-const condition = { oneOf: [freshPrecondition, strictObject({
-  fieldId: logicalIdSchema, freshness: { const: 'field' }, min: number, max: number,
-})] };
+const failureHint = { type: 'string', minLength: 1, maxLength: 240, pattern: '^[\\x20-\\x7e]+(?![\\s\\S])' };
+const condition = { oneOf: [strictObject({
+  ...freshPrecondition.properties, failureHint,
+}, freshPrecondition.required), strictObject({
+  fieldId: logicalIdSchema, freshness: { const: 'field' }, min: number, max: number, failureHint,
+}, ['fieldId', 'freshness', 'min', 'max'])] };
 const baro = strictObject({
   target: { enum: ['captain', 'firstOfficer', 'both'] }, operation: { enum: ['qnhHpa', 'qnhInHg', 'std'] },
 });

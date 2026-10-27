@@ -306,11 +306,14 @@ function assertDefinition(definition: AircraftIntegrationDefinition): void {
       || new Set(action.guard.requires.map(condition => condition?.fieldId)).size !== action.guard.requires.length
       || action.guard.requires.some(condition => !condition || condition.freshness !== 'field'
         || !Object.prototype.hasOwnProperty.call(definition.fields, condition.fieldId)
+        || (condition.failureHint !== undefined && (typeof condition.failureHint !== 'string'
+          || condition.failureHint.length > 240 || !/^[\x20-\x7e]+$/.test(condition.failureHint)
+          || condition.failureHint.trim().length === 0))
         || ('expectedValue' in condition
           ? !isPrimitive(condition.expectedValue)
-            || Object.keys(condition).some(key => !['fieldId', 'freshness', 'expectedValue'].includes(key))
+            || Object.keys(condition).some(key => !['fieldId', 'freshness', 'expectedValue', 'failureHint'].includes(key))
           : !Number.isFinite(condition.min) || !Number.isFinite(condition.max) || condition.min > condition.max
-            || Object.keys(condition).some(key => !['fieldId', 'freshness', 'min', 'max'].includes(key))))
+            || Object.keys(condition).some(key => !['fieldId', 'freshness', 'min', 'max', 'failureHint'].includes(key))))
     )) throw new TypeError(`Aircraft integration "${adapterId}" has invalid required control conditions.`);
     const routeIds = new Set<string>();
     for (const route of action.routes) {

@@ -181,9 +181,7 @@ type GroupTrendSummary = {
 
 type FlightRecords = { landings: LandingEntry[]; takeoffs: TakeoffLogEntry[] };
 type FileLandingCacheEntry = FlightRecords & {
-  landings: LandingEntry[];
   mtimeMs: number;
-  bundleStatusRequired: boolean;
   strictBundle: boolean;
   bundleFingerprint: string | null;
 };
@@ -245,7 +243,6 @@ const HISTORY_BOUNCE_POST_IMPACT_CONFIRMATION_MS = 1000;
 const COMPACT_REPEAT_COLUMNS = [
   'aircraft',
   'aircraft_profile_id',
-  'data_source',
 ];
 
 const APP_DATA_DIR = getAppDataRoot();
@@ -353,11 +350,6 @@ function toNum(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function toRecordedNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null;
-  return toNum(value);
-}
-
 function isDescendingLandingRate(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value < 0;
 }
@@ -394,9 +386,9 @@ function updateHistoryBounceCandidate(
   candidate: HistoryBounceCandidate,
   row: GenericRecord,
 ): void {
-  const altitudeFt = toRecordedNumber(row.alt_plane_ft);
-  const radioHeightFt = toRecordedNumber(row.ra_ft);
-  const vsFpm = toRecordedNumber(row.vs_fpm);
+  const altitudeFt = toNum(row.alt_plane_ft);
+  const radioHeightFt = toNum(row.ra_ft);
+  const vsFpm = toNum(row.vs_fpm);
   if (altitudeFt !== null && (candidate.peakAltitudeFt === null || altitudeFt > candidate.peakAltitudeFt)) {
     candidate.peakAltitudeFt = altitudeFt;
   }
@@ -441,9 +433,9 @@ function assessHistoryBounceCandidate(
 }
 
 function isPlausibleHistoryTouchdown(row: GenericRecord): boolean {
-  const iasKts = toRecordedNumber(row.ias_kts);
-  const vsFpm = toRecordedNumber(row.vs_fpm);
-  const radioHeightFt = toRecordedNumber(row.ra_ft);
+  const iasKts = toNum(row.ias_kts);
+  const vsFpm = toNum(row.vs_fpm);
+  const radioHeightFt = toNum(row.ra_ft);
   const phase = toText(row.phase)?.toUpperCase() || null;
   const isKnownNonLandingPhase = phase !== null && (
     phase.includes('TAKEOFF')
@@ -465,7 +457,7 @@ function observeHistoryBounceSample(
   gradeFromVs: (vsFpm: number) => string | null,
 ): void {
   const onGround = toBool(row.on_ground);
-  const elapsedMs = toRecordedNumber(row.flight_elapsed_ms) ?? toRecordedNumber(row.ts);
+  const elapsedMs = toNum(row.flight_elapsed_ms) ?? toNum(row.ts);
   if (onGround === null || elapsedMs === null) return;
 
   if (state.pendingConfirmation) {
@@ -474,7 +466,7 @@ function observeHistoryBounceSample(
     if (onGround === false) {
       state.pendingConfirmation = null;
     } else if (confirmationAgeMs >= 0) {
-      const measuredLoadG = toRecordedNumber(row.g_force);
+      const measuredLoadG = toNum(row.g_force);
       if (
         measuredLoadG !== null
         && measuredLoadG > 0
@@ -497,8 +489,6 @@ function observeHistoryBounceSample(
       } else if (confirmationAgeMs >= HISTORY_BOUNCE_POST_IMPACT_CONFIRMATION_MS) {
         state.pendingConfirmation = null;
       }
-    } else if (confirmationAgeMs >= HISTORY_BOUNCE_POST_IMPACT_CONFIRMATION_MS) {
-      state.pendingConfirmation = null;
     }
   }
 
@@ -528,12 +518,12 @@ function observeHistoryBounceSample(
   } else if (state.lastOnGround === false && onGround === true) {
     if (state.landingActive && state.candidate) {
       const candidate = state.candidate;
-      const recontactVsFpm = toRecordedNumber(row.vs_fpm);
+      const recontactVsFpm = toNum(row.vs_fpm);
       const impactVsFpm = recontactVsFpm !== null && candidate.lastAirborneVsFpm !== null
         ? Math.min(recontactVsFpm, candidate.lastAirborneVsFpm)
         : (recontactVsFpm ?? candidate.lastAirborneVsFpm);
       const airborneDurationMs = Math.max(0, elapsedMs - candidate.startedElapsedMs);
-      const impactLoadG = toRecordedNumber(row.g_force);
+      const impactLoadG = toNum(row.g_force);
       const assessment = assessHistoryBounceCandidate(candidate, gradeFromVs, {
         airborneDurationMs,
         impactLoadG,
@@ -558,8 +548,8 @@ function observeHistoryBounceSample(
   }
 
   if (onGround) {
-    state.lastGroundAltitudeFt = toRecordedNumber(row.alt_plane_ft);
-    state.lastGroundRadioHeightFt = toRecordedNumber(row.ra_ft);
+    state.lastGroundAltitudeFt = toNum(row.alt_plane_ft);
+    state.lastGroundRadioHeightFt = toNum(row.ra_ft);
   }
   state.lastOnGround = onGround;
 }
@@ -663,6 +653,7 @@ function normalizeGateFailures(value: unknown): string[] {
 }
 
 function buildStabilityResult(source: GenericRecord): GenericRecord {
+  // The normalizer returns an object for this plain-object input.
   return normalizeRetiredSpoilerStability({
     score: toNum(source.ultimate_stability_score),
     verdict: toText(
@@ -675,13 +666,7 @@ function buildStabilityResult(source: GenericRecord): GenericRecord {
       source.ultimate_stability_gate_failures ?? source.ultimate_stability_gateFailures,
     ),
     breakdown: buildStabilityBreakdown(source),
-  }) || {
-    score: toNum(source.ultimate_stability_score),
-    verdict: 'no_verdict',
-    gateStable: toBool(source.ultimate_stability_gate_stable),
-    gateFailures: [],
-    breakdown: null,
-  };
+  })!;
 }
 
 function logbookGradeSeverity(grade: unknown): number {
@@ -884,20 +869,18 @@ function linearSlope(values: Array<number | null | undefined>): number | null {
     numerator += (index - xMean) * (valid[index] - yMean);
     denominator += (index - xMean) * (index - xMean);
   }
-  const raw = denominator === 0 ? 0 : numerator / denominator;
+  const raw = numerator / denominator;
   // Express the fitted slope across the full window so sample count does not change the label.
   const windowChange = raw * (length - 1);
   const magnitude = Math.abs(yMean);
   return magnitude > 0.001 ? windowChange / magnitude : windowChange;
 }
 
-function linearTrend(values: Array<number | null | undefined>, metric: string): 'improving' | 'regressing' | 'stable' | null {
+function linearTrend(values: Array<number | null | undefined>): 'improving' | 'regressing' | 'stable' | null {
   const slope = linearSlope(values);
   if (slope === null) return null;
   const threshold = 0.03;
-  if (metric === 'vs') return slope > threshold ? 'improving' : slope < -threshold ? 'regressing' : 'stable';
-  if (metric === 'stability') return slope > threshold ? 'improving' : slope < -threshold ? 'regressing' : 'stable';
-  return 'stable';
+  return slope > threshold ? 'improving' : slope < -threshold ? 'regressing' : 'stable';
 }
 
 function averageRounded(values: Array<number | null | undefined>): number | null {
@@ -960,8 +943,8 @@ function computeGroupTrendRows(
         avgStabilityScore: averageRounded(groupEntries.map((entry) => entry.stabilityScore)),
         stableRatePct: verdictValues.length > 0 ? Math.round((stableCount / verdictValues.length) * 100) : null,
         marginalRatePct: verdictValues.length > 0 ? Math.round((marginalCount / verdictValues.length) * 100) : null,
-        trendVs: linearTrend(chronological.map((entry) => descendingLandingRateOrNull(entry.vsFpm)), 'vs'),
-        trendStability: linearTrend(chronological.map((entry) => entry.stabilityScore), 'stability'),
+        trendVs: linearTrend(chronological.map((entry) => descendingLandingRateOrNull(entry.vsFpm))),
+        trendStability: linearTrend(chronological.map((entry) => entry.stabilityScore)),
         latestTimestampMs: Number.isFinite(latestTimestampMs) ? latestTimestampMs : null,
       };
     })
@@ -1072,7 +1055,7 @@ function parseLandingsFromContent(
     const headline = resolveLandingRateHeadline(row, headlineGradeFromVs);
     const vsFpm = headline.vsFpm;
     const grade = headline.grade;
-    const persistedBounceCount = toRecordedNumber(row.bounce_count);
+    const persistedBounceCount = toNum(row.bounce_count);
     const bounceCount = persistedBounceCount ?? (recoveredBounceCount > 0 ? recoveredBounceCount : null);
     const bounceCountSource = persistedBounceCount !== null
       ? 'recorded'
@@ -1406,7 +1389,6 @@ async function getFlightRecordsFromCsvFile(filePath: string, options: CsvFileRea
         mtimeMs,
         landings: fileLandings,
         takeoffs,
-        bundleStatusRequired: completion.required,
         strictBundle: completion.strictBundle,
         bundleFingerprint,
       });

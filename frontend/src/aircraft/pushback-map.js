@@ -18,9 +18,9 @@ export function pushbackCaption(data, fresh = true) {
 /** The same north-up departure diagram in Vue and Coherent. It fits the whole
  * reversing path, with a short onward taxi leg, rather than shrinking the
  * pushback to a dot inside an airport-wide view. This SVG has no input handlers. */
-export function renderPushbackMap(root, data, fresh = true) {
+export function renderPushbackMap(root, data, fresh = true, formatText = String) {
   root.setAttribute('viewBox', '0 0 360 300'); root.setAttribute('role', 'img'); root.setAttribute('focusable', 'false');
-  root.setAttribute('aria-label', pushbackCaption(data, fresh));
+  root.setAttribute('aria-label', formatText(pushbackCaption(data, fresh)));
   root.setAttribute('data-pushback-map', '');
   const preview = data?.pushbackPreview, points = preview?.points;
   if (!Array.isArray(points) || points.length < 2 || !points.every(point) || !Number.isFinite(preview.headingDeg)) {
@@ -32,7 +32,7 @@ export function renderPushbackMap(root, data, fresh = true) {
   let view = views.get(root);
   if (!view || view.id !== preview.id || view.sceneKey !== data.scene?.key || !root.contains(view.background)) {
     while (root.firstChild) root.removeChild(root.firstChild);
-    view = buildMap(root, data); views.set(root, view);
+    view = buildMap(root, data, formatText); views.set(root, view);
   }
   const completed = preview.phase === 'complete', color = completed ? green : amber;
   const aircraft = fresh && point(data.aircraft) && Number.isFinite(data.aircraft.headingDeg) ? data.aircraft : null;
@@ -40,8 +40,8 @@ export function renderPushbackMap(root, data, fresh = true) {
   view.ahead.setAttribute('points', view.coordinates(completed ? [] : progress.ahead));
   view.finish.setAttribute('stroke', color);
   view.title.setAttribute('fill', fresh ? color : 'var(--taxi-aircraft, #e8eef5)');
-  view.title.textContent = !fresh ? 'Reference only' : completed ? 'Pushback complete' : preview.phase === 'connecting' ? 'Connecting tug' : preview.phase === 'pushing' ? 'Pushing back'
-    : preview.phase === 'stopping' ? 'Stopping…' : 'Pushback preview';
+  view.title.textContent = formatText(!fresh ? 'Reference only' : completed ? 'Pushback complete' : preview.phase === 'connecting' ? 'Connecting tug' : preview.phase === 'pushing' ? 'Pushing back'
+    : preview.phase === 'stopping' ? 'Stopping…' : 'Pushback preview');
   const remaining = Number.isFinite(preview.remainingM) ? preview.remainingM : preview.lengthM;
   view.distance.textContent = !fresh ? '' : completed ? 'Ready to taxi' : Math.round(remaining) + (preview.phase === 'preview' ? ' m reverse' : ' m left');
   view.distance.setAttribute('fill', completed ? green : 'var(--taxi-aircraft, #e8eef5)');
@@ -68,7 +68,7 @@ export function renderPushbackMap(root, data, fresh = true) {
   }
 }
 
-function buildMap(root, data) {
+function buildMap(root, data, formatText) {
   const preview = data.pushbackPreview, points = preview.points;
   const finish = points[points.length - 1], taxi = (data.route?.points || []).filter(point);
   const onward = taxi.length ? [taxi[0]] : [];
@@ -85,7 +85,7 @@ function buildMap(root, data) {
   const svg = (tag, attrs, text) => {
     const node = root.ownerDocument.createElementNS('http://www.w3.org/2000/svg', tag);
     Object.keys(attrs).forEach(key => node.setAttribute(key, String(attrs[key])));
-    if (text !== undefined) node.textContent = text;
+    if (text !== undefined) node.textContent = formatText(text);
     root.appendChild(node); return node;
   };
   const coordinates = ps => ps.map(p => xy(p).join(',')).join(' ');

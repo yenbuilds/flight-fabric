@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const ts = require('typescript');
 const { ROOT, listRepoSourceFiles, normalizeRepoRelative, readRepoSource } = require('./backend-source-paths');
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 const { getRepoScratchPath } = require('./repo-scratch');
@@ -233,28 +234,42 @@ test('imported config paths exist on backend/core/config.js', () => {
   assert(missing.length === 0, `undefined config paths: ${missing.join('; ')}`);
 });
 
-test('client-message context builder matches handler contract', () => {
-  const contextSource = read('backend/core/client-message-context.js');
-  const handlerSource = read('backend/core/client-message-handler.js');
-
-  const provided = new Set();
-  for (const match of contextSource.matchAll(/^\s*(\w+):\s*state\./gm)) {
-    provided.add(match[1]);
+test('core client-message context matches handler dependencies', () => {
+  function parse(file) {
+    return ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   }
-
-  const destructure = handlerSource.match(/async\s+function\s+handleClientMessage[\s\S]*?const\s*\{([\s\S]*?)\}\s*=\s*context;/);
+  function find(node, predicate) {
+    return predicate(node) ? node : ts.forEachChild(node, child => find(child, predicate));
+  }
+  const core = parse('backend/core/simbridge-core.ts');
+  const handler = parse('backend/core/client-message-handler.ts');
+  const dispatch = find(core, node => ts.isPropertyAssignment(node) && node.name.getText(core) === 'onClientMessage');
+  assert(dispatch, 'could not find core client-message dispatch');
+  const context = find(dispatch, node => ts.isVariableDeclaration(node) && node.name.getText(core) === 'context');
+  assert(context?.initializer, 'could not find core context construction');
+  const object = context.initializer;
+  assert(object && ts.isObjectLiteralExpression(object), 'core must explicitly select context dependencies');
+  const provided = new Set(object.properties.map(property => {
+    assert(ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property), 'context must not spread runtime state');
+    assert(ts.isIdentifier(property.name), 'context dependency names must be explicit');
+    return property.name.text;
+  }));
+  const handle = find(handler, node => ts.isFunctionDeclaration(node) && node.name?.text === 'handleClientMessage');
+  assert(handle, 'could not find client-message handler');
+  const destructure = find(handle, node => ts.isVariableDeclaration(node)
+    && ts.isObjectBindingPattern(node.name) && node.initializer?.getText(handler) === 'context');
   assert(destructure, 'could not find handler context destructuring');
-  const required = new Set(
-    destructure[1]
-      .split(',')
-      .map((part) => part.trim().split(/\s|=/)[0])
-      .filter(Boolean)
-  );
+  const required = new Set(destructure.name.elements.map(element => {
+    assert(!element.dotDotDotToken, 'handler must name its context dependencies');
+    const name = element.propertyName || element.name;
+    assert(ts.isIdentifier(name), 'handler dependency names must be explicit');
+    return name.text;
+  }));
 
   const missing = [...required].filter((key) => !provided.has(key));
   const extra = [...provided].filter((key) => !required.has(key));
-  assert(missing.length === 0, `context builder missing: ${missing.join(', ')}`);
-  assert(extra.length === 0, `context builder has unused keys: ${extra.join(', ')}`);
+  assert(missing.length === 0, `core context missing: ${missing.join(', ')}`);
+  assert(extra.length === 0, `core context has unused keys: ${extra.join(', ')}`);
 });
 
 test('literal event-bus events are documented', () => {

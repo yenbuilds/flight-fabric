@@ -28,8 +28,8 @@
   --radius-sm: 7px;
   --font: "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
   --mono: "Cascadia Mono", "Consolas", "Roboto Mono", "Menlo", monospace;
-  --base: 24px;
-  --gap: 10px;
+  --base: 18px;
+  --gap: 8px;
 }
 
 :root[data-theme="light"] {
@@ -90,8 +90,13 @@
 .presets-section.card { position: relative; border-left: 3px solid var(--accent); border-radius: 3px; }
 .preset-watermark { position: absolute; top: 0; right: 0; width: 100%; max-width: 560px; opacity: 0.45; pointer-events: none; user-select: none; }
 .preset-heading, .preset-row, .preset-group { position: relative; }
-.preset-heading { display: flex; align-items: center; margin-bottom: 12px; }
+.preset-heading { display: flex; align-items: center; min-height: 44px; cursor: pointer; list-style: none; }
+.preset-heading::-webkit-details-marker { display: none; }
+.preset-heading:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.presets-section[open] > .preset-heading { margin-bottom: 12px; }
 .preset-heading svg { width: 30px; height: 30px; margin-right: 12px; flex-shrink: 0; fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.preset-heading .preset-chevron { width: 18px; height: 18px; margin: 0 0 0 auto; stroke: var(--fg-muted); }
+.presets-section[open] > .preset-heading .preset-chevron { transform: rotate(90deg); }
 .presets-section h3, .presets-section h4, .presets-section p { margin: 0; }
 .presets-section h3 { font-size: 1em; }
 .preset-heading p, .preset-group > p { font-size: 0.8em; margin-top: 3px; }
@@ -295,6 +300,38 @@ button { cursor: pointer; }
   overflow-x: hidden;
   padding: var(--gap) 12px 16px;
 }
+
+/* Coherent GT can omit default scrollbar styles. Scope explicit native bars
+ * to the actual scroll containers, as its performance guide recommends. */
+.content::-webkit-scrollbar,
+.sheet-body::-webkit-scrollbar,
+.table-wrap::-webkit-scrollbar { width: 16px; height: 16px; }
+
+.content::-webkit-scrollbar-track,
+.sheet-body::-webkit-scrollbar-track,
+.table-wrap::-webkit-scrollbar-track { background: var(--bg-sunken); }
+
+.content::-webkit-scrollbar-thumb,
+.sheet-body::-webkit-scrollbar-thumb,
+.table-wrap::-webkit-scrollbar-thumb {
+  background: var(--fg-faint);
+  border: 3px solid var(--bg-sunken);
+  border-radius: var(--radius-sm);
+  min-height: 36px;
+  min-width: 36px;
+}
+
+.content::-webkit-scrollbar-thumb:hover,
+.sheet-body::-webkit-scrollbar-thumb:hover,
+.table-wrap::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+.content::-webkit-scrollbar-thumb:active,
+.sheet-body::-webkit-scrollbar-thumb:active,
+.table-wrap::-webkit-scrollbar-thumb:active { background: var(--accent); }
+
+.content::-webkit-scrollbar-corner,
+.sheet-body::-webkit-scrollbar-corner,
+.table-wrap::-webkit-scrollbar-corner { background: var(--bg-sunken); }
 
 .tab-panel { display: block; }
 
@@ -521,17 +558,6 @@ table.data th { color: var(--fg-muted); font-weight: 600; font-size: 0.95em; }
 .voice-status-title { font-weight: 600; }
 .voice-status-detail { font-size: 0.86em; color: var(--fg-muted); word-break: break-word; }
 
-.phrase-list { list-style: none; margin: 0; padding: 0; }
-
-.phrase {
-  display: flex;
-  align-items: baseline;
-  padding: 6px 0;
-  border-top: 1px solid var(--panel-border);
-}
-
-.phrase:first-child { border-top: 0; }
-.phrase-quote { color: var(--fg-faint); margin-right: 6px; }
 .phrase-text { font-family: var(--mono); font-size: 0.94em; }
 .phrase-text .slot { color: var(--accent); }
 

@@ -215,8 +215,7 @@ export declare function shouldResetCurrentApproachScorerForParked({ phase, score
  * new attempt-scoped component in one path but not the other would allow a
  * go-around to leak first-attempt state into the eventual landing score.
  */
-export declare function resetGoAroundScoringState<T>({ resetStability, landingRunner, createCurrentApproachScorer, }: {
-    resetStability: () => void;
+export declare function resetGoAroundScoringState<T>({ landingRunner, createCurrentApproachScorer, }: {
     landingRunner: {
         reset: () => void;
     };

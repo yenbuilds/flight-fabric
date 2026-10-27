@@ -25,7 +25,7 @@ const TEST_STEPS = [
   ['npm', ['run', 'test:backend:compiled-units']],
   ['node', ['--test', 'dist/backend/tests/core/update-readiness.test.js']],
   ['node', ['--test', 'dist/backend/tests/autotaxi/pushback.test.js', 'dist/backend/tests/autotaxi/autotaxi.test.js', 'dist/backend/tests/autotaxi/controller-motion.test.js', 'dist/backend/tests/autotaxi/pmdg-readiness.test.js', 'dist/backend/tests/autotaxi/aircraft-config.test.js', 'dist/backend/tests/autotaxi/aircraft-adapters.test.js', 'frontend/tests/aircraft/autotaxi-chase-view.test.js', 'frontend/tests/aircraft/taxi-map.test.js', 'frontend/tests/aircraft/departure-preview.test.js', 'frontend/tests/aircraft/pushback-controls.test.js', 'frontend/tests/aircraft/pushback-map.test.js']],
-  ['node', ['--test', 'dist/backend/tests/telemetry-provider/cdu/cdu.test.js', 'frontend/tests/aircraft/cdu-controller.test.js', 'frontend/tests/aircraft/cdu-skins.test.js']],
+  ['node', ['--test', 'dist/backend/tests/telemetry-provider/cdu/cdu.test.js', 'frontend/tests/aircraft/cdu-controller.test.js']],
   ['node', ['--test', 'dist/backend/tests/core/device-pairing.test.js', 'dist/backend/tests/core/toolbar-presets.test.js']],
   ['node', ['--test', 'dist/backend/tests/stability/approach-assessment.test.js', 'frontend/tests/timeline/approach-alerts.test.js']],
   ['node', ['--test', 'dist/backend/tests/landing/landing-replay-analysis.test.js']],

@@ -22,15 +22,13 @@ export const useShellStore = defineStore('shell', () => {
     },
   });
   const navigatorOpen = ref(false);
-  const navigatorMode = ref('navigate');
   // Navigator visibility and search text are intentionally transient.
 
   function toggleSidebar() { sidebarCollapsed.value = !sidebarCollapsed.value; }
-  function openNavigator(mode = 'navigate') {
-    navigatorMode.value = mode === 'help' ? 'help' : 'navigate';
+  function openNavigator() {
     navigatorOpen.value = true;
   }
   function closeNavigator() { navigatorOpen.value = false; }
 
-  return { sidebarCollapsed, navigatorOpen, navigatorMode, toggleSidebar, openNavigator, closeNavigator };
+  return { sidebarCollapsed, navigatorOpen, toggleSidebar, openNavigator, closeNavigator };
 });

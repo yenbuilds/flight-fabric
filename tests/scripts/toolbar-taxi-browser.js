@@ -44,7 +44,7 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   await page(`window.taxiRouteNode = document.querySelector('.taxi-simple-route');
     window.taxiRoutePoints = window.taxiRouteNode.getAttribute('points');
     window.taxiMapNodeCount = document.querySelector('.taxi-figure svg').querySelectorAll('*').length;`);
-  assert.equal(await root('return keyboardClaimed;'), true, 'Taxi buttons retain capture through pending state');
+  await until(root, 'return keyboardClaimed;', false);
   await click('#taxi-airport');
   await page(`window.taxiInput = document.activeElement; document.activeElement.setSelectionRange(1, 3);`);
   await wait(1100);
@@ -127,7 +127,7 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   assert.equal(await page(`return !!document.querySelector('[data-pushback-aircraft]');`), false, 'taxi map reentry removes pushback geometry');
   await click('#taxi-pushback-view');
   await until(page, `return !!document.querySelector('[data-pushback-path]');`);
-  assert.equal(await root('return keyboardClaimed;'), true, 'preview view buttons preserve keyboard capture');
+  await until(root, 'return keyboardClaimed;', false);
   await page(`await fetch('/fixture/pushback?brake=false');`);
   await until(page, `return !document.querySelector('#taxi-pushback-action').disabled;`);
   const beforePush = await page(`return (await (await fetch('/fixture/pushback')).json()).filter(r => r.operation === 'start').length;`);
@@ -135,12 +135,13 @@ module.exports = async function ({ win, page, root, click, key, press, until, wi
   const parentBeforePush = await root('return parentInputs.slice();');
   key('keyDown', 'Enter'); key('char', '\r');
   await until(page, `return document.querySelector('#taxi-pushback-action').textContent === 'Stop pushback';`);
+  await until(root, 'return keyboardClaimed;');
   key('keyDown', 'Enter', ['isautorepeat']); key('char', '\r', ['isautorepeat']); key('keyUp', 'Enter');
   await wait(400);
   assert.equal(await page(`return document.activeElement === window.pushbackButton && window.pushbackButton.textContent === 'Stop pushback';`), true,
     'the same focused button becomes Stop; held Enter does not stop the new manoeuvre');
   assert.equal(await page(`return (await (await fetch('/fixture/pushback')).json()).filter(r => r.operation === 'start').length;`), beforePush + 1);
-  assert.equal(await root('return keyboardClaimed;'), true);
+  await until(root, 'return keyboardClaimed;', false);
   assert.deepEqual(await root('return parentInputs;'), parentBeforePush, 'pushback keyboard events stay inside the toolbar iframe');
   assert.equal(await page(`return document.querySelector('#taxi-airport').disabled && document.querySelector('#taxi-runway').disabled;`), true);
   await until(page, `return document.querySelector('.taxi-caption').textContent.includes('48 m remaining');`);

@@ -111,7 +111,7 @@ var FlightFabricToolbarPresets = (() => {
           return Number.isFinite(value) && value >= input.min && value <= input.max && Math.abs(position - Math.round(position)) < 1e-7 ? value : null;
         }
         function brightnessLabel2(id) {
-          return id === "configuration.lighting.cockpit" ? "Global cockpit lighting" : "All flight displays";
+          return id === "configuration.lighting.cockpit" ? "Cockpit lighting" : "All flight displays";
         }
         function readbackFields(commands) {
           var fields = SOURCE_FIELDS.slice();
@@ -212,18 +212,19 @@ var FlightFabricToolbarPresets = (() => {
   var { groups: presetGroups, numberValue: presetNumberValue, brightnessLabel } = (typeof globalThis !== "undefined" ? globalThis : window).FlightFabricPresets;
 
   // frontend/src/aircraft/toolbar-presets.js
-  function createPresetPanel({ document, send, setTimeout, clearTimeout, now = Date.now }) {
-    const element = node("section", "card presets-section");
+  function createPresetPanel({ document, send, setTimeout, clearTimeout, now = Date.now, formatText = String }) {
+    const element = node("details", "card presets-section");
     element.setAttribute("aria-label", "Presets");
     element.id = "toolbar-presets";
     element.hidden = true;
+    element.open = false;
     let context = "", catalogue = {}, snapshot = null, connection = {}, rows = [], pending = null;
     let tick = null, sequence = 0, signature = "", enabled = false;
     const drafts = /* @__PURE__ */ Object.create(null), feedback = /* @__PURE__ */ Object.create(null);
     function node(tag, className, text) {
       const result = document.createElement(tag);
       result.className = className || "";
-      if (text !== void 0) result.textContent = text;
+      if (text !== void 0) result.textContent = formatText(text);
       return result;
     }
     function clear(target) {
@@ -238,6 +239,7 @@ var FlightFabricToolbarPresets = (() => {
     function reset() {
       snapshot = null;
       pending = null;
+      element.open = false;
       Object.keys(drafts).forEach((key) => delete drafts[key]);
       Object.keys(feedback).forEach((key) => delete feedback[key]);
     }
@@ -365,12 +367,7 @@ var FlightFabricToolbarPresets = (() => {
       if (active && typeof element.contains === "function" && element.contains(active) && typeof active.blur === "function") active.blur();
       clear(element);
       rows = [];
-      const art = node("img", "preset-watermark");
-      art.src = "/assets/aircraft-presets.svg";
-      art.alt = "";
-      art.setAttribute("aria-hidden", "true");
-      element.appendChild(art);
-      const heading = node("div", "preset-heading");
+      const heading = node("summary", "preset-heading");
       const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       icon.setAttribute("viewBox", "0 0 24 24");
       icon.setAttribute("aria-hidden", "true");
@@ -384,6 +381,20 @@ var FlightFabricToolbarPresets = (() => {
       title.appendChild(node("p", "muted", "Apply a group of settings together."));
       heading.appendChild(title);
       element.appendChild(heading);
+      const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      chevron.setAttribute("class", "preset-chevron");
+      chevron.setAttribute("viewBox", "0 0 24 24");
+      chevron.setAttribute("aria-hidden", "true");
+      chevron.setAttribute("focusable", "false");
+      const chevronPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      chevronPath.setAttribute("d", "m9 5 7 7-7 7");
+      chevron.appendChild(chevronPath);
+      heading.appendChild(chevron);
+      const art = node("img", "preset-watermark");
+      art.src = "/assets/aircraft-presets.svg";
+      art.alt = "";
+      art.setAttribute("aria-hidden", "true");
+      element.appendChild(art);
       const groups = presetGroups(catalogue.commands);
       groups.cards.forEach((command) => row(command, element, false));
       if (groups.lights.length) {
@@ -409,10 +420,10 @@ var FlightFabricToolbarPresets = (() => {
         if (input) input.disabled = Boolean(pending);
         if (range) range.disabled = Boolean(pending);
         if (target) target.textContent = "Target brightness: " + (presetNumberValue(command, drafts[command.id]) === null ? "--" : drafts[command.id]) + "%";
-        reason.textContent = why;
+        reason.textContent = formatText(why);
         reason.hidden = !why || input && !range && !String(drafts[command.id] || "").trim() && why.startsWith("Enter a value");
         const entry = feedback[command.id];
-        result.textContent = entry ? entry.text : "";
+        result.textContent = formatText(entry ? entry.text : "");
         result.className = "preset-result " + (entry ? entry.tone : "");
         result.hidden = !entry;
         let observation = "";
@@ -423,7 +434,7 @@ var FlightFabricToolbarPresets = (() => {
           const value = presetObservation(command, snapshot, now());
           observation = value ? value.label : "APU status unknown";
         }
-        observed.textContent = observation;
+        observed.textContent = formatText(observation);
         observed.hidden = !observation;
       });
     }

@@ -238,8 +238,6 @@ export function createScrubber({
     setPoints,
     scrubToOffset,
     syncToTimestamp,
-    updateLabels,
-    setVisible,
     getStartMs: () => startMs,
     getEndMs: () => endMs,
   };

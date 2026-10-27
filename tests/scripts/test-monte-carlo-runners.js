@@ -173,15 +173,6 @@ function makeLandingContext() {
   return {
     phase: 'LANDING',
     xwind_kts: 6,
-    stability: {
-      ultimateScore: {
-        overall: 100,
-        breakdown: { gear_ok: 100, flaps_ok: 100, spoilers_ok: 100 },
-        gateStable: true,
-        gateFailures: [],
-        samples: 20,
-      },
-    },
     aircraftName: 'MC Test Aircraft',
     icao: null,
     runway: null,

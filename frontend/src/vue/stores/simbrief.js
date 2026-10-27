@@ -27,7 +27,8 @@ function fmtFetchedAt(ts) {
   if (!ts) return '';
   try {
     const date = new Date(ts);
-    return `Fetched ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return `Fetched ${day} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   } catch {
     return '';
   }

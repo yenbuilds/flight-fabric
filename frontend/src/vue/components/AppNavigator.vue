@@ -11,7 +11,6 @@ import { useProfilesStore } from '../stores/profiles.js';
 import { useSystemHostStore } from '../stores/system-host.js';
 import { useSettingsUiStore } from '../stores/settings-ui.js';
 import { focusVoiceSettings, focusToolbarPanelSettings, openPhoneSettings, openSetup } from '../settings-navigation.js';
-import { SUPPORT_URL as supportHref } from '../../support/content.js';
 
 const shell = useShellStore();
 const tabs = useTabsStore();
@@ -120,7 +119,7 @@ function isAvailableTarget(element) {
     && !element.disabled && !element.closest('[inert]') && element.getClientRects().length > 0;
 }
 watch(results, () => { selected.value = 0; });
-watch([() => shell.navigatorOpen, () => shell.navigatorMode], async ([open], [wasOpen]) => {
+watch(() => shell.navigatorOpen, async (open, wasOpen) => {
   const revision = ++focusRevision;
   if (open) {
     if (!wasOpen) {
@@ -135,7 +134,7 @@ watch([() => shell.navigatorOpen, () => shell.navigatorMode], async ([open], [wa
     tabs.closeMoreSheet();
     await nextTick();
     if (revision !== focusRevision || !shell.navigatorOpen) return;
-    panel.value?.querySelector(shell.navigatorMode === 'navigate' ? 'input' : '[data-navigator-close]')?.focus({ preventScroll: true });
+    panel.value?.querySelector('input')?.focus({ preventScroll: true });
   } else {
     releaseBackground();
     const target = returnTarget;
@@ -172,31 +171,22 @@ useDocumentEvent('keydown', event => {
     <div v-if="shell.navigatorOpen" class="app-navigator-backdrop ff-keyboard-safe-overlay" @click.self="close">
       <section ref="panel" class="app-navigator" role="dialog" aria-modal="true" aria-labelledby="app-navigator-title" tabindex="-1">
         <header class="app-navigator-header">
-          <h2 id="app-navigator-title">{{ shell.navigatorMode === 'help' ? 'Help & shortcuts' : 'Go to...' }}</h2>
+          <h2 id="app-navigator-title">Go to...</h2>
           <button type="button" class="ff-icon-button" aria-label="Close" data-navigator-close @click="close">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
-        <template v-if="shell.navigatorMode === 'navigate'">
-          <div class="app-navigator-search">
-            <label class="sr-only" for="app-navigator-query">Search views and tools</label>
-            <input id="app-navigator-query" v-model="query" type="search" placeholder="Search views and tools..." autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="app-navigator-results" :aria-activedescendant="results[selected] ? 'navigator-result-' + results[selected].id : undefined" @keydown="onSearchKeydown">
-          </div>
-          <div id="app-navigator-results" class="app-navigator-results" role="listbox" aria-label="Views and tools">
-            <div v-for="(tab, index) in results" :key="tab.id" class="app-navigator-result" :class="{ selected: index === selected }" role="presentation" @pointermove="$event.pointerType === 'mouse' && (selected = index)">
-              <button :id="'navigator-result-' + tab.id" type="button" role="option" :aria-selected="index === selected" :aria-disabled="tab.id === 'setup' && settingsUi.introBlockedReason ? true : undefined" tabindex="-1" @mousedown.prevent @click="navigate(tab)"><TabIcon :kind="tab.icon" /><span><strong>{{ tab.label }}</strong><small>{{ tab.description || descriptions[tab.id] }}</small></span><kbd v-if="tab.shortcut" aria-hidden="true">{{ tab.shortcut }}</kbd></button>
-            </div>
-          </div>
-          <p v-if="!results.length" class="app-navigator-empty" role="status">No matching views. Try aircraft, briefing, or settings.</p>
-          <footer class="app-navigator-hint"><span>Arrow keys to choose · Enter to open</span><span>Esc to close</span></footer>
-        </template>
-        <div v-else class="app-help-content">
-          <p>Keep your flight in view. Use the navigation to move between tasks, or search for a view with <kbd>Ctrl K</kbd> (<kbd>⌘ K</kbd> on Mac).</p>
-          <dl class="app-shortcuts"><div><dt>Switch views</dt><dd><kbd>1</kbd> - <kbd>{{ tabs.desktopPrimaryTabs.length + tabs.desktopSecondaryTabs.length }}</kbd></dd></div><div><dt>Find aircraft controls</dt><dd><kbd>Ctrl F</kbd> in Aircraft</dd></div><div><dt>Close a dialog</dt><dd><kbd>Esc</kbd></dd></div></dl>
-          <p class="text-muted-fg">View shortcuts pause while typing or in dialogs. Set your voice shortcut in Voice settings.</p>
-          <div class="app-help-actions"><button type="button" class="ff-button-secondary" @click="navigate(destinations.find(tab => tab.id === 'settings'))">Open settings</button><button type="button" class="ff-button-secondary" @click="navigate(destinations.find(tab => tab.id === 'system'))">Connection &amp; devices</button></div>
-          <div class="app-help-links"><a id="footer-source-link" href="https://github.com/yenbuilds/flight-fabric/releases" target="_blank" rel="noopener noreferrer">Releases & source (AGPL)</a><a id="footer-support-link" :href="supportHref" target="_blank" rel="noopener noreferrer">Support FlightFabric</a></div>
+        <div class="app-navigator-search">
+          <label class="sr-only" for="app-navigator-query">Search views and tools</label>
+          <input id="app-navigator-query" v-model="query" type="search" placeholder="Search views and tools..." autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="app-navigator-results" :aria-activedescendant="results[selected] ? 'navigator-result-' + results[selected].id : undefined" @keydown="onSearchKeydown">
         </div>
+        <div id="app-navigator-results" class="app-navigator-results" role="listbox" aria-label="Views and tools">
+          <div v-for="(tab, index) in results" :key="tab.id" class="app-navigator-result" :class="{ selected: index === selected }" role="presentation" @pointermove="$event.pointerType === 'mouse' && (selected = index)">
+            <button :id="'navigator-result-' + tab.id" type="button" role="option" :aria-selected="index === selected" :aria-disabled="tab.id === 'setup' && settingsUi.introBlockedReason ? true : undefined" tabindex="-1" @mousedown.prevent @click="navigate(tab)"><TabIcon :kind="tab.icon" /><span><strong>{{ tab.label }}</strong><small>{{ tab.description || descriptions[tab.id] }}</small></span><kbd v-if="tab.shortcut" aria-hidden="true">{{ tab.shortcut }}</kbd></button>
+          </div>
+        </div>
+        <p v-if="!results.length" class="app-navigator-empty" role="status">No matching views. Try aircraft, briefing, or settings.</p>
+        <footer class="app-navigator-hint"><span>Arrow keys to choose · Enter to open</span><span>Esc to close</span></footer>
       </section>
     </div>
   </Teleport>

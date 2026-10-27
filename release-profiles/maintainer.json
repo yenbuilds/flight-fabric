@@ -2,19 +2,17 @@
   "$schema": "./release-profile.schema.json",
   "name": "maintainer",
   "displayName": "FlightFabric (Maintainer Edition)",
-  "description": "Full codebase including developer diagnostics and dashboard tooling. For project maintainers only.",
+  "description": "Full codebase including developer diagnostics. For project maintainers only.",
   "extends": "developer",
   
   "include": {
     "backend_dirs": [],
     "frontend": [],
-    "tools": [
-      "flight-dashboard/**"
-    ],
+    "tools": [],
     "root": []
   },
   
   "exclude_patterns": [],
   
-  "_comment": "Maintainer profile adds dashboard tooling while keeping package-local tests/ folders and shared integration tests excluded from app packages."
+  "_comment": "Maintainer profile inherits developer tooling while keeping package-local tests/ folders and shared integration tests excluded from app packages."
 }

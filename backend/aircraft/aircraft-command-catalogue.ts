@@ -64,8 +64,8 @@ export const PARITY_COMMAND_DEFINITIONS: readonly AircraftCommandDefinition[] = 
     ];
   }),
   ...[
-    ['flightGuidance.speed.engage', 'MCP speed', ['engage mcp speed', 'engage speed mode']],
-    ['flightGuidance.n1.engage', 'N1 mode', ['engage n one', 'engage n1']],
+    ['flightGuidance.speed.engage', 'MCP speed', ['engage mcp speed', 'mcp speed', 'engage speed mode', 'speed mode']],
+    ['flightGuidance.n1.engage', 'N1 mode', ['engage n one', 'n one', 'engage n1', 'n1']],
   ].map(([id, label, patterns]) => ({ id: id as string, label: label as string, group: 'flightGuidance',
     input: { kind: 'none' } as const, speech: { patterns: patterns as string[], hints: [(label as string).toUpperCase()] } })),
 ];
@@ -654,18 +654,21 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       speech: {
         patterns: [
           `engage ${label.toLowerCase()}`,
+          ...(id === 'flightGuidance.headingSelect.engage'
+            ? ['heading select', 'engage heading selected', 'heading selected'] : []),
           ...(id === 'flightGuidance.altitudeHold.engage' ? ['altitude hold'] : []),
           ...(id === 'flightGuidance.verticalSpeed.engage'
-            ? ['engage vertical speed', 'vertical speed mode']
+            ? ['engage vertical speed', 'vertical speed', 'vertical speed mode']
             : []),
           ...(id === 'flightGuidance.flightLevelChange.engage'
-            ? ['engage flch', 'flch', 'engage f l c h', 'f l c h']
+            ? ['level change', 'engage flight level change', 'flight level change',
+              'engage flch', 'flch', 'engage f l c h', 'f l c h']
             : []),
           ...(id === 'flightGuidance.localizer.engage'
-            ? ['engage localizer', 'engage loc', 'loc', 'engage vor loc']
+            ? ['engage localizer', 'localizer', 'engage loc', 'loc', 'engage vor loc', 'vor loc']
             : []),
           ...(id === 'flightGuidance.approach.engage'
-            ? ['engage approach', 'approach', 'engage app', 'app']
+            ? ['engage approach', 'approach', 'approach mode', 'engage app', 'app']
             : []),
         ],
         hints: [hint],
@@ -835,7 +838,7 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
     {
       id: 'configuration.lighting.cockpit',
       label: 'Cockpit lighting',
-      description: 'Set the aircraft panel, flood and flight-display dimmers to one brightness.',
+      description: 'Set panel, flood and background lighting without changing flight-display brightness.',
       group: 'presets',
       kind: 'preset',
       input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
@@ -851,7 +854,7 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
     {
       id: 'configuration.lighting.displays',
       label: 'Flight displays',
-      description: 'Set all flight-display dimmers to one brightness.',
+      description: 'Set all flight-display dimmers without changing panel, flood or background lighting.',
       group: 'presets', kind: 'preset',
       input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
       speech: {
@@ -889,6 +892,7 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
           'set lights for a takeoff', 'set lights for a take off',
           'set takeoff lights', 'set take off lights',
           'takeoff lights', 'take off lights',
+          "let's hit it",
         ],
         hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
       },
@@ -1382,18 +1386,6 @@ const PMDG_737_AIRCRAFT_COMMAND_CONFIGURATION: AircraftCommandConfiguration = Ob
       false: aircraftAction('flightControls.speedbrake.disarm'),
       true: aircraftAction('flightControls.speedbrake.arm'),
     }, BOOLEAN_INPUT),
-    inputSequence(
-      'configuration.lighting.cockpit',
-      '16 dimmers · panel backlighting · flood lighting · flight displays',
-      [
-        { label: 'Panel backlighting', request: aircraftAction('lighting.cockpit.panels.set') },
-        { label: 'Flood and background lighting', request: aircraftAction('lighting.cockpit.ambient.set') },
-        { label: 'Captain and upper displays', request: aircraftAction('lighting.cockpit.captainDisplays.set') },
-        { label: 'First Officer and lower displays', request: aircraftAction('lighting.cockpit.firstOfficerDisplays.set') },
-      ],
-      'value',
-      { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
-    ),
     input(
       'radios.nav.setBothActive',
       aircraftAction('radios.navBoth.setActive'),
@@ -2283,20 +2275,16 @@ export function resolveAircraftCommandConfiguration(profile: unknown): AircraftC
   if (groups.length === 0) return configuration;
   const bindings = [...configuration.bindings];
   for (const target of ['cockpit', 'displays']) {
-    const selected = target === 'displays' ? groups.filter(group => group.displays) : groups;
+    const selected = groups.filter(group => target === 'displays' ? group.displays : !group.displays);
+    if (selected.length === 0) continue;
     const commandId = `configuration.lighting.${target}`;
     const brightnessFields = Object.freeze(selected.flatMap(group => [...group.fields]));
-    const existing = bindings.findIndex(binding => binding.commandId === commandId);
-    if (existing >= 0) {
-      bindings[existing] = Object.freeze({ ...bindings[existing], brightnessFields });
-    } else {
-      bindings.push(Object.freeze({
-        ...inputSequence(commandId, `${brightnessFields.length} dimmers · ${target === 'displays'
-          ? 'PFD, navigation and engine displays' : 'panel and flood lighting · flight displays'}`,
-        selected.map(group => ({ label: group.label, request: aircraftAction(group.actionId) }))),
-        brightnessFields,
-      }));
-    }
+    bindings.push(Object.freeze({
+      ...inputSequence(commandId, `${brightnessFields.length} dimmers · ${target === 'displays'
+        ? 'PFD, navigation and engine displays · cockpit lighting unchanged' : 'panel, flood and background lighting · flight displays unchanged'}`,
+      selected.map(group => ({ label: group.label, request: aircraftAction(group.actionId) }))),
+      brightnessFields,
+    }));
   }
   return Object.freeze({ id: adapterId, bindings: Object.freeze(bindings) });
 }

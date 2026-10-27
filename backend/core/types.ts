@@ -1,10 +1,7 @@
-// types.js
-// JSDoc type definitions for FlightFabric.
-// These provide documentation and IDE autocomplete without requiring TypeScript.
-//
-// Usage in other files:
-//   /** @type {import('./types').TelemetryFrame} */
-//   const frame = provider.nextFrame();
+// Legacy contract documentation read by tests/scripts/test-type-drift.js.
+// These JSDoc comments do not export TypeScript types or enforce type safety.
+// Keep new types beside their implementation, or in packages/telemetry-types
+// for shared wire contracts. Package payload parity belongs in test-package-drift.js.
 
 /**
  * @typedef {Object} DisplayUnits
@@ -16,28 +13,6 @@
  * @property {number} headingDeg - Heading in degrees (0-360)
  * @property {number} pitchDeg - Pitch angle in degrees (+ nose up)
  * @property {number} bankDeg - Bank angle in degrees (+ right wing down)
- */
-
-/**
- * Raw telemetry frame from a provider.
- * @typedef {Object} TelemetryFrame
- * @property {number} ias - Indicated airspeed (raw units vary by source)
- * @property {number} vs - Vertical speed (raw units vary by source)
- * @property {number} ra - Radio altitude (raw units vary by source)
- * @property {number} gs - Ground speed (raw units vary by source)
- * @property {number} alt_msl - Altitude MSL (raw units vary by source)
- * @property {number} heading - Heading in degrees
- * @property {number} pitch - Pitch in radians
- * @property {number} bank - Bank in radians
- * @property {number|FlapState} flaps - Flap position (raw value or object)
- * @property {number|SpoilerState} spoilers - Spoiler position (raw value or object)
- * @property {GearState} gear - Gear positions
- * @property {LightState} lights - Light states
- * @property {boolean} onGround - Weight on wheels
- * @property {number} windSpeed - Wind speed in knots
- * @property {number} windDir - Wind direction in degrees
- * @property {number[]} engineLevels - Engine N1 or throttle percentages
- * @property {DisplayUnits} [display] - Pre-converted display units (if available)
  */
 
 /**
@@ -91,19 +66,6 @@
  */
 
 /**
- * Stability scoring result returned by runStability().
- * Note: instantaneous and ultimateScore are always null at runtime;
- * the retrospective score is broadcast separately via MSG.ULTIMATE_STABILITY_SCORE
- * at landing time, not carried in this object.
- * @typedef {Object} StabilityResult
- * @property {null} instantaneous - Always null (continuous per-tick scoring is not implemented)
- * @property {null} ultimateScore - Always null; final score is emitted as a separate event
- * @property {boolean|null} [isImc] - IMC/VMC classification from visibility; null when unavailable
- * @property {boolean} [imcDataAvailable] - True when visibility was available for IMC/VMC classification
- * @property {number|null} [visibilityM] - Visibility in meters used for IMC/VMC classification
- */
-
-/**
  * Retrospective approach stability breakdown. Scored values are percentages
  * 0-100; unavailable dynamic metrics are null and do not enter the average.
  * Produced by SimpleStabilityScorer.getScore() and broadcast in MSG.ULTIMATE_STABILITY_SCORE.
@@ -148,117 +110,6 @@
  */
 
 /**
- * Aircraft profile from JSON configuration.
- * @typedef {Object} AircraftProfile
- * @property {string} id - Unique profile identifier
- * @property {string} name - Display name
- * @property {string|null} extends - Parent profile ID to inherit from
- * @property {ProfileMatching} matching - Auto-detection rules
- * @property {ProfileFlaps} flaps - Aircraft-specific flap detents used to label discrete simulator handle indexes
- * @property {ProfileSlats} [slats] - Slat configuration (if independent from flaps)
- * @property {ProfileGear} [gear] - Gear speed limits
- * @property {ProfileStability} stability - Stability criteria
- * @property {ProfileAutomation} [automation] - Aircraft automation behavior
- * @property {ProfileThrottle} throttle - Throttle/autothrottle config
- * @property {ProfileEngines} engines - Engine configuration
- * @property {ProfilePerformance} [performance] - Weight-based performance data
- * @property {ProfileDataSource} dataSource - Data source preferences
- */
-
-/**
- * @typedef {Object} ProfileMatching
- * @property {number} priority - Higher wins when multiple profiles match
- * @property {string[]} aliases - Short names for manual selection
- * @property {string[]} [titleContains] - Match if aircraft title contains any
- * @property {string} [titleRegex] - Regex pattern for aircraft title
- * @property {ProfileXPlaneMatching} [xplane] - X-Plane identity matching rules
- */
-
-/**
- * @typedef {Object} ProfileXPlaneMatching
- * @property {string[]} [acfPaths] - Exact X-Plane .acf paths
- * @property {string[]} [acfFileNames] - Exact X-Plane aircraft filenames
- * @property {string[]} [aliases] - Normalized X-Plane identity aliases
- */
-
-/**
- * @typedef {Object} ProfileFlaps
- * @property {FlapNotch[]} notches - Ordered flap positions used to map a simulator handle index to a cockpit detent
- * @property {number[]} [takeoffNotches] - Legacy takeoff flap values
- * @property {number[]} landingNotches - Legacy landing flap values
- * @property {number} [goAroundNotch] - Flap setting for go-around
- */
-
-/**
- * @typedef {Object} FlapNotch
- * @property {number} value - Numeric notch value
- * @property {string} label - Display label
- * @property {number} [maxKts] - Maximum IAS for this flap setting (placard speed)
- */
-
-/**
- * @typedef {Object} ProfileSlats
- * @property {boolean} coupled - True if slats move with flaps
- * @property {Array<{value: number, label: string, fraction: number}>} [notches] - Independent slat positions
- */
-
-/**
- * @typedef {Object} ProfileGear
- * @property {number} [maxExtendKts] - VLO - max speed to extend gear
- * @property {number} [maxRetractKts] - Max speed to retract gear
- * @property {number} [maxExtendedKts] - VLE - max speed with gear down
- */
-
-/**
- * @typedef {Object} ProfileStability
- * @property {{minKts: number, maxKts: number, source: string}} vref - Vref configuration
- * @property {{belowVrefKts: number, aboveVrefKts: number}} speedBand - Speed tolerances
- * @property {{minDeg: number, maxDeg: number}} pitch - Pitch limits
- * @property {number} glideslopeDeg - Expected glideslope angle
- */
-
-/**
- * @typedef {Object} ProfileThrottle
- * @property {'servo'|'detent'|'manual'} type - Throttle behavior type
- */
-
-/**
- * @typedef {Object} ProfileEngines
- * @property {number} count - Number of engines (1-4)
- * @property {'jet'|'turboprop'|'piston'|'unknown'} type - Engine type
- * @property {number} [idleN1Pct] - Idle N1 percentage (for "engine running" detection)
- * @property {number} [maxN1Pct] - Max continuous N1 percentage
- * @property {number} [togaN1Pct] - TOGA N1 percentage (time limited)
- */
-
-/**
- * @typedef {Object} ProfilePerformance
- * @property {VrefTableEntry[]} [vrefTable] - Vref vs landing weight lookup table
- * @property {number} [mtowLbs] - Max takeoff weight
- * @property {number} [mlwLbs] - Max landing weight
- * @property {number} [mzfwLbs] - Max zero fuel weight
- */
-
-/**
- * @typedef {Object} VrefTableEntry
- * @property {number} weightLbs - Landing weight in pounds
- * @property {number} vrefKts - Vref at this weight in knots
- */
-
-/**
- * @typedef {Object} ProfileDataSource
- * @property {string} preferred - Preferred data source
- * @property {string} fallback - Fallback data source
- * @property {Object} [xplane] - X-Plane-specific dataref and command overlays
- */
-
-/**
- * @typedef {Object} ProfileAutomation
- * @property {boolean} [autolandCapable] - Can perform CAT III autoland
- * @property {string[]} [autobrakeSettings] - Available autobrake settings
- */
-
-/**
  * @typedef {Object} TickFrameMeta
  * @property {number} sequence - Monotonic core tick counter (0-based)
  * @property {number} timestampMs - Wall-clock epoch timestamp at capture
@@ -292,79 +143,6 @@
  */
 
 /**
- * Autopilot state broadcast by sendAutopilot() in broadcasters.js.
- * @typedef {Object} AutopilotState
- * @property {boolean|null} master - AP master engaged
- * @property {boolean|null} fdActive - Flight director active
- * @property {boolean|null} athrArmed - Autothrottle armed
- * @property {boolean|null} athrActive - Autothrottle active
- * @property {boolean|null} hdgHold - Heading hold engaged
- * @property {boolean|null} navHold - VOR/NAV hold engaged
- * @property {boolean|null} lnavHold - LNAV engaged (LVAR-sourced; null when no profile)
- * @property {boolean|null} locHold - LOC hold engaged (LVAR-sourced; null when no profile)
- * @property {boolean|null} altHold - Altitude hold engaged
- * @property {boolean|null} vsHold - Vertical speed hold engaged
- * @property {boolean|null} vnavHold - VNAV engaged (LVAR-sourced; null when no profile)
- * @property {boolean|null} lvlChgHold - Level change engaged
- * @property {boolean|null} expedHold - Expedite climb/descent engaged
- * @property {boolean|null} apprHold - Approach mode engaged
- * @property {boolean|null} spdHold - Speed hold engaged
- * @property {number|null} hdgTarget - Selected heading in degrees; null when unavailable
- * @property {number|null} altTarget - Selected altitude in feet; null when unavailable
- * @property {number|null} vsTarget - Selected vertical speed in fpm; null when unavailable
- * @property {number|null} spdTarget - Selected speed in knots; null when unavailable
- * @property {number|null} machTarget - Selected Mach number; null when unavailable
- * @property {boolean} apReliable - False when AP state cannot be trusted (see assessAutopilotReliability)
- * @property {boolean} athrReliable - False when A/T state cannot be trusted
- * @property {string} reliabilityReason - Human-readable reason for the reliability assessment
- */
-
-/**
- * Aircraft attitude broadcast by sendAttitude() in broadcasters.js.
- * @typedef {Object} AttitudeState
- * @property {boolean} valid - True when attitude data is valid and both angles are finite
- * @property {number|null} pitchDeg - Pitch angle in degrees (positive = nose up); null when invalid
- * @property {number|null} bankDeg - Bank angle in degrees (positive = right wing down); null when invalid
- * @property {number} [pitchRad] - Pitch angle in radians; present when valid and finite
- * @property {number} [bankRad] - Bank angle in radians; present when valid and finite
- * @property {string} [pitchSource] - Data source identifier for pitch
- * @property {string} [bankSource] - Data source identifier for bank
- * @property {number} [pitchRaw] - Raw pitch value before processing; present when finite
- * @property {number} [bankRaw] - Raw bank value before processing; present when finite
- * @property {number} [pitchDegPrimary] - Pitch from the primary source before fallback merging
- * @property {number} [bankDegPrimary] - Bank from the primary source before fallback merging
- * @property {string} [pitchModePrimary] - Primary-source attitude interpretation mode for pitch
- * @property {string} [bankModePrimary] - Primary-source attitude interpretation mode for bank
- */
-
-/**
- * Altitude data broadcast as MSG.ALTITUDE by sendBasicStreams() in broadcasters.js.
- * @typedef {Object} AltitudeData
- * @property {number} msl - Legacy pilot-adjustable indicated altitude in feet (rounded)
- * @property {number|null} indicated - Pilot-adjustable indicated altitude in feet
- * @property {number|null} calibrated - Indicated altitude calibrated to current sea-level pressure in feet
- * @property {number|null} plane - MSFS geometric/world-position aircraft altitude in feet
- * @property {number} ra - Radio altitude (height above ground) in feet (rounded)
- * @property {number|null} aircraftAgl - Height above world terrain in feet
- * @property {number|null} aircraftAboveObstacles - Height above terrain including obstacles in feet
- * @property {number|null} planeAgl - MSFS PLANE ALT ABOVE GROUND in feet
- * @property {number|null} planeAglMinusCg - MSFS PLANE ALT ABOVE GROUND MINUS CG in feet
- * @property {number|null} pressureAlt - Pressure altitude in feet; null when unavailable
- * @property {number|null} kohlsmanSettingMb - Effective altimeter setting in hPa; standard pressure while STD is selected
- * @property {number|null} kohlsmanTunedMb - Tuned altimeter setting in hPa, including while STD is selected
- * @property {boolean|null} kohlsmanStd - Whether altimeter index 1 is in STD mode
- */
-
-/**
- * Environment/pressurization data broadcast as MSG.ENVIRONMENT by sendEnvironment() in broadcasters.js.
- * @typedef {Object} EnvironmentData
- * @property {number|null} cabinAltFt - Cabin pressure altitude in feet (rounded); null when unavailable
- * @property {number|null} cabinAltRateFpm - Cabin altitude rate in fpm; null when unavailable
- * @property {number|null} cabinAltTargetFt - Target cabin altitude in feet; null when unavailable
- * @property {number|null} oatC - Outside air temperature in °C; null when unavailable
- */
-
-/**
  * Sim state broadcast as MSG.SIM_STATE from publishSimState() in simbridge-core.js.
  * @typedef {Object} SimState
  * @property {boolean} inMenu - True when the simulator is connected but in a menu or non-flight state
@@ -372,57 +150,6 @@
  * @property {boolean} inFlightContext - True when SimConnect reports an in-flight context
  * @property {boolean} simconnectConnected - True when SimConnect is connected
  * @property {string} lifecycleState - Current flight lifecycle state (LifecycleState enum value)
- */
-
-/**
- * Ultimate stability score broadcast as MSG.ULTIMATE_STABILITY_SCORE on touchdown.
- * Produced by SimpleStabilityScorer.getScore() and broadcast from simbridge-core.js.
- * @typedef {Object} UltimateStabilityScoreData
- * @property {number|null} score - Overall score 0–100; null if scorer had insufficient data
- * @property {'stable'|'marginal'|'unstable'|'no_verdict'} verdict - User-facing approach verdict; gateStable remains the strict audit flag
- * @property {StabilityBreakdown|null} breakdown - Per-criterion score breakdown; null if insufficient data
- * @property {number} samples - Number of approach samples used in scoring
- * @property {boolean|null} gateStable - True if the aircraft was stabilized at the stability gate
- * @property {string[]} gateFailures - List of criteria that failed the stability gate check
- * @property {Object|null} scoringContext - Recorded profile identity, effective limits, and gate reference used for this score
- * @property {unknown[]} approachProfile - Array of approach profile sample points for rendering
- * @property {number|null} runwayReferenceElevFt - Runway/airport elevation reference in feet; null if not resolved
- * @property {string|null} runwayReferenceElevationSource - Geometry provider that supplied the elevation reference
- * @property {'runway'|'airport'|string|null} runwayReferenceElevationKind - Precision class of the elevation reference
- * @property {number|null} thresholdElevFt - Backward-compatible alias for runwayReferenceElevFt
- * @property {number|null} runwayHdg - Runway heading in degrees; null if runway not identified
- * @property {number|null} runwayWidthFt - Runway width in feet; null if not available
- * @property {number|null} runwayLengthFt - Runway length in feet; null if not available
- * @property {Object|null} runwayThreshold - Runway threshold coordinates `{lat, lon}`; null if not identified
- * @property {string|null} runwayId - Runway identifier (e.g., '27L'); null if not identified
- * @property {Object|null} glidepathAngle - Resolved glidepath angle metadata `{angleDeg, source}` for stability scoring
- */
-
-/**
- * Variable Rate Encoding diagnostics broadcast as MSG.VRE_SAMPLING.
- * This lets the UI show which CSV sampling band is active and why the logger is
- * currently writing or waiting for its next interval.
- * @typedef {Object} VreSamplingData
- * @property {boolean} active - True while a real flight recording session is active
- * @property {'BASELINE'|'ELEVATED'|'HIGH_FIDELITY'|'ULTRA_FIDELITY'} band - Active sampling band
- * @property {number} targetRateHz - Evaluator-requested rate before applying the telemetry poll ceiling
- * @property {number} effectiveRateHz - Fresh-sample rate after telemetry polling and the 10 Hz CSV safety ceiling
- * @property {number} rateHz - Backward-compatible alias for effectiveRateHz
- * @property {boolean} shouldSample - True when the current evaluator tick wrote a CSV row
- * @property {string} reason - Current escalation reason string
- * @property {number} escalationReasons - Bitmask of active escalation reasons
- * @property {string|null} phase - Current flight phase, if known
- * @property {number|null} raFt - Current radio altitude in feet
- * @property {number|null} vsFpm - Current vertical speed in feet per minute
- * @property {number} intervalMs - Effective minimum interval between fresh CSV samples
- * @property {number|null} timeSinceLastSampleMs - Elapsed milliseconds since the last CSV sample
- * @property {number|null} nextSampleInMs - Approximate milliseconds until the next CSV sample
- * @property {boolean} ultraFidelityDisabled - True when ultra-fidelity capture is locked out
- * @property {number} ultraFidelityTimeRemaining - Remaining ultra-fidelity time budget in milliseconds
- * @property {number} ultraFidelitySamplesRemaining - Remaining ultra-fidelity sample budget
- * @property {string|null} event - Significant transition event, if any
- * @property {number} timestamp_ms - Unix epoch milliseconds
- * @property {string} timestamp_utc - ISO 8601 UTC timestamp
  */
 
 /**
@@ -930,14 +657,6 @@
  */
 
 /**
- * Position message for map display.
- * @typedef {Object} PositionMessage
- * @property {number} lat - Latitude in degrees
- * @property {number} lon - Longitude in degrees
- * @property {number|null} hdg - Heading in degrees
- */
-
-/**
  * Normalized surface state.
  * @typedef {Object} SurfaceState
  * @property {number|null} raw - Raw simulator surface code
@@ -953,17 +672,6 @@
  * Surface message.
  * @typedef {Object} SurfaceMessage
  * @property {SurfaceState} value - Normalized surface state
- */
-
-/**
- * Pilot control input message.
- * @typedef {Object} ControlsMessage
- * @property {number|null} yokeX - Normalized lateral input (-1..1)
- * @property {number|null} yokeY - Normalized longitudinal input (-1..1)
- * @property {number|null} rudderPedalPct - Rudder pedal input percentage
- * @property {number|null} noseSteerPct - Nose-gear steer angle as a percentage of full travel, right positive
- * @property {number|null} brakeLeftPct - Left toe-brake application (0..100)
- * @property {number|null} brakeRightPct - Right toe-brake application (0..100)
  */
 
 /**
@@ -987,7 +695,7 @@
  * @property {EnginesData} data - Engine display payload
  */
 
-// Export empty object - this file is for JSDoc types only
+// Retained module shell; this registry has no runtime consumers.
 const typeRegistryExports: Record<string, never> = {};
 module.exports = typeRegistryExports;
 

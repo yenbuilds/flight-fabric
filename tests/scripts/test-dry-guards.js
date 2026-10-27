@@ -637,8 +637,8 @@ test('tab navigation flows through the Vue tabs store', () => {
   assert(tabsStoreSource.includes('function registerBeforeChangeGuard(guard)'));
   assert(tabsStoreSource.includes('function tabSectionClass(tabId)'));
   assert(tabsStoreSource.includes('function showPullRefreshPrompt('));
-  assert(tabConfigSource.includes("export const DEFAULT_TAB_ID = 'flight'"), 'Overview should be the centralized safe default tab');
-  assert(tabsStoreSource.includes('ref(DEFAULT_TAB_ID)'), 'tabs store should render Overview before the browser runtime mounts');
+  assert(tabConfigSource.includes("export const DEFAULT_TAB_ID = 'livemap'"), 'Map should be the centralized default tab');
+  assert(tabsStoreSource.includes('ref(DEFAULT_TAB_ID)'), 'tabs store should render Map before the browser runtime mounts');
   assert(tabsRuntimeSource.includes('LAST_ACTIVE_TAB_STORAGE_KEY'), 'tabs runtime should persist the last selected tab');
   assert(tabsRuntimeSource.includes('readStorageValue(') && tabsRuntimeSource.includes('writeStorageValue('), 'tab persistence should use guarded browser storage helpers');
   assert(tabsRuntimeSource.includes('VALID_TAB_IDS.has(tabId)'), 'every valid tab should remain active across a page refresh');
@@ -696,7 +696,7 @@ test('support asks use one untagged destination, one rule module and one prompt 
   assert.deepEqual(kofiOutsideHelper, [], 'provider destinations must not appear in app components');
   assert(linksSource.includes("export const SUPPORT_URL = 'https://www.flightfabric.com/support/'"), 'content.js owns the stable support URL');
   assert(policySource.includes("const SUPPORT_URL = 'https://www.flightfabric.com/support/'") && !policySource.includes('KOFI_SOURCE_TAG'), 'the Electron policy only allows the fixed support entry point');
-  for (const source of [linksSource, navigatorSource, promptSource, readRepoFile('frontend/src/vue/components/SupportSection.vue'), readRepoFile('frontend/src/vue/components/SupportLink.vue')]) {
+  for (const source of [linksSource, promptSource, readRepoFile('frontend/src/vue/components/SupportSection.vue'), readRepoFile('frontend/src/vue/components/SupportLink.vue')]) {
     assert(!source.includes('?src=') && !source.includes('SUPPORT_SOURCES') && !source.includes('kofiLink'), 'support links must not add source tags');
     assert(source.includes('SUPPORT_URL'), 'support links must use the shared destination');
   }
@@ -727,9 +727,10 @@ test('support asks use one untagged destination, one rule module and one prompt 
       assert(!html.includes('https://ko-fi.com/'), `${file} must use /support/ except for the configured header links and homepage tip-panel embed`);
     }
   }
-  assert(navigatorSource.includes('SUPPORT_URL as supportHref')
-    && footerSource.includes("shell.openNavigator('help')")
-    && !footerSource.includes('support/content.js'), 'the footer should route support through Help');
+  assert(readRepoFile('frontend/src/vue/components/DesktopTabs.vue').includes('<SupportLink')
+    && readRepoFile('frontend/src/vue/components/MobileTabs.vue').includes('<SupportLink')
+    && !navigatorSource.includes('support/content.js')
+    && !footerSource.includes('support/content.js'), 'desktop and mobile navigation use the shared support link without restoring retired Help');
   assert(!whatsNewCardSource.includes('support/content.js'), 'release highlights never bypass support prompt limits');
 
   assert(rulesSource.includes('export const SUPPORT_MILESTONES = Object.freeze([10, 50, 100, 250, 500])'), 'the milestones live in the rules module');
@@ -1035,40 +1036,39 @@ test('VRE sampling diagnostics are Vue state driven in the debug modal', () => {
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const debugModalSource = readRepoFile('frontend/src/vue/components/DebugTelemetryModal.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
-  const statusIndicatorsSource = readRepoFile('frontend/src/app/message-handlers.js');
+  const messageHandlersSource = readRepoFile('frontend/src/app/message-handlers.js');
   const appRuntimeSource = readRepoFile('frontend/src/app/runtime.js');
 
   assert(statusStoreSource.includes('vreSampling: getDefaultVreSampling()'), 'status store should own VRE sampling state');
   assert(statusStoreSource.includes('updateVreSampling(message)'), 'status store should expose a VRE sampling update action');
   assert(debugModalSource.includes('status.vreSamplingSummaryLabel'), 'debug modal should render VRE sampling from the status store');
   assert(!appHeaderSource.includes('sampling-indicator'), 'sampling diagnostics should stay out of the flight header');
-  assert(appRuntimeSource.includes('statusStore,'), 'app runtime should pass the status store into legacy indicator shims');
-  assert(statusIndicatorsSource.includes('statusStore?.updateVreSampling'), 'legacy indicator shim should delegate VRE sampling to the store');
-  assert(!statusIndicatorsSource.includes('formatSamplingBand'), 'legacy indicator shim should not format VRE sampling display text');
-  assert(!statusIndicatorsSource.includes("setText('sampling-rate'"), 'legacy indicator shim should not mutate sampling detail text directly');
-  assert(!statusIndicatorsSource.includes('samplingStyleClasses'), 'legacy indicator shim should not own VRE sampling tone classes');
-  assert(!statusIndicatorsSource.includes("getElementById('sampling-indicator'"), 'legacy indicator shim should not manipulate the sampling indicator node directly');
+  assert(appRuntimeSource.includes("requireRuntimeStore(runtimeStores, 'status')"), 'app runtime should require the status store before initializing message handling');
+  assert(messageHandlersSource.includes('statusStore?.ingestMessage?.(message)'), 'message handler should route status messages through the store ingestion boundary');
+  assert(!messageHandlersSource.includes('formatSamplingBand'), 'message handler should not format VRE sampling display text');
+  assert(!messageHandlersSource.includes("setText('sampling-rate'"), 'message handler should not mutate sampling detail text directly');
+  assert(!messageHandlersSource.includes('samplingStyleClasses'), 'message handler should not own VRE sampling tone classes');
+  assert(!messageHandlersSource.includes("getElementById('sampling-indicator'"), 'message handler should not manipulate the sampling indicator node directly');
 });
 
 test('assists indicator is Vue state driven', () => {
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
-  const statusIndicatorsSource = readRepoFile('frontend/src/app/message-handlers.js');
+  const messageHandlersSource = readRepoFile('frontend/src/app/message-handlers.js');
 
   assert(statusStoreSource.includes('ASSIST_CATEGORIES'), 'status store should own assist display categories');
   assert(statusStoreSource.includes('updateAssists(data)'), 'status store should expose an assists update action');
   assert(appHeaderSource.includes('status.activeAssistCategories'), 'AppHeader should render active assists from the status store');
   assert(appHeaderSource.includes('status.activeAssistCount'), 'AppHeader should render assist count from the status store');
-  assert(statusIndicatorsSource.includes('statusStore?.updateAssists'), 'legacy indicator shim should delegate assists to the store');
-  assert(!statusIndicatorsSource.includes('landingAssist'), 'legacy indicator shim should not know assist field names');
-  assert(!statusIndicatorsSource.includes('assists-list'), 'legacy indicator shim should not mutate the assists list directly');
-  assert(!statusIndicatorsSource.includes('list.innerHTML'), 'legacy indicator shim should not build assist HTML strings');
+  assert(!messageHandlersSource.includes('landingAssist'), 'message handler should not know assist field names');
+  assert(!messageHandlersSource.includes('assists-list'), 'message handler should not mutate the assists list directly');
+  assert(!messageHandlersSource.includes('list.innerHTML'), 'message handler should not build assist HTML strings');
 });
 
 test('recording indicator is Vue state driven', () => {
   const appHeaderSource = readRepoFile('frontend/src/vue/components/AppHeader.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
-  const statusIndicatorsSource = readRepoFile('frontend/src/app/message-handlers.js');
+  const messageHandlersSource = readRepoFile('frontend/src/app/message-handlers.js');
 
   assert(statusStoreSource.includes('recording: getDefaultRecording()'), 'status store should own recording state');
   assert(statusStoreSource.includes('updateRecording(message)'), 'status store should expose a recording update action');
@@ -1078,25 +1078,23 @@ test('recording indicator is Vue state driven', () => {
   assert(appHeaderSource.includes('status.recordingDetail'), 'AppHeader should render recording detail from the status store');
   assert(appHeaderSource.includes('id="start-recording-btn"'), 'AppHeader should render a stable manual start-recording target');
   assert(appHeaderSource.includes('status.requestStartRecordingManual();'), 'AppHeader should delegate manual start-recording requests through the status store');
-  assert(statusIndicatorsSource.includes('statusStore?.updateRecording'), 'legacy indicator shim should delegate recording to the store');
-  assert(!statusIndicatorsSource.includes('recording-indicator'), 'legacy indicator shim should not manipulate the recording node directly');
-  assert(!statusIndicatorsSource.includes('recording-path'), 'legacy indicator shim should not mutate the recording path directly');
-  assert(!statusIndicatorsSource.includes('pathEl.innerHTML'), 'legacy indicator shim should not build recording HTML strings');
+  assert(!messageHandlersSource.includes('recording-indicator'), 'message handler should not manipulate the recording node directly');
+  assert(!messageHandlersSource.includes('recording-path'), 'message handler should not mutate the recording path directly');
+  assert(!messageHandlersSource.includes('pathEl.innerHTML'), 'message handler should not build recording HTML strings');
 });
 
 test('surface indicator is Vue state driven', () => {
   const appFooterSource = readRepoFile('frontend/src/vue/components/AppFooter.vue');
   const statusStoreSource = readRepoFile('frontend/src/vue/stores/status.js');
-  const statusIndicatorsSource = readRepoFile('frontend/src/app/message-handlers.js');
+  const messageHandlersSource = readRepoFile('frontend/src/app/message-handlers.js');
 
   assert(statusStoreSource.includes('surface: getDefaultSurface()'), 'status store should own surface state');
   assert(statusStoreSource.includes('updateSurface(surface)'), 'status store should expose a surface update action');
   assert(appFooterSource.includes('status.surfaceVisible'), 'AppFooter should render surface visibility from the status store');
   assert(appFooterSource.includes('status.surfaceLabel'), 'AppFooter should render surface text from the status store');
-  assert(statusIndicatorsSource.includes('statusStore?.updateSurface'), 'legacy indicator shim should delegate surface messages to the store');
-  assert(!statusIndicatorsSource.includes('surface-indicator'), 'legacy indicator shim should not manipulate the surface node directly');
-  assert(!statusIndicatorsSource.includes('surface.runwayLike'), 'legacy indicator shim should not own surface tone rules');
-  assert(!statusIndicatorsSource.includes('el.textContent'), 'legacy indicator shim should not mutate surface text directly');
+  assert(!messageHandlersSource.includes('surface-indicator'), 'message handler should not manipulate the surface node directly');
+  assert(!messageHandlersSource.includes('surface.runwayLike'), 'message handler should not own surface tone rules');
+  assert(!messageHandlersSource.includes('el.textContent'), 'message handler should not mutate surface text directly');
 });
 
 test('runway context footer is Vue state driven', () => {
@@ -1798,8 +1796,8 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
     && phoneSetupSource.includes("profiles.authorizationScope === 'full-control'")
     && systemTabSource.includes('computed(() => systemHost.remoteViewerUrl)'), 'local setup uses the authorized URL while remote System shares viewer access only');
   assert.equal((phoneSetupSource.match(/<RemoteBrowserQr/g) || []).length, 1, 'PC setup should render only one phone QR choice');
-  assert(phoneSetupSource.includes('New flights appear automatically')
-    && phoneSetupSource.includes('After restarting FlightFabric'), 'PC setup should distinguish new flights from service restarts');
+  assert(phoneSetupSource.includes('After restarting FlightFabric, scan the QR again or request a new code on your phone.')
+    && !phoneSetupSource.includes('Bookmark this page'), 'PC setup should give concise app restart guidance without outdated webpage instructions');
   assert(secondScreenGuideSource.includes('New flights appear automatically'), 'phone onboarding should explain repeat-flight behavior');
   assert(secondScreenGuideSource.includes('Access lasts until the FlightFabric service restarts'), 'phone onboarding should explain when control re-pairing is required');
   assert(appHeaderSource.includes('id="header-mobile-access-btn"'), 'desktop header should expose an obvious Phone setup action');

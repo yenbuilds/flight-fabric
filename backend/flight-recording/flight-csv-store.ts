@@ -1426,4 +1426,4 @@ module.exports = {
   resolveCsvInsideFlightLogs,
 };
 
-export {};
+export type FlightCsvStore = ReturnType<typeof createFlightCsvStore>;

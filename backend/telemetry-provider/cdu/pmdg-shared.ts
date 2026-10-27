@@ -7,7 +7,9 @@ export function decodePmdgScreen(raw: unknown): CduScreen | null {
   if (!Array.isArray(raw) || raw.length !== 1009 || !raw.every(value => Number.isInteger(value) && value >= 0 && value <= 255)
       || raw[1008] > 1) return null;
   const colors: CduColor[] = ['white', 'cyan', 'green', 'magenta', 'amber', 'red'];
-  const symbols: Record<number, string> = { 0: ' ', 0xa1: '←', 0xa2: '→', 0xa3: '↑', 0xa4: '↓' };
+  // PMDG's empty-entry box is a display code, not Latin-1 ê. Evidence and
+  // the SDK documentation gap are recorded in docs/REMOTE-CDU.md.
+  const symbols: Record<number, string> = { 0: ' ', 0xa1: '←', 0xa2: '→', 0xa3: '↑', 0xa4: '↓', 0xea: '\u25af' };
   return { powered: raw[1008] === 1, rows: Array.from({ length: 14 }, (_, row) =>
     Array.from({ length: 24 }, (_, column) => {
       const offset = (column * 14 + row) * 3; // SDK layout is column-major.

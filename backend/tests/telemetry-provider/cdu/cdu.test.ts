@@ -25,6 +25,32 @@ test('PMDG decodes column-major cells, colors, flags, special symbols and power'
   raw[2] = 256; assert.equal(decodePmdgScreen(raw), null);
 });
 
+test('PMDG empty destination and PERF INIT fields retain boxes, punctuation and cell flags', () => {
+  // Reconstruct the reported empty fields; these are SDK symbol bytes, not
+  // Unicode text. No real flight values or raw recording are implied.
+  const raw = Array(1009).fill(0); raw[1008] = 1;
+  const lines = [
+    { row: 1, column: 19, bytes: [0xea, 0xea, 0xea, 0xea] },
+    { row: 3, column: 0, bytes: [0xea, 0xea, 0xea, 46, 0xea, 47, 50, 52] },
+    { row: 7, column: 0, bytes: [0xea, 0xea, 46, 0xea] },
+    { row: 9, column: 0, bytes: [0xea, 0xea, 0xea] },
+  ];
+  for (const { row, column, bytes } of lines) {
+    bytes.forEach((value, index) => {
+      const offset = ((column + index) * 14 + row) * 3;
+      raw[offset] = value; raw[offset + 1] = 1; raw[offset + 2] = 3;
+    });
+  }
+  const screen = decodePmdgScreen(raw)!;
+  assert.equal(screen.rows[1].slice(19, 23).map(cell => cell.text).join(''), '▯▯▯▯');
+  assert.equal(screen.rows[3].slice(0, 8).map(cell => cell.text).join(''), '▯▯▯.▯/24');
+  assert.equal(screen.rows[7].slice(0, 4).map(cell => cell.text).join(''), '▯▯.▯');
+  assert.equal(screen.rows[9].slice(0, 3).map(cell => cell.text).join(''), '▯▯▯');
+  assert.deepEqual(screen.rows[3][0], { text: '▯', color: 'cyan', small: true, reverse: true, dim: false });
+  assert.equal(screen.rows[3][8].text, ' ');
+  assert.ok(screen.rows.every(row => row.length === 24));
+});
+
 test('PMDG keys map to the published left and right SDK events', () => {
   assert.equal(pmdgCduEvent('left', 'L1'), '#70166');
   assert.equal(pmdgCduEvent('left', 'EXEC'), '#70188');

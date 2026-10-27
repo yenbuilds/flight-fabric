@@ -47,17 +47,26 @@ const coverage = [
   ['inibuilds-a350-900', 15, 4], ['inibuilds-a350-1000', 15, 4],
 ] as const;
 
+test('independent brightness coverage includes every profile with declared lighting groups', () => {
+  const profiles = registry.list().filter(integration => cockpitLightingGroups(integration.id).length)
+    .flatMap(integration => integration.trustedProfileKeys.map(key => key.replace('bundled/msfs/', '')));
+  assert.deepEqual(profiles.sort(), coverage.map(([id]) => id).sort());
+});
+
 for (const [id, allCount, displayCount] of coverage) {
-  test(`${id}: global then displays preserves panel and flood brightness`, async () => {
+  test(`${id}: cockpit and display presets preserve each other in either order`, async () => {
     const profile = loader.loadProfile(`bundled/msfs/${id}`);
     const options = { profile, capabilities, profileRevision: 9 };
     const integration = registry.resolveForProfile(profile._profileKey);
     const groups = cockpitLightingGroups(integration.id);
     const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
-    const all = catalogue.commands.find(c => c.id === request('cockpit').commandId).brightnessFields;
+    const cockpit = catalogue.commands.find(c => c.id === request('cockpit').commandId).brightnessFields;
     const displays = catalogue.commands.find(c => c.id === request('displays').commandId).brightnessFields;
+    const all = [...cockpit, ...displays];
     assert.equal(all.length, allCount); assert.equal(new Set(all).size, allCount);
-    assert.equal(displays.length, displayCount); assert.ok(displays.every(field => all.includes(field)));
+    assert.equal(cockpit.length, Number(allCount) - Number(displayCount));
+    assert.equal(displays.length, displayCount);
+    assert.ok(displays.every(field => !cockpit.includes(field)), 'the preset groups must be disjoint');
     const state = Object.fromEntries(all.map(field => [field, 25]));
     const writes: string[] = [];
     const provider = { aircraftControlCapabilities: capabilities,
@@ -73,10 +82,16 @@ for (const [id, allCount, displayCount] of coverage) {
         return { ok: true, code: 'executed' };
       } };
     assert.equal((await executeAircraftCommand(provider, request('cockpit', 50), options)).ok, true);
-    assert.ok(Object.values(state).every(value => value === 50)); writes.length = 0;
+    assert.deepEqual(writes, groups.filter(group => !group.displays).map(group => group.actionId));
+    for (const field of all) assert.equal(state[field], displays.includes(field) ? 25 : 50, field);
+    writes.length = 0;
     assert.equal((await executeAircraftCommand(provider, request('displays', 80), options)).ok, true);
     assert.deepEqual(writes, groups.filter(group => group.displays).map(group => group.actionId));
     for (const field of all) assert.equal(state[field], displays.includes(field) ? 80 : 50, field);
+    writes.length = 0;
+    assert.equal((await executeAircraftCommand(provider, request('cockpit', 30), options)).ok, true);
+    assert.deepEqual(writes, groups.filter(group => !group.displays).map(group => group.actionId));
+    for (const field of all) assert.equal(state[field], displays.includes(field) ? 80 : 30, field);
     for (const value of [-1, 101, 50.5, NaN, '', null]) {
       assert.equal(resolveAircraftCommand(request('displays', value), options).ok, false, String(value));
     }
@@ -180,6 +195,8 @@ test('A350 presets report a no-op only when every lighting group was already set
   const profile = loader.loadProfile('bundled/msfs/inibuilds-a350-900');
   const groups = cockpitLightingGroups('inibuilds-a350');
   const state = Object.fromEntries(groups.flatMap(group => group.fields.map(field => [field, group.displays ? 100 : 0])));
+  const lastCockpitGroup = groups.filter(group => !group.displays).at(-1);
+  for (const field of lastCockpitGroup.fields) state[field] = 100;
   const writes: string[] = [];
   const provider = { aircraftControlCapabilities: capabilities,
     async executeAircraftControlAction(_action, { request: control }) {
@@ -192,12 +209,12 @@ test('A350 presets report a no-op only when every lighting group was already set
   const options = { profile, capabilities };
   const mixed = await executeAircraftCommand(provider, request('cockpit', 100), options);
   assert.equal(mixed.ok, true);
-  assert.equal(writes.length, 4, 'panel, flood and task lights changed while displays were already at 100%');
-  assert.notEqual(mixed.noOp, true, 'the last display group cannot mark the whole preset as skipped');
+  assert.equal(writes.length, 3, 'earlier cockpit groups change while the final group is already set');
+  assert.notEqual(mixed.noOp, true, 'the last cockpit group cannot mark the whole preset as skipped');
   assert.notEqual(mixed.idempotent, true, 'last-step no-op metadata cannot describe a mixed execution');
   const repeated = await executeAircraftCommand(provider, request('cockpit', 100), options);
   assert.equal(repeated.noOp, true); assert.equal(repeated.idempotent, true);
-  assert.equal(writes.length, 4);
+  assert.equal(writes.length, 3);
   const displays = await executeAircraftCommand(provider, request('displays', 100), options);
   assert.equal(displays.noOp, true, 'single-group display presets retain their no-op result');
 });

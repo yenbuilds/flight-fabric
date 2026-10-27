@@ -1238,7 +1238,11 @@ async function browser() {
           assert.ok(measurements.minKey[0] >= 44 && measurements.minKey[1] >= minKeyHeight - .5, `${id} CDU ${width}x${height} keypad touch targets (min ${measurements.minKey}, need 44x${minKeyHeight})`);
           // Line-select keys follow the display's row pitch, so they are a little shorter than keypad keys on the smallest phones.
           assert.ok(measurements.minLineKey[0] >= 44 && measurements.minLineKey[1] >= (landscape ? 32 : 36) - .5, `${id} CDU ${width}x${height} line-select touch targets (min ${measurements.minLineKey})`);
-          assert.match(measurements.screen, /IDENT|APPR/);
+          assert.match(measurements.screen, /PERF INIT|APPR/);
+          if (id.startsWith('pmdg-')) {
+            assert.match(measurements.screen, /▯▯▯\.▯\/24/);
+            assert.doesNotMatch(measurements.screen, /ê/);
+          }
           fs.writeFileSync(path.join(OUTPUT, `${id}-cdu-${width}x${height}.png`), (await win.webContents.capturePage()).toPNG());
           if (width === 320) {
             await evaluate(`const first = document.querySelector('.cdu-help-toggle'); first.focus();
@@ -1293,24 +1297,20 @@ async function browser() {
         win.setContentSize(320, 568);
         await win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width: 320, height: 568, deviceScaleFactor: 1, mobile: false });
         await win.webContents.capturePage(); await wait(100);
-        for (const skin of ['flight-deck', 'crt', 'orbit', 'neon', 'toon', 'pastel', 'blackout', 'brass']) {
-          await evaluate(`const select = document.querySelector('[data-cdu-skin-select]'); select.value = ${JSON.stringify(skin)}; select.dispatchEvent(new Event('change', { bubbles: true })); await layoutTest.settle();`);
-          await win.webContents.capturePage(); await wait(50);
-          const skinLayout = await evaluate(`return {
-            smallText: Math.min(...[...document.querySelectorAll('.cdu-cell.small')].map(cell => parseFloat(getComputedStyle(cell).fontSize))),
-            clippedText: [...document.querySelectorAll('.cdu-cell')].some(cell => cell.scrollWidth > cell.clientWidth + 1),
-            keyWidth: Math.min(...[...document.querySelectorAll('.cdu-keypad .cdu-key')].map(key => key.getBoundingClientRect().width)),
-            overflow: document.querySelector('.cdu-content').scrollHeight > document.querySelector('.cdu-content').clientHeight + 1,
-            horizontalOverflow: document.querySelector('.cdu-keypad').scrollWidth > document.querySelector('.cdu-keypad').clientWidth + 1,
-          };`);
-          assert.ok(skinLayout.smallText >= 10, `${id} ${skin}: small display labels stay readable: ${JSON.stringify(skinLayout)}`);
-          assert.equal(skinLayout.clippedText, false, `${id} ${skin}: characters fit their display columns`);
-          assert.ok(skinLayout.keyWidth >= 44, `${id} ${skin}: keys remain wide enough to tap`);
-          assert.equal(skinLayout.overflow, false, `${id} ${skin}: content fits the phone`);
-          assert.equal(skinLayout.horizontalOverflow, false, `${id} ${skin}: key labels fit without horizontal scrolling`);
-          fs.writeFileSync(path.join(OUTPUT, `${id}-cdu-${skin}-320x568.png`), (await win.webContents.capturePage()).toPNG());
-        }
-        await evaluate(`const select = document.querySelector('[data-cdu-skin-select]'); select.value = 'flight-deck'; select.dispatchEvent(new Event('change', { bubbles: true })); await layoutTest.settle();`);
+        assert.equal(await evaluate(`return document.querySelector('[data-cdu-skin-select]');`), null, 'theme selector is removed');
+        const defaultLayout = await evaluate(`return {
+          smallText: Math.min(...[...document.querySelectorAll('.cdu-cell.small')].map(cell => parseFloat(getComputedStyle(cell).fontSize))),
+          clippedText: [...document.querySelectorAll('.cdu-cell')].some(cell => cell.scrollWidth > cell.clientWidth + 1),
+          keyWidth: Math.min(...[...document.querySelectorAll('.cdu-keypad .cdu-key')].map(key => key.getBoundingClientRect().width)),
+          overflow: document.querySelector('.cdu-content').scrollHeight > document.querySelector('.cdu-content').clientHeight + 1,
+          horizontalOverflow: document.querySelector('.cdu-keypad').scrollWidth > document.querySelector('.cdu-keypad').clientWidth + 1,
+        };`);
+        assert.ok(defaultLayout.smallText >= 10, `${id}: small display labels stay readable: ${JSON.stringify(defaultLayout)}`);
+        assert.equal(defaultLayout.clippedText, false, `${id}: characters fit their display columns`);
+        assert.ok(defaultLayout.keyWidth >= 44, `${id}: keys remain wide enough to tap`);
+        assert.equal(defaultLayout.overflow, false, `${id}: content fits the phone`);
+        assert.equal(defaultLayout.horizontalOverflow, false, `${id}: key labels fit without horizontal scrolling`);
+        fs.writeFileSync(path.join(OUTPUT, `${id}-cdu-default-320x568.png`), (await win.webContents.capturePage()).toPNG());
         // A browser toolbar or safe-area inset can reduce the actual dialog
         // height without crossing a CSS viewport-height breakpoint.
         await evaluate(`document.documentElement.style.setProperty('--ff-visual-viewport-height', '460px'); await layoutTest.settle();`);
@@ -1353,7 +1353,7 @@ async function browser() {
     }
     assert.deepEqual(errors, [], 'no runtime errors');
     console.log(process.env.FF_CDU_LAYOUT_ONLY === '1'
-      ? 'CDU layout passed: Fenix launcher and FBW/PMDG screens at desktop, phone and landscape sizes; readable skins, reachable scrolling keypads, type-ahead, help, units, disconnects and focus restoration.'
+      ? 'CDU layout passed: Fenix launcher and FBW/PMDG screens at desktop, phone and landscape sizes; readable default display, reachable scrolling keypads, type-ahead, help, units, disconnects and focus restoration.'
       : process.env.FF_AIRCRAFT_TOOLS_ONLY === '1'
       ? 'Aircraft phone tools passed: disclosure, guide, voice, resize focus, search continuity, and visible stale/setup/fallback context.'
       : process.env.FF_AUTOTAXI_LAYOUT_ONLY === '1'
@@ -1398,14 +1398,14 @@ async function main() {
     if (!['pmdg-737', 'pmdg-777', 'fbw-a32nx'].includes(id)) return null;
     const adapter = id === 'pmdg-737' ? pmdgCdu : id === 'pmdg-777' ? pmdg777Cdu : fbwCdu;
     const raw = Array(1009).fill(0); raw[1008] = 1;
-    ['         IDENT', 'MODEL              ENG', '737-800       CFM56-7B', '', 'NAV DATA', 'ACTIVE         2401', '', 'OP PROGRAM', 'FLIGHTFABRIC', '', 'CO DATA', '', '<INDEX       POS INIT>', ''].forEach((line, row) => [...line].forEach((char, column) => {
-      const offset = (column * 14 + row) * 3; raw[offset] = char.charCodeAt(0); raw[offset + 2] = row % 2;
+    // Reconstruct reported empty PERF INIT fields through the real PMDG decoder.
+    ['       PERF INIT', 'GW/CRZ CG', '▯▯▯.▯/24', 'PLAN/FUEL', '---.-/15', 'ZFW', '▯▯▯.▯', 'RESERVES', '▯▯.▯', 'COST INDEX', '▯▯▯', '------------------------', '<INDEX', ''].forEach((line, row) => [...line].forEach((char, column) => {
+      const offset = (column * 14 + row) * 3; raw[offset] = char === '▯' ? 0xea : char.charCodeAt(0); raw[offset + 2] = row % 2;
     }));
     const lines = Array.from({ length: 12 }, () => ['', '', '']);
     lines[0] = ['QNH', 'TEMP']; lines[1] = ['{cyan}1013{end}', '{cyan}15°{end}'];
     lines[2] = ['MAG WIND', 'BARO']; lines[3] = ['{cyan}270/08{end}', '{cyan}320{end}'];
     lines[10] = ['TRANS ALT', 'LDG CONF']; lines[11] = ['{cyan}5000{end}', '{green}FULL{end}'];
-    if (id === 'pmdg-777') ['777-300ER       GE90'].forEach(line => [...line.padEnd(24)].forEach((char, column) => { raw[(column * 14 + 2) * 3] = char.charCodeAt(0); }));
     const screen = id.startsWith('pmdg-') ? decodePmdgScreen(raw) : decodeFbwScreen({ title: '{green}APPR{end}', scratchpad: '{cyan}YSSY{end}', lines, displayBrightness: 1 });
     return { mode: 'integrated', label: adapter.label, setup: adapter.setup, functionKeys: adapter.functionKeys, entryKeys: adapter.entryKeys, screen, sessionId: 'fixture' };
   };

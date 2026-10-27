@@ -76,20 +76,22 @@ async function browser() {
     const voiceChoices = KOKORO_MODEL.voices.filter(voice => voice.listed !== false).map(({ id, label }) => ({ id, label }));
     const fixtureUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
     fixtureUrl.search = '?desktop=1';
+    for (const initialEngine of ['windows-sapi', 'kokoro']) {
     for (const width of [1440, 390, 320]) {
       win.setContentSize(width, 900);
       await win.loadURL(fixtureUrl.href);
       for (let n = 0; n < 180 && !await evaluate('return Boolean(window.workbenchTest);'); n++) await wait(50);
       await evaluate(`
         const voice = workbenchTest.voice;
-        const readback = { selectedEngine: 'kokoro', engines: [
+        const readback = { selectedEngine: ${JSON.stringify(initialEngine)}, engines: [
           { id: 'kokoro', label: 'Kokoro (offline neural)' },
           { id: 'windows-sapi', label: 'Windows TTS' }] };
         let selectedVoice='af_heart';
         const voices=${JSON.stringify(voiceChoices)};
         const info = () => ({ enabled: true, available: true, readback:{...readback,
           selectedVoice:readback.selectedEngine==='kokoro'?selectedVoice:'', voices:readback.selectedEngine==='kokoro'?voices:[]},
-          pushToTalk: { accelerator: 'Control+Alt+Space', registered: true } });
+          pushToTalk: { accelerator: 'Control+Alt+Space', registered: true, controllerEnabled: true,
+            controller: { binding: { label: 'T.16000M', button: 12 }, state: 'ready', error: '' } } });
         const {createVoiceControlController}=await import('/frontend/src/voice/voice-controller.js');
         let runtimeListener;
         window.readbackSettingsController=createVoiceControlController({voiceStore:voice, globalRef:{},
@@ -108,14 +110,37 @@ async function browser() {
         await focusVoiceSettings(workbenchTest.tabs);
         document.getElementById('voice-readback-engine').scrollIntoView({block:'center'});
       `);
-      assert.equal(await evaluate("return document.getElementById('voice-readback-engine').value;"), 'kokoro');
+      assert.equal(await evaluate("return document.getElementById('voice-readback-engine').value;"), initialEngine,
+        'Settings reflects the runtime engine instead of replacing it with a UI default');
+      if (initialEngine === 'windows-sapi') {
+        assert(await evaluate("return !document.getElementById('voice-readback-voice') && !document.getElementById('voice-neural-memory-warning');"),
+          'Windows startup has no neural voice picker or neural memory warning');
+        await capture(`offline-voice-default-${width}`);
+        await evaluate("const select=document.getElementById('voice-readback-engine');select.value='kokoro';select.dispatchEvent(new Event('change',{bubbles:true}));await workbenchTest.nextTick();");
+      }
       assert.equal(await evaluate("return document.getElementById('voice-readback-voice').value;"), 'af_heart');
       assert.equal(await evaluate("return document.getElementById('voice-readback-voice').options.length;"), 8);
+      assert(await evaluate("return document.getElementById('voice-neural-memory-warning').getClientRects().length > 0 && document.getElementById('voice-readback-engine').getAttribute('aria-describedby') === 'voice-neural-memory-warning';"),
+        'selecting Kokoro exposes its RAM warning beside and associated with the engine selector');
+      const layout = await evaluate(`
+        const microphone=document.querySelector('[data-voice-test]').getBoundingClientRect();
+        const feedback=document.querySelector('.voice-feedback-settings').getBoundingClientRect();
+        const ptt=document.querySelector('[data-voice-ptt-settings]').getBoundingClientRect();
+        return {gap:feedback.top-microphone.bottom, aligned:Math.abs(feedback.left-microphone.left)<1,
+          beside:ptt.left>=feedback.right, stacked:ptt.top>=feedback.bottom,
+          removedHelp:!document.querySelector('[data-voice-test]').textContent.includes('About this test')};
+      `);
+      assert(layout.gap >= 16 && layout.gap <= 40 && layout.aligned,
+        `${width}: feedback sits directly beneath the microphone test: ${JSON.stringify(layout)}`);
+      assert(width >= 1200 ? layout.beside : layout.stacked,
+        `${width}: push-to-talk uses the desktop column or follows the phone stack`);
+      assert(layout.removedHelp, 'retired microphone test disclosure is absent');
       await evaluate("const select=document.getElementById('voice-readback-voice');select.value='bf_emma';select.dispatchEvent(new Event('change',{bubbles:true}));await workbenchTest.nextTick();");
       assert.equal(await evaluate('return workbenchTest.voice.runtime.readback.selectedVoice;'), 'bf_emma');
       await evaluate("const select=document.getElementById('voice-readback-engine'); select.value='windows-sapi'; select.dispatchEvent(new Event('change',{bubbles:true})); await workbenchTest.nextTick();");
       assert.equal(await evaluate('return workbenchTest.voice.runtime.readback.selectedEngine;'), 'windows-sapi');
       assert.equal(await evaluate("return document.getElementById('voice-readback-voice');"), null);
+      assert.equal(await evaluate("return document.getElementById('voice-neural-memory-warning');"), null);
       await evaluate("document.getElementById('voice-readback-engine').focus(); await workbenchTest.voice.setShortcut('Control+Alt+V'); await workbenchTest.nextTick();");
       assert.deepEqual(await evaluate("const select=document.getElementById('voice-readback-engine'); return {visible:!!select?.getClientRects().length,value:select?.value,focused:document.activeElement===select};"),
         {visible:true,value:'windows-sapi',focused:true}, 'shortcut update retains the usable, focused voice selector');
@@ -127,6 +152,7 @@ async function browser() {
       assert.equal(await evaluate("return document.getElementById('voice-readback-engine').disabled;"), true);
       assert.equal(await evaluate("return document.getElementById('voice-readback-voice').disabled;"), true);
       await evaluate('await readbackSettingsController.dispose();');
+    }
     }
   }
   async function checkCloudVoiceSettings() {
@@ -1128,6 +1154,14 @@ async function browser() {
       assert.deepEqual(nav.mobile, ['livemap', 'autopilot', 'dispatch', 'timeline'], name + ': fixed mobile order');
       assert.equal(nav.retired, false);
       assert.equal(nav.legacy, 'planning', 'old settings remain harmless and untouched');
+      if (width <= 760) await evaluate('workbenchTest.tabs.toggleMoreSheet(); await workbenchTest.nextTick();');
+      const sourceAccess = await evaluate(`const link=document.getElementById(innerWidth > 760 ? 'footer-source-link' : 'mobile-source-link');
+        link.focus(); const r=link.getBoundingClientRect(); return {href:link.href,focused:document.activeElement===link,
+          visible:r.width>0 && r.height>0 && r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight};`);
+      assert.equal(sourceAccess.href, 'https://github.com/yenbuilds/flight-fabric/releases');
+      assert(sourceAccess.focused && sourceAccess.visible, `${name}: corresponding source is visible and keyboard reachable`);
+      await capture(`${name}-source-access`);
+      if (width <= 760) await evaluate('workbenchTest.tabs.closeMoreSheet(); await workbenchTest.nextTick();');
       for (const tab of ['livemap', 'flight', 'autopilot', 'dispatch', 'timeline', 'system', 'settings']) {
         await evaluate(`await workbenchTest.open(${JSON.stringify(tab)}); document.getElementById('vue-main-root').scrollTop = 0;`);
         await wait(170);

@@ -470,8 +470,6 @@ export function createRouteTargetsController({
   }
 
   return {
-    applyDestinationTarget,
-    applyOriginTarget,
     cleanup,
     clearOriginSelection,
     clearTargetSelection,

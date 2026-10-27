@@ -71,35 +71,6 @@ function csvLine(headers, row) {
   return headers.map((header) => escapeCsv(row[header])).join(',');
 }
 
-function buildDutchRollSampleRows(options = {}) {
-  const rows = [];
-  const baseTs = options.baseTs || 1770000000000;
-  const phase = options.phase || 'CRUISE';
-  const paused = options.paused === true;
-  for (let index = 0; index <= 24; index += 1) {
-    const angle = (index / 6) * Math.PI * 2;
-    rows.push({
-      record_type: 'SAMPLE',
-      ts: baseTs + (index * 1000),
-      timestamp_ms: baseTs + (index * 1000),
-      phase,
-      on_ground: false,
-      sim_paused: paused,
-      sim_in_menu: false,
-      alt_msl_ft: 32000,
-      ra_ft: 32000,
-      ias_kts: 252,
-      gs_kts: 452,
-      bank_deg: Math.sin(angle) * 4.2,
-      yaw_rate_rad_s: (Math.sin(angle) * 1.4) * (Math.PI / 180),
-      sideslip_deg: Math.sin(angle + 0.45) * 1.2,
-      hdg_true_deg: 90,
-      track_true_deg: 90 - (Math.sin(angle + 0.45) * 1.2),
-    });
-  }
-  return rows;
-}
-
 function buildHoldingPatternSampleRows(options = {}) {
   const rows = [];
   const baseTs = options.baseTs || 1771000000000;
@@ -625,9 +596,17 @@ test('every backend stability breakdown metric has a first-class CSV and UI cont
     const column = flatStabilityColumn(metricKey);
     assert(schemaColumns.has(column), `schema-field-map missing flat stability column for ${metricKey}: ${column}`);
     assert(mappedColumns.has(column), `landing CSV contract missing ${column}`);
-    assert(landingRunnerSource.includes(`${column}:`) && landingRunnerSource.includes(`pct('${metricKey}')`), `landing-runner does not flatten ${metricKey}`);
+    assert(landingRunnerSource.includes(`${column}:`), `landing-runner payload omits ${column}`);
     assert(coreSource.includes(`${column}: pct('${metricKey}')`), `simbridge-core live landing path does not flatten ${metricKey} before CSV write`);
-    assert(coreSource.includes(`${column}: payload.${column}`), `simbridge-core CSV write payload does not include ${column}`);
+    // The core delegates CSV projection to the contract builder. Verify values
+    // through that boundary instead of requiring duplicated caller assignments.
+    for (const value of [0, 73, null]) {
+      const event = buildLandingCsvEventData({ [column]: value }, 'metric-contract');
+      assert(event[column] === value, `landing CSV builder changed ${column}: ${value}`);
+      const row = schemaFieldMap.buildRow({ ...event, _recordType: 'LANDING' });
+      assert(value === null ? row[column] === '' : row[column] !== '' && Number(row[column]) === value,
+        `landing CSV row lost ${column}: ${value}`);
+    }
     assert(timelineSource.includes(`['${metricKey}', row.${column}]`), `timeline replay does not recover ${metricKey} from ${column}`);
     assert(logbookSource.includes(`['${metricKey}', '${column}']`), `logbook CSV reader does not recover ${metricKey} from ${column}`);
     assert(frontendSource.includes(`${metricKey}:`), `frontend stability debug UI has no label/description metadata for ${metricKey}`);
@@ -753,60 +732,6 @@ test('flight summary suppresses convective rows even when precip evidence exists
   ]);
   assert(summary, 'expected row-based summary');
   assert(summary.violations.length === 0, `expected convective rows to be suppressed, got ${summary.violations.length}`);
-});
-
-test('flight summary reports possible Dutch roll as informational cruise data', () => {
-  const summary = computeFlightSummaryFromRows(buildDutchRollSampleRows());
-  assert(summary, 'expected row-based summary');
-  assert(summary.dutch_roll, 'expected Dutch roll summary');
-  assert(summary.dutch_roll.detected === true, 'expected Dutch roll to be detected');
-  assert(summary.dutch_roll.confidence === 'HIGH', `unexpected confidence ${summary.dutch_roll.confidence}`);
-  assert(summary.dutch_roll.max_duration_ms >= 20000, `unexpected duration ${summary.dutch_roll.max_duration_ms}`);
-  assert(summary.dutch_roll.max_bank_deg >= 3.5, `unexpected bank peak ${summary.dutch_roll.max_bank_deg}`);
-  assert(summary.violations.length === 0, 'Dutch roll summary should not create a violation row');
-});
-
-test('flight summary ignores Dutch-roll-like motion while paused or on approach', () => {
-  const pausedSummary = computeFlightSummaryFromRows(buildDutchRollSampleRows({ paused: true }));
-  assert(pausedSummary, 'expected paused row-based summary');
-  assert(pausedSummary.dutch_roll === null, 'paused samples should not produce a Dutch roll summary');
-
-  const approachSummary = computeFlightSummaryFromRows(buildDutchRollSampleRows({ phase: 'APPROACH' }));
-  assert(approachSummary, 'expected approach row-based summary');
-  assert(approachSummary.dutch_roll === null, 'approach samples should not produce a Dutch roll summary');
-});
-
-test('flight summary reads Dutch roll evidence from CSV sample columns', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-summary-dutch-roll-'));
-  const csvPath = path.join(tmpDir, 'summary.csv');
-  const headers = [
-    'record_type',
-    'ts',
-    'timestamp_ms',
-    'phase',
-    'on_ground',
-    'sim_paused',
-    'sim_in_menu',
-    'alt_msl_ft',
-    'ra_ft',
-    'ias_kts',
-    'gs_kts',
-    'bank_deg',
-    'yaw_rate_rad_s',
-    'sideslip_deg',
-    'hdg_true_deg',
-    'track_true_deg',
-  ];
-  try {
-    const rows = buildDutchRollSampleRows();
-    fs.writeFileSync(csvPath, [headers.join(','), ...rows.map((row) => csvLine(headers, row))].join('\n'), 'utf8');
-    const summary = readFlightSummary(csvPath);
-    assert(summary, 'expected summary from CSV');
-    assert(summary.dutch_roll?.detected === true, 'expected Dutch roll summary from CSV');
-    assert(summary.violations.length === 0, 'Dutch roll CSV summary should remain informational');
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  }
 });
 
 test('flight summary reports completed holding loops after a go-around without creating violations', () => {

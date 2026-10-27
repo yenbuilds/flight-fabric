@@ -84,9 +84,5 @@ const groups = computed(() => {
   </nav>
   <div class="sidebar-bottom">
     <SupportLink />
-    <button class="sidebar-help" type="button" aria-label="Help and shortcuts" title="Help and shortcuts" @click="shell.openNavigator('help')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9a2.5 2.5 0 0 1 4.8 1c0 1.8-2.4 1.8-2.4 3.5M12 16v.5"/></svg>
-      <span class="sidebar-label">Help &amp; shortcuts</span>
-    </button>
   </div>
 </template>

@@ -91,6 +91,83 @@ test('every advertised exact flap target has a reviewed lever source rather than
   ].sort(), 'fixed flap coverage must not disappear silently');
 });
 
+test('reported heading selected transcript resolves to the 737 HDG SEL button action', async () => {
+  const { interpretAircraftVoiceCommand: interpret } = await import('../../frontend/src/voice/command-interpreter.js');
+  for (const profileId of [...families['pmdg-737'], ...families['pmdg-777']]) {
+    const profile = loader.loadProfile(`bundled/msfs/${profileId}`), options = { profile, capabilities };
+    const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
+    const supported = families['pmdg-737'].includes(profileId);
+    for (const phrase of ['engage heading select', 'ENGAGE HEADING SELECTED', 'heading select', 'heading selected']) {
+      const voice = interpret(phrase, catalogue);
+      assert.equal(voice.ok, supported, `${profileId}: ${phrase}`);
+      if (!supported) continue;
+      assert.equal(voice.commandId, 'flightGuidance.headingSelect.engage');
+      assert.deepEqual(voice.input, {});
+      const resolved = resolveAircraftCommand(voice, options);
+      const button = resolveAircraftCommand({ commandId: 'flightGuidance.headingSelect.engage', input: {} }, options);
+      assert.equal(resolved.ok, true);
+      assert.deepEqual(resolved.controlRequests, button.controlRequests);
+      assert.equal(resolved.controlRequests.length, 1);
+      assert.equal(resolved.controlRequests[0].actionId, 'afds.headingSelect.engage');
+    }
+    for (const phrase of ['do not engage heading selected',
+      'disengage heading selected', 'engage heading selected off',
+      'engage heading selected and approach']) {
+      assert.equal(interpret(phrase, catalogue).ok, false, `${profileId}: ${phrase}`);
+    }
+  }
+});
+
+test('explicit mode names work with or without engage only where the aircraft advertises them', async () => {
+  const { interpretAircraftVoiceCommand: interpret } = await import('../../frontend/src/voice/command-interpreter.js');
+  const modes = [
+    ['headingSelect', ['heading select', 'heading selected']],
+    ['headingHold', ['heading hold']],
+    ['altitudeHold', ['altitude hold']],
+    ['approach', ['approach', 'approach mode', 'app']],
+    ['verticalSpeed', ['vertical speed', 'vertical speed mode']],
+    ['flightLevelChange', ['level change', 'flight level change', 'flch']],
+    ['localizer', ['localizer', 'loc', 'vor loc']],
+    ['lnav', ['lnav']], ['vnav', ['vnav']],
+    ['n1', ['n1', 'n one']], ['speed', ['mcp speed', 'speed mode']],
+  ];
+  for (const entry of loader.listProfiles()) {
+    const profile = loader.loadProfile(`bundled/${entry.simulator}/${entry.id}`);
+    const options = { profile, capabilities: entry.simulator === 'msfs' ? capabilities : {} };
+    const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
+    for (const [mode, names] of modes) {
+      const commandId = `flightGuidance.${mode}.engage`;
+      const supported = catalogue.commands.some(command => command.id === commandId);
+      if (entry.id === 'pmdg-737' && mode !== 'headingHold') assert.equal(supported, true, commandId);
+      for (const name of names) for (const phrase of [name, `engage ${name}`]) {
+        const voice = interpret(phrase, catalogue);
+        assert.equal(voice.ok, supported, `${entry.id}: ${phrase}`);
+        if (supported) {
+          assert.equal(voice.commandId, commandId, `${entry.id}: ${phrase}`);
+          assert.deepEqual(voice.input, {});
+          const resolved = resolveAircraftCommand(voice, options);
+          assert.equal(resolved.ok, true);
+          assert.deepEqual(resolved.controlRequests,
+            resolveAircraftCommand({ commandId, input: {} }, options).controlRequests);
+        }
+        for (const invalid of [`do not ${phrase}`, `don't ${phrase}`, `${phrase} and gear up`]) {
+          assert.equal(interpret(invalid, catalogue).ok, false, `${entry.id}: ${invalid}`);
+        }
+        const off = interpret(`${phrase} off`, catalogue);
+        if (off.ok) {
+          // Some aircraft already expose an explicit OFF command. It must
+          // retain that meaning instead of becoming a mode-engagement alias.
+          assert.notEqual(off.commandId, commandId);
+          assert.deepEqual(off.input, { value: false });
+        }
+      }
+    }
+    for (const phrase of ['heading', 'altitude', 'speed', 'altitude select', 'altitude selected']) {
+      assert.equal(interpret(phrase, catalogue).ok, false, `${entry.id}: ${phrase}`);
+    }
+  }
+});
+
 test('all PMDG heading and approach catalogue bindings share canonical and direct observation-loss feedback', async () => {
   const { flightGuidanceObservationFailureText } = await import('../../frontend/src/aircraft/command-result-presentation.js');
   const { formatAviationReadback } = await import('../../frontend/src/voice/local-readback.js');

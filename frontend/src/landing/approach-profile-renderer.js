@@ -334,7 +334,6 @@ function createProfileHeightResolver(profile, runwayReferenceElevFt) {
 
   return {
     heightOf,
-    selectedAltitudeOf,
     source,
     usesRunwayReference,
   };

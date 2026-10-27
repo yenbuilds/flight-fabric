@@ -1,6 +1,6 @@
 import { emitLandingReceived } from '../app/runtime-signals.js';
 import { approachProfileApi } from './approach-profile-renderer.js';
-import { gradeHex, gradeSeverity, normalizeLandingData } from './scoring.js';
+import { gradeHex, gradeSeverity } from './scoring.js';
 import { buildLandingDetailSections } from '../timeline/landing-detail.js';
 import { VIOLATION_RULE } from '../timeline/constants.js';
 import {
@@ -291,8 +291,6 @@ function firstFiniteNumber(...values) {
 }
 
 export function createLandingController({
-  $,
-  windowRef = window,
   flightStore = null,
   landingStore = null,
   tabsStore = null,
@@ -318,12 +316,10 @@ export function createLandingController({
 
   function updateDataLandingPreview(rawLanding) {
     if (!rawLanding) return null;
-    return flightStore?.updateLandingPreview?.(rawLanding) || normalizeLandingData(rawLanding);
+    return flightStore?.updateLandingPreview?.(rawLanding);
   }
 
   const landingCardRenderer = createLandingCardRenderer({
-    $,
-    windowRef,
     getLandingStore,
     getPendingUltimateStability: () => pendingUltimateStability,
     setLastLandingData: (data) => {
@@ -720,12 +716,9 @@ export function createLandingController({
     handleFlightViolationMessage,
     handleLandingMessage,
     handleUltimateStabilityScoreMessage,
-    renderInflightSummary,
     resetSession,
-    showLanding,
     showTimelineLanding,
     openTimelineLandingModal,
     showTimelineLandingError,
-    updateDataLandingPreview,
   };
 }
