@@ -781,15 +781,19 @@ async function browser() {
           const names = await evaluate("return document.querySelector('.aircraft-welcome').innerText;");
           for (const family of ['PMDG', 'Fenix', 'FlyByWire', 'A350']) assert(names.includes(family), `${family}: actual bundled profiles are discoverable`);
           assert.doesNotMatch(names, /Generic|X-Plane|Aircraft Base|Regional Jet Base|General Aviation Base|Base Profile/);
-          const discovery = await evaluate(`return {
+          const discovery = await evaluate(`const featuredNames = {
+            'pmdg-737':'PMDG Boeing 737', 'pmdg-777':'PMDG Boeing 777',
+            'fenix-a320':'Fenix Airbus A32X', 'fbw-a32nx':'FlyByWire A32NX',
+            'inibuilds-a350-900':'iniBuilds Airbus A350'
+          }; return {
             expected: workbenchTest.profiles.builtInProfiles.filter(profile => profile.simulator === 'msfs'
-              && !profile.abstract && !['generic','ga-base','regional-jet','turboprop-base','widebody-base'].includes(profile.id)).map(profile => profile.name).sort(),
+              && !profile.abstract && !['generic','ga-base','regional-jet','turboprop-base','widebody-base'].includes(profile.id)).map(profile => featuredNames[profile.id] || profile.name).sort(),
             actual: [...document.querySelectorAll('.aircraft-welcome-featured li, .aircraft-welcome-catalogue li')].map(item => item.textContent.trim()).sort(),
             otherCount: document.querySelectorAll('.aircraft-welcome-catalogue li').length,
             hasXplaneFixture: workbenchTest.profiles.builtInProfiles.some(profile => profile.simulator === 'xplane')
           };`);
           assert(discovery.hasXplaneFixture, 'real bundled catalogue includes X-Plane profiles for exclusion coverage');
-          assert.deepEqual(discovery.actual, discovery.expected, 'only individual MSFS aircraft appear, once each across both lists');
+          assert.deepEqual(discovery.actual, discovery.expected, 'MSFS profiles appear once across both lists, with family labels for featured rows');
           assert(discovery.otherCount < discovery.actual.length, 'featured aircraft are not repeated in the secondary list');
           await evaluate("document.querySelector('.aircraft-welcome-catalogue ul').focus();");
           await key('End');
