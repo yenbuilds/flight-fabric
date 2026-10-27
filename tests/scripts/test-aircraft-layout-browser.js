@@ -830,11 +830,13 @@ async function browser() {
             navigation: [...document.querySelectorAll('[data-aircraft-template] nav button')].some(button => /^Pushback & taxi$/.test(button.textContent.trim())),
             sections: [...document.querySelectorAll('[data-pmdg-737-section]')].map(section => section.getAttribute('data-pmdg-737-section')),
             requests: layoutTest.taxiSent.length,
-            motionRequests: layoutTest.taxiSent.slice(${priorTaxiRequests}).filter(message => message.operation !== 'status').length,
+            unexpectedRequests: layoutTest.taxiSent.slice(${priorTaxiRequests}).filter(message => !['status', 'parkings'].includes(message.operation)),
           };`);
           assert.equal(taxi.panel && taxi.navigation && taxi.experimental, true, `${width}px: Experimental Pushback & taxi panel and navigation are visible`);
           assert.ok(taxi.requests > 0, `${width}px: visible Autotaxi requests readiness`);
-          assert.equal(taxi.motionRequests, 0, `${width}px: opening the aircraft page never plans or starts a taxi`);
+          // Airport selection may finish its debounced, read-only stand lookup
+          // during a later resize. Preview and every motion operation stay forbidden.
+          assert.deepEqual(taxi.unexpectedRequests, [], `${id} ${width}px: opening the aircraft page never plans or starts a taxi`);
           if (id === 'pmdg-737') assert.deepEqual(taxi.sections, ['mcp', 'radios', 'exterior', 'cabin', 'flight-controls', 'gear-brakes', 'systems'], `${width}px: navigation follows the remaining sections`);
         }
         if (width === 1440) {
@@ -942,12 +944,22 @@ async function browser() {
           await wait(120);
           await evaluate(`document.querySelector('#aircraft-page-autotaxi').scrollIntoView({ behavior: 'instant' });`);
           await wait(80);
-          const routePosition = await evaluate(`const target = document.querySelector('#aircraft-page-autotaxi'); const nav = document.querySelector('.aircraft-desktop-section-nav'); return { top: target.getBoundingClientRect().top, scroll: window.scrollY, width: innerWidth, navWidth: nav.getBoundingClientRect().width, overflow: getComputedStyle(document.getElementById('aircraft-specific-section')).overflow, margin: getComputedStyle(target).scrollMarginTop };`);
-          assert.equal(routePosition.top >= 0 && routePosition.top < 150, true, `route preview is visible in its screenshot: ${JSON.stringify(routePosition)}`);
-          assert.equal(await evaluate('return document.documentElement.scrollWidth > innerWidth;'), false, `preview ${width}: no overflow`);
           // The hidden window's first capture after a resize can be a stale frame; ask twice.
           await win.webContents.capturePage(); await wait(100);
           fs.writeFileSync(path.join(OUTPUT, `pmdg-737-autotaxi-preview-${width}.png`), (await win.webContents.capturePage()).toPNG());
+          const routePosition = await evaluate(`const target = document.querySelector('#aircraft-page-autotaxi');
+            const rect = element => {const r=element.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height};};
+            return {width:innerWidth,height:innerHeight,nav:rect(document.querySelector('.aircraft-desktop-section-nav')),
+              summary:rect(target.querySelector('summary')),figure:rect(target.querySelector('figure'))};`);
+          assert(routePosition.summary.top >= Math.max(0, routePosition.nav.bottom) - 1
+            && routePosition.summary.bottom <= routePosition.height + 1,
+          `route heading stays visible below sticky navigation: ${JSON.stringify(routePosition)}`);
+          assert(routePosition.figure.width > 0 && routePosition.figure.height > 0
+            && routePosition.figure.top >= routePosition.summary.bottom
+            && routePosition.figure.bottom <= routePosition.height + 1
+            && routePosition.figure.left >= 0 && routePosition.figure.right <= routePosition.width + 1,
+          `complete route preview is visible in its screenshot: ${JSON.stringify(routePosition)}`);
+          assert.equal(await evaluate('return document.documentElement.scrollWidth > innerWidth;'), false, `preview ${width}: no overflow`);
         }
         // The 3D view: a chase camera behind the aircraft, remembered per browser, with the 2D map one tap away.
         assert.equal(await evaluate(`return document.querySelector('#aircraft-page-autotaxi .taxi-map').dataset.taxiView;`), '3d', 'guidance starts with the route ribbon');

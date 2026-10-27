@@ -179,6 +179,7 @@ test('aircraft command catalogue treats generic fallback as a first-class config
         'set lights for a takeoff', 'set lights for a take off',
         'set takeoff lights', 'set take off lights',
         'takeoff lights', 'take off lights',
+        "let's hit it",
       ],
       hints: ['TAKEOFF LIGHTS', 'LIGHTS FOR TAKEOFF'],
     },
@@ -993,7 +994,6 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'surfaces.flaps.set',
     'surfaces.parkingBrake.set',
     'surfaces.spoilersArmed.set',
-    'configuration.lighting.cockpit',
     'radios.nav.setBothActive',
     'lights.taxi.set',
     'configuration.lights.takeoff',
@@ -1045,6 +1045,7 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'systems.engineBleed2.set',
     'systems.engineAntiIce2.set',
     'visibility.firstOfficer.wiper',
+    'configuration.lighting.cockpit',
     'configuration.lighting.displays',
   ]);
   assert.deepEqual(commands.get('flightGuidance.altitude.set').speech.patterns, [
@@ -1241,45 +1242,46 @@ test('PMDG 737 takeoff-light preset resolves to one guarded aircraft-specific re
   ]);
 });
 
-test('PMDG 737 cockpit-lighting preset maps one percentage to all four guarded groups', () => {
-  const result = resolveAircraftCommand({
-    commandId: 'configuration.lighting.cockpit',
-    input: { value: 42 },
-    profileKey: 'bundled/msfs/pmdg-737',
-    profileRevision: 9,
-  }, {
-    profile: buildPmdg737Profile(),
-    profileRevision: 9,
-    requireProfileToken: true,
-    capabilities: {
-      actionTypes: ['aircraft-integration'],
-      integrationTransports: ['simconnect-sequence'],
-    },
-  });
-
-  assert.equal(result.ok, true);
-  assert.equal(result.stepCount, 4);
-  assert.deepEqual(result.controlRequests.map((request) => request.actionId), [
-    'lighting.cockpit.panels.set',
-    'lighting.cockpit.ambient.set',
-    'lighting.cockpit.captainDisplays.set',
-    'lighting.cockpit.firstOfficerDisplays.set',
-  ]);
-  assert.deepEqual(result.controlRequests.map((request) => request.value), [42, 42, 42, 42]);
-
-  for (const value of [-1, 42.5, 101]) {
-    const invalid = resolveAircraftCommand({
-      commandId: 'configuration.lighting.cockpit',
-      input: { value },
+test('PMDG 737 brightness presets map one percentage only to their own guarded groups', () => {
+  for (const [target, actionIds] of [
+    ['cockpit', ['lighting.cockpit.panels.set', 'lighting.cockpit.ambient.set']],
+    ['displays', ['lighting.cockpit.captainDisplays.set', 'lighting.cockpit.firstOfficerDisplays.set']],
+  ]) {
+    const result = resolveAircraftCommand({
+      commandId: `configuration.lighting.${target}`,
+      input: { value: 42 },
+      profileKey: 'bundled/msfs/pmdg-737',
+      profileRevision: 9,
     }, {
       profile: buildPmdg737Profile(),
+      profileRevision: 9,
+      requireProfileToken: true,
       capabilities: {
         actionTypes: ['aircraft-integration'],
         integrationTransports: ['simconnect-sequence'],
       },
     });
-    assert.equal(invalid.ok, false, `cockpit lighting ${value} must be rejected`);
-    assert.equal(invalid.code, 'invalid_command_input');
+
+    assert.equal(result.ok, true);
+    assert.equal(result.stepCount, 2);
+    assert.deepEqual(result.controlRequests.map((request) => request.actionId), actionIds,
+      `${target} leaves the other brightness group untouched`);
+    assert.deepEqual(result.controlRequests.map((request) => request.value), [42, 42]);
+
+    for (const value of [-1, 42.5, 101]) {
+      const invalid = resolveAircraftCommand({
+        commandId: `configuration.lighting.${target}`,
+        input: { value },
+      }, {
+        profile: buildPmdg737Profile(),
+        capabilities: {
+          actionTypes: ['aircraft-integration'],
+          integrationTransports: ['simconnect-sequence'],
+        },
+      });
+      assert.equal(invalid.ok, false, `${target} brightness ${value} must be rejected`);
+      assert.equal(invalid.code, 'invalid_command_input');
+    }
   }
 });
 
@@ -1459,7 +1461,7 @@ test('a first-step provider rejection does not imply that preset execution start
   assert.equal(result.executionStarted, undefined);
 });
 
-test('executeAircraftCommand preserves one percentage across every cockpit-lighting group', async () => {
+test('executeAircraftCommand preserves one percentage without crossing brightness groups', async () => {
   const calls = [];
   const provider = {
     aircraftControlCapabilities: {
@@ -1472,23 +1474,25 @@ test('executeAircraftCommand preserves one percentage across every cockpit-light
     },
   };
 
-  const result = await executeAircraftCommand(provider, {
-    commandId: 'configuration.lighting.cockpit',
-    input: { value: 42 },
-  }, {
-    profile: buildPmdg737Profile(),
-  });
+  for (const [target, actionIds] of [
+    ['cockpit', ['lighting.cockpit.panels.set', 'lighting.cockpit.ambient.set']],
+    ['displays', ['lighting.cockpit.captainDisplays.set', 'lighting.cockpit.firstOfficerDisplays.set']],
+  ]) {
+    calls.length = 0;
+    const result = await executeAircraftCommand(provider, {
+      commandId: `configuration.lighting.${target}`,
+      input: { value: 42 },
+    }, {
+      profile: buildPmdg737Profile(),
+    });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.completedStepCount, 4);
-  assert.equal(result.stepCount, 4);
-  assert.deepEqual(calls.map((call) => call.request.actionId), [
-    'lighting.cockpit.panels.set',
-    'lighting.cockpit.ambient.set',
-    'lighting.cockpit.captainDisplays.set',
-    'lighting.cockpit.firstOfficerDisplays.set',
-  ]);
-  assert.deepEqual(calls.map((call) => call.request.value), [42, 42, 42, 42]);
+    assert.equal(result.ok, true);
+    assert.equal(result.completedStepCount, 2);
+    assert.equal(result.stepCount, 2);
+    assert.deepEqual(calls.map((call) => call.request.actionId), actionIds,
+      `${target} execution never writes the other brightness group`);
+    assert.deepEqual(calls.map((call) => call.request.value), [42, 42]);
+  }
 });
 
 test('resolveAircraftControl uses generic MSFS fallback for gear down', () => {
