@@ -79,12 +79,6 @@ function run() {
       assertTrue(cabinDir.endsWith(path.join('Audio', 'Cabin')), 'cabin announcement audio dir should end with Audio/Cabin');
     });
 
-    test('themes dir uses the app-data tree', () => {
-      const themesDir = storagePaths.getThemesDir(env);
-      assertTrue(themesDir.includes('Flight Fabric'), 'themes dir should include the Flight Fabric folder');
-      assertTrue(themesDir.endsWith(path.join('Themes')), 'themes dir should end with Themes');
-    });
-
     test('user identity file uses the app-data root', () => {
       const userIdPath = storagePaths.getUserIdFilePath(env);
       const expectedPath = path.join(storagePaths.getAppDataRoot(env), storagePaths.USER_ID_FILE_NAME);

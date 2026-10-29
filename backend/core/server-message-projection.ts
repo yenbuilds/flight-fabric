@@ -1024,7 +1024,6 @@ function projectAppSettings(message: ServerMessage): ServerMessage {
       settingsFile: LOCAL_SETTINGS_LABEL,
       bundledAircraftProfilesDir: 'Release-owned and read-only',
       cabinAnnouncementAudioDir: 'Stored locally for cabin-audio overrides',
-      themesDir: 'Stored locally for theme overrides',
       logbookFile: 'Stored locally with your flight-log data',
       destinationTargetFile: 'Stored locally in the destination target cache',
       originTargetFile: 'Stored locally in the origin target cache',

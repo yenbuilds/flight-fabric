@@ -409,7 +409,6 @@ test('frontend build and Electron launch paths use the bundled frontend output',
   assert(!frontendPkg.dependencies?.['maplibre-gl'], 'standard raster maps should not ship the failed MapLibre runtime');
   assert(frontendBuild.includes('flight-phases.js'), 'frontend build wrapper should copy flight-phases.js');
   assert(!frontendBuild.includes("\n  'vendor',"), 'frontend build wrapper should not copy retired vendor assets');
-  assert(frontendBuild.includes("'themes'"), 'frontend build wrapper should copy bundled themes');
   assert(!frontendBuild.includes('MapLibre'), 'frontend build wrapper should not retain unused MapLibre worker handling');
   assert(frontendBuild.includes('buildTailwindCss()'), 'frontend build wrapper should compile Tailwind CSS');
   assert(frontendBuild.includes("'-o', TAILWIND_OUTPUT"), 'frontend build wrapper should write Tailwind to frontend-dist');

@@ -36,7 +36,6 @@ const STATIC_FILES = [
 const STATIC_DIRS = [
   'assets',
   'audio',
-  'themes',
   // MSFS toolbar panel page, served by the backend at /toolbar/ and framed
   // by the simulator package. Plain script, so it is copied, not bundled.
   'toolbar',

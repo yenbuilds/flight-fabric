@@ -401,7 +401,6 @@ function createFixtureState() {
       settingsFile: 'C:/Fixture/AppData/Roaming/Flight Fabric/Settings/settings.json',
       bundledAircraftProfilesDir: 'C:/Fixture/App/resources/backend/aircraft/aircraft-integrations',
       cabinAnnouncementAudioDir: 'C:/Fixture/AppData/Roaming/Flight Fabric/Audio/Cabin',
-      themesDir: 'C:/Fixture/AppData/Roaming/Flight Fabric/Themes',
       flightLogsDir: 'C:/Fixture/AppData/Roaming/Flight Fabric/FlightLogs',
       flightLogsExists: true,
       flightLogsFileCount: 3,

@@ -6,7 +6,7 @@ import { readStorageValue, withBrowserLock, writeStorageValue } from './browser-
 import { isRemoteViewPath } from './remote-view.js';
 
 export const WHATS_NEW_SEEN_STORAGE_KEY = 'ff_whats_new_seen_v1';
-export const WHATS_NEW_ASSET = 'whats-new.json';
+const WHATS_NEW_ASSET = 'whats-new.json';
 
 export function extractSemver(text) {
   const match = String(text || '').match(/\d+\.\d+\.\d+/);

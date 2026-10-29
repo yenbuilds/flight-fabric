@@ -69,7 +69,7 @@ function run() {
     // Do NOT hardcode the Windows AppData path — it differs on macOS/Linux.
     const storagePaths = require(resolveBackendRuntimeFile('utils', 'storage-paths.js'));
     const cabinDir = storagePaths.getCabinAnnouncementAudioDir(process.env);
-    const themesDir = storagePaths.getThemesDir(process.env);
+    const retiredThemesDir = path.join(storagePaths.getAppDataRoot(process.env), 'Themes');
     const markerPath = storagePaths.getAppDataMarkerFilePath(process.env);
     const retiredProfilesRootDir = path.join(storagePaths.getAppDataRoot(process.env), 'Profiles');
 
@@ -77,7 +77,13 @@ function run() {
     assertTrue(fs.existsSync(settingsPath), 'settings.json template should be created on first load');
     assertTrue(fs.existsSync(markerPath), 'app-data marker should be created on first load');
     assertTrue(fs.existsSync(cabinDir), 'cabin announcement audio directory should be created on first load');
-    assertTrue(fs.existsSync(themesDir), 'themes directory should be created on first load');
+    assertTrue(!fs.existsSync(retiredThemesDir), 'first load should not create the retired Themes folder');
+    fs.mkdirSync(retiredThemesDir, { recursive: true });
+    const legacyThemePath = path.join(retiredThemesDir, 'theme-default.css');
+    const legacyTheme = '/* user-owned legacy theme */';
+    fs.writeFileSync(legacyThemePath, legacyTheme);
+    loadFreshUserSettingsModule();
+    assertEqual(fs.readFileSync(legacyThemePath, 'utf8'), legacyTheme, 'existing user themes must remain untouched');
     assertTrue(!fs.existsSync(retiredProfilesRootDir), 'first load should not create the retired Profiles folder');
     assertTrue(!settingsPath.includes('.msfs-telemetry'), 'settings.json should use the new FlightFabric path');
     assertEqual(mod.settings.network.remoteAccess, false, 'network.remoteAccess default');

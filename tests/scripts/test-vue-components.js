@@ -5779,6 +5779,23 @@ async function main() {
     assert.match(html, /Touchdown rate/, 'last landing summary should use a source-neutral touchdown-rate label');
   });
 
+  await test('FlightTelemetryPanel dims unavailable readings and restores live readings through the flight store', async () => {
+    for (const mode of ['connecting', 'waiting', 'disconnected', 'error', 'inMenu', 'live']) {
+      const { html } = await renderComponent(
+        path.join('src', 'vue', 'components', 'FlightTelemetryPanel.vue'),
+        ({ useFlightStore }) => {
+          const flight = useFlightStore();
+          flight.setFlightState('live');
+          flight.setFlightState('disconnected');
+          flight.setFlightState(mode);
+        },
+      );
+      const shell = html.match(/<div[^>]*id="flight-live-shell"[^>]*>/)?.[0];
+      assert.ok(shell, `${mode}: telemetry shell should remain mounted`);
+      assert.equal(/\bis-muted\b/.test(shell), mode !== 'live', `${mode}: dimming follows telemetry availability`);
+    }
+  });
+
   await test('FlightTelemetryPanel renders live telemetry values from the flight store', async () => {
     const { html } = await renderComponent(
       path.join('src', 'vue', 'components', 'FlightTelemetryPanel.vue'),

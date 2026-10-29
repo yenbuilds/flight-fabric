@@ -8,10 +8,8 @@ const fs = require('fs') as typeof import('fs');
 const crypto = require('crypto') as typeof import('crypto');
 const {
   getCabinAnnouncementAudioDir,
-  getThemesDir,
 } = require('../utils/storage-paths.js') as {
   getCabinAnnouncementAudioDir: () => string;
-  getThemesDir: () => string;
 };
 const {
   isPathInside,
@@ -234,7 +232,6 @@ export function createSimbriefRequestLimiter({
 
 const HTTP_PORT_OFFSET = 1; // HTTP port is WS port + this offset
 const CABIN_ANNOUNCEMENTS_DIR = getCabinAnnouncementAudioDir();
-const THEMES_DIR = getThemesDir();
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 function resolveRepoAssetPath(...segments: string[]): string {
@@ -259,7 +256,6 @@ const FRONTEND_PACKAGED_DIR = resolvePackagedFrontendDir(
   __dirname,
   config.env.isElectronPackaged,
 );
-const BUNDLED_THEMES_DIR = resolveRepoAssetPath('frontend', 'themes');
 const STATIC_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css',
   '.js': 'application/javascript',
@@ -1132,25 +1128,6 @@ export function startHttpServer({
       return;
     }
 
-    if (urlPath.startsWith('/user-assets/themes/')) {
-      const relativePath = urlPath.slice('/user-assets/themes/'.length);
-      const userThemePath = resolveSafeAssetPath(THEMES_DIR, relativePath);
-      const bundledThemePath = resolveSafeAssetPath(BUNDLED_THEMES_DIR, relativePath);
-      if (!userThemePath || !bundledThemePath) {
-        res.writeHead(403);
-        res.end('Forbidden');
-        return;
-      }
-
-      const ext = path.extname(userThemePath).toLowerCase();
-      streamFirstExistingFile(
-        res,
-        [userThemePath, bundledThemePath],
-        STATIC_MIME_TYPES[ext] || 'application/octet-stream',
-      );
-      return;
-    }
-
     if (urlPath.match(/^\/shared\/.*\.js$/)) {
       const sharedRoot = resolveRepoAssetPath('shared');
       const relativePath = urlPath.slice('/shared/'.length);
@@ -1168,7 +1145,7 @@ export function startHttpServer({
       return;
     }
 
-    if (urlPath.match(/^\/(tailwind\.css|style\.css|themes\/.*|audio\/.*|vendor\/.*|.*\.js|.*\.css|.*\.png|.*\.svg|.*\.ico|.*\.html)$/)) {
+    if (urlPath.match(/^\/(tailwind\.css|style\.css|audio\/.*|vendor\/.*|.*\.js|.*\.css|.*\.png|.*\.svg|.*\.ico|.*\.html)$/)) {
       const relativePath = urlPath.replace(/^\//, '');
       const candidatePaths = resolveFrontendAssetCandidates(relativePath);
       if (candidatePaths.length === 0) {

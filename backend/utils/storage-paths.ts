@@ -20,7 +20,6 @@ const LOCAL_SDK_CONNECTORS_DIR_NAME = 'Local';
 const COMMUNITY_SDK_CONNECTORS_DIR_NAME = 'Community';
 const AUDIO_DIR_NAME = 'Audio';
 const CABIN_ANNOUNCEMENTS_DIR_NAME = 'Cabin';
-const THEMES_DIR_NAME = 'Themes';
 const LOGBOOK_FILE_NAME = 'logbook.json';
 const TAKEOFF_LOG_FILE_NAME = 'takeoff-log.json';
 const DESTINATION_TARGET_FILE_NAME = 'destination-target.json';
@@ -126,10 +125,6 @@ function getAudioAssetsRootDir(env: EnvLike = process.env): string {
 
 function getCabinAnnouncementAudioDir(env: EnvLike = process.env): string {
   return path.join(getAudioAssetsRootDir(env), CABIN_ANNOUNCEMENTS_DIR_NAME);
-}
-
-function getThemesDir(env: EnvLike = process.env): string {
-  return path.join(getAppDataRoot(env), THEMES_DIR_NAME);
 }
 
 function getLogbookFilePath(env: EnvLike = process.env): string {
@@ -283,7 +278,6 @@ const storagePathsApi = {
   SETTINGS_DIR_NAME,
   SETTINGS_FILE_NAME,
   SDK_CONNECTORS_DIR_NAME,
-  THEMES_DIR_NAME,
   USER_ID_FILE_NAME,
   dedupePaths,
   ensureDirExists,
@@ -302,7 +296,6 @@ const storagePathsApi = {
   getSettingsDir,
   getSettingsFilePath,
   getSdkConnectorsRootDir,
-  getThemesDir,
   getUserIdFilePath,
   isDirectory,
   isFile,

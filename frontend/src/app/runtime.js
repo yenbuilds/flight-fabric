@@ -554,17 +554,8 @@ export async function initAppRuntime({
     },
   });
 
-  function setFlightTabMuted(muted) {
-    if (flightStore?.setFlightState) return;
-    const shell = $('flight-live-shell');
-    if (shell) shell.classList.toggle('is-muted', muted);
-  }
-
   function setFlightState(mode, overrides = {}) {
-    const next = typeof flightStore?.setFlightState === 'function'
-      ? flightStore.setFlightState(mode, overrides)
-      : { muted: Object.prototype.hasOwnProperty.call(overrides, 'muted') ? overrides.muted !== false : mode !== 'live' };
-    setFlightTabMuted(next.muted !== false);
+    flightStore.setFlightState(mode, overrides);
   }
 
   function markFlightTelemetryActive() {

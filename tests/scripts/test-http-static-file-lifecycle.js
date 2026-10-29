@@ -38,6 +38,72 @@ const servers = [
     serve: (fn, req, res, file, type) => fn(req, res, file, type, { htmlNonce: 'fixture' }) },
 ];
 
+test('Electron serves current assets and cabin audio while retired themes remain private', async () => {
+  fs.mkdirSync(path.join(ROOT, '.tmp'), { recursive: true });
+  const dir = fs.mkdtempSync(path.join(ROOT, '.tmp', 'ff-static-routes-'));
+  const frontend = path.join(dir, 'frontend');
+  const cabin = path.join(dir, 'Audio', 'Cabin');
+  const themes = path.join(dir, 'Themes');
+  for (const folder of [frontend, cabin, themes]) fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(frontend, 'index.css'), '/* current app styling */');
+  fs.writeFileSync(path.join(cabin, 'climb.wav'), 'user-cabin-audio');
+  fs.writeFileSync(path.join(themes, 'theme-default.css'), 'private-legacy-theme');
+
+  // Load the actual routing and file-serving owners without starting the desktop app.
+  const source = ts.createSourceFile('main.js', fs.readFileSync(path.join(ROOT, 'electron/main.js'), 'utf8'), ts.ScriptTarget.Latest, true);
+  const names = new Set(['isPathInsideOrEqual', 'resolveSafeStaticPath', 'getFrontendAssetCandidates',
+    'writeStaticError', 'buildRendererContentSecurityPolicy', 'injectRendererCspNonce', 'streamStaticFile', 'startFrontendServer']);
+  const declarations = source.statements.filter(node =>
+    (ts.isFunctionDeclaration(node) && names.has(node.name?.text))
+    || (ts.isVariableStatement(node) && node.declarationList.declarations.some(decl => decl.name.getText(source) === 'MIME_TYPES')));
+  const context = vm.createContext({
+    require, fs, path, process, Buffer, crypto: require('node:crypto'),
+    console, debugLog() {}, frontendServer: null, frontendServerStatus: 'stopped', frontendPort: 0,
+    FRONTEND_HOST: '127.0.0.1', FRONTEND_DIR: frontend, FRONTEND_DIST_DIR: frontend, FRONTEND_SOURCE_DIR: frontend,
+    CABIN_ANNOUNCEMENTS_DIR: cabin, THEMES_DIR: themes,
+  });
+  vm.runInContext(declarations.map(node => node.getText(source)).join('\n'), context);
+  function request(url, method = 'GET') {
+    return new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: context.frontendServer.address().port, path: url, method }, res => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', chunk => { body += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+  try {
+    const started = await context.startFrontendServer();
+    assert.equal(started.status, 'running');
+    const css = await request('/frontend/index.css');
+    assert.equal(css.status, 200);
+    assert.equal(css.body, '/* current app styling */');
+    assert.match(css.headers['content-security-policy'], /default-src 'self'/);
+    assert.equal(css.headers['x-content-type-options'], 'nosniff');
+    const head = await request('/frontend/index.css', 'HEAD');
+    assert.equal(head.status, 200);
+    assert.equal(head.body, '');
+    assert.equal((await request('/frontend/index.css', 'POST')).status, 405);
+    assert.equal((await request('/user-assets/cabin/climb.wav')).body, 'user-cabin-audio');
+    assert.equal((await request('/user-assets/cabin/../../Themes/theme-default.css')).status, 403);
+    for (const prefix of ['/themes/', '/frontend/themes/', '/user-assets/themes/']) {
+      for (const name of ['theme-default.css', 'theme-web3-dark.css']) {
+        const response = await request(prefix + name);
+        assert.equal(response.status, 404);
+        assert.ok(!response.body.includes('private-legacy-theme'));
+      }
+    }
+    assert.equal(fs.readFileSync(path.join(themes, 'theme-default.css'), 'utf8'), 'private-legacy-theme');
+  } finally {
+    if (context.frontendServer) await new Promise(resolve => context.frontendServer.close(resolve));
+    assert.equal(path.dirname(dir), path.join(ROOT, '.tmp'));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 for (const implementation of servers) {
   for (const mode of ['complete', 'transfer-abort', 'open-abort', 'stat-abort', 'html-abort']) {
     test(`${implementation.label} static files release handles after ${mode}`, { timeout: 5000 }, async () => {

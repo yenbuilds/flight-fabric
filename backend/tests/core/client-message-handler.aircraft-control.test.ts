@@ -1057,7 +1057,7 @@ test('requestAppSettings exposes resolved storage paths to privileged websocket 
     assert.equal('aircraftProfilesDir' in ws.messages[0].storage, false);
     assert.match(ws.messages[0].storage.bundledAircraftProfilesDir, /backend[\\/]aircraft[\\/]aircraft-integrations$/);
     assert.equal(ws.messages[0].storage.cabinAnnouncementAudioDir, storagePaths.getCabinAnnouncementAudioDir());
-    assert.equal(ws.messages[0].storage.themesDir, storagePaths.getThemesDir());
+    assert.equal('themesDir' in ws.messages[0].storage, false);
     assert.equal(ws.messages[0].storage.logbookFile, storagePaths.getLogbookFilePath());
     assert.equal(ws.messages[0].storage.destinationTargetFile, storagePaths.getDestinationTargetFilePath());
     assert.equal(ws.messages[0].storage.originTargetFile, storagePaths.getOriginTargetFilePath());

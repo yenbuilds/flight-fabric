@@ -40,7 +40,7 @@ function keepTailwindBeforeBundledCss() {
  *
  * - Production build:
  *   `npm run frontend:build` now runs Vite and then copies the remaining
- *   compatibility assets (plain-script `flight-phases.js` and `themes/`)
+ *   static assets (plain-script compatibility files, images, audio and toolbar pages)
  *   into `frontend-dist/`. Electron and the backend HTTP server
  *   both consume that bundled output.
  *
@@ -67,8 +67,7 @@ export default defineConfig({
   root: __dirname,
   plugins: [vue(), keepTailwindBeforeBundledCss()],
 
-  // Static assets served by the dev server. themes/ are always included.
-  // The root itself is also the public dir so index.html and compact widget HTMLs resolve correctly.
+  // The build wrapper copies static assets explicitly; Vite has no public directory.
   publicDir: false,
 
   server: {

@@ -300,14 +300,12 @@ const {
   getCabinAnnouncementAudioDir,
   getSettingsDir,
   getSettingsFilePath,
-  getThemesDir,
 } = loadStoragePaths();
 const { resolveFlightLogsDir } = loadFlightLogsDir();
 const ELECTRON_USER_DATA_DIR = path.join(getAppDataRoot(), 'Electron');
 fs.mkdirSync(ELECTRON_USER_DATA_DIR, { recursive: true });
 app.setPath('userData', ELECTRON_USER_DATA_DIR);
 const CABIN_ANNOUNCEMENTS_DIR = getCabinAnnouncementAudioDir();
-const THEMES_DIR = getThemesDir();
 
 // Determine if we're in development or packaged
 const isDev = !app.isPackaged;
@@ -845,31 +843,6 @@ function startFrontendServer() {
 
         streamStaticFile(req, res, filePath, contentType, {
           notFoundMessage: `File not found: ${pathname}`,
-        });
-        return;
-      }
-
-      if (pathname.startsWith('/user-assets/themes/')) {
-        const themesRoot = path.resolve(THEMES_DIR);
-        const bundledThemesRoot = path.resolve(FRONTEND_DIR, 'themes');
-        const relativePath = pathname.slice('/user-assets/themes/'.length);
-        const userThemePath = resolveSafeStaticPath(themesRoot, relativePath);
-        const bundledThemePath = resolveSafeStaticPath(bundledThemesRoot, relativePath);
-        if (!userThemePath || !bundledThemePath) {
-          res.writeHead(403);
-          res.end('Forbidden');
-          return;
-        }
-
-        const ext = path.extname(userThemePath).toLowerCase();
-        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-
-        streamStaticFile(req, res, userThemePath, contentType, {
-          onMissing: () => {
-            streamStaticFile(req, res, bundledThemePath, contentType, {
-              notFoundMessage: `File not found: ${pathname}`,
-            });
-          },
         });
         return;
       }

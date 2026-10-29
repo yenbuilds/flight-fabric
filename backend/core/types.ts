@@ -395,7 +395,6 @@
  * @property {string} settingsFile - User settings file path
  * @property {string} bundledAircraftProfilesDir - Built-in aircraft profiles directory
  * @property {string} cabinAnnouncementAudioDir - Cabin announcement audio directory
- * @property {string} themesDir - Themes directory
  * @property {string} logbookFile - Logbook JSON file path
  * @property {string} destinationTargetFile - Destination target file path
  * @property {string} originTargetFile - Origin target file path

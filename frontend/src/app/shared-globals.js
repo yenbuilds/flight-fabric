@@ -3,7 +3,7 @@ function getGlobalRoot() {
   return typeof window !== 'undefined' ? window : {};
 }
 
-export function getGlobalRootObject() {
+function getGlobalRootObject() {
   return getGlobalRoot();
 }
 

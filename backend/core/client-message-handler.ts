@@ -26,7 +26,6 @@ const { withFlightCountriesList, withLandingCountryList } = require('../landing/
 const { createFlightCsvStore } = require('../flight-recording/flight-csv-store');
 const {
   getCabinAnnouncementAudioDir,
-  getThemesDir,
 } = require('../utils/storage-paths');
 const { getFlightLogsStorageInfo } = require('../utils/flight-logs-dir');
 const { PHASES } = require('../lifecycle/phases');
@@ -182,7 +181,6 @@ function buildStorageSummary(options: { includeLocalPaths?: boolean } = {}) {
       settingsFile: SETTINGS_FILE,
       bundledAircraftProfilesDir: profileLoader.BUILTIN_BUNDLED_DIR,
       cabinAnnouncementAudioDir: CABIN_ANNOUNCEMENTS_DIR,
-      themesDir: getThemesDir(),
       logbookFile: LOGBOOK_FILE,
       destinationTargetFile: DESTINATION_TARGET_FILE,
       originTargetFile: ORIGIN_TARGET_FILE,
@@ -198,7 +196,6 @@ function buildStorageSummary(options: { includeLocalPaths?: boolean } = {}) {
     settingsFile: SETTINGS_FILE_LABEL,
     bundledAircraftProfilesDir: 'Release-owned and read-only',
     cabinAnnouncementAudioDir: 'Stored locally for cabin-audio overrides',
-    themesDir: 'Stored locally for theme overrides',
     logbookFile: 'Stored locally with your flight-log data',
     destinationTargetFile: 'Stored locally in the destination target cache',
     originTargetFile: 'Stored locally in the origin target cache',

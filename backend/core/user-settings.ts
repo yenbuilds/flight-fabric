@@ -29,7 +29,6 @@ const {
   SETTINGS_FILE_NAME,
   getAppDataRoot,
   getCabinAnnouncementAudioDir,
-  getThemesDir,
   resolveAppDataMarkerFilePath,
   resolveSettingsFilePath,
 } = require('../utils/storage-paths.js') as {
@@ -38,7 +37,6 @@ const {
   SETTINGS_FILE_NAME: string;
   getAppDataRoot: () => string;
   getCabinAnnouncementAudioDir: () => string;
-  getThemesDir: () => string;
   resolveAppDataMarkerFilePath: () => string;
   resolveSettingsFilePath: () => string;
 };
@@ -62,7 +60,6 @@ type SettingsObject = Record<string, any>;
 const CURRENT_SETTINGS_VERSION = 4;
 const APP_DATA_DIR = getAppDataRoot();
 const CABIN_ANNOUNCEMENTS_DIR = getCabinAnnouncementAudioDir();
-const THEMES_DIR = getThemesDir();
 const APP_DATA_MARKER_FILE = resolveAppDataMarkerFilePath();
 const SETTINGS_FILE = resolveSettingsFilePath();
 let retiredLocalProfileWarningEmitted = false;
@@ -202,7 +199,6 @@ function ensureAppDataDir(): void {
   ensureDirExists(APP_DATA_DIR);
   ensureDirExists(path.dirname(SETTINGS_FILE));
   ensureDirExists(CABIN_ANNOUNCEMENTS_DIR);
-  ensureDirExists(THEMES_DIR);
   ensureAppDataMarker();
 }
 

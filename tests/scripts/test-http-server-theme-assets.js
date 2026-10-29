@@ -301,7 +301,7 @@ async function run() {
     );
     assertNotIncludes(reboundPolicy, 'evil.example', 'CSP must not reflect a public or attacker-controlled Host');
 
-    const themesDir = storagePaths.getThemesDir(process.env);
+    const themesDir = path.join(storagePaths.getAppDataRoot(process.env), 'Themes');
     const cabinDir = storagePaths.getCabinAnnouncementAudioDir(process.env);
     fs.mkdirSync(themesDir, { recursive: true });
     fs.mkdirSync(cabinDir, { recursive: true });
@@ -420,21 +420,16 @@ async function run() {
       const reboundFallbackPage = await requestText(port, '/not-a-real-route', reboundHeaders);
       assertEqual(reboundFallbackPage.statusCode, 403, 'DNS-rebound fallback route must be rejected');
 
-      fs.mkdirSync(path.join(themesDir, 'theme-default.css'), { recursive: true });
-      const malformedOverride = await requestText(port, '/user-assets/themes/theme-default.css');
-      assertEqual(malformedOverride.statusCode, 200, 'malformed directory override should fall back to bundled theme');
-      assertIncludes(malformedOverride.body, 'Theme: Default', 'bundled default theme should be returned when override path is not a file');
-
-      fs.rmSync(path.join(themesDir, 'theme-default.css'), { recursive: true, force: true });
-      const bundledTheme = await requestText(port, '/user-assets/themes/theme-default.css');
-      assertEqual(bundledTheme.statusCode, 200, 'bundled theme should be served when no direct user override exists');
-      assertIncludes(bundledTheme.body, 'Theme: Default', 'bundled theme should be returned without user override');
-
-      fs.mkdirSync(themesDir, { recursive: true });
-      fs.writeFileSync(path.join(themesDir, 'theme-default.css'), '/* user theme override */\n:root { --th-accent: #ff0000; }\n', 'utf8');
-      const validOverride = await requestText(port, '/user-assets/themes/theme-default.css');
-      assertEqual(validOverride.statusCode, 200, 'user theme override should be served');
-      assertIncludes(validOverride.body, 'user theme override', 'user theme override should win over bundled fallback');
+      const legacyTheme = '/* user-owned legacy theme must not be served */';
+      fs.writeFileSync(path.join(themesDir, 'theme-default.css'), legacyTheme);
+      for (const filename of ['theme-default.css', 'theme-web3-dark.css']) {
+        for (const prefix of ['/themes/', '/user-assets/themes/']) {
+          const response = await requestText(port, prefix + filename);
+          assertEqual(response.statusCode, 404, 'retired theme URL should be absent');
+          assertNotIncludes(response.body, legacyTheme, 'retired routes must not expose user themes');
+        }
+      }
+      assertEqual(fs.readFileSync(path.join(themesDir, 'theme-default.css'), 'utf8'), legacyTheme, 'theme requests leave user files untouched');
 
       const missingCabin = await requestBuffer(port, '/user-assets/cabin/ff-demo/climb.wav');
       assertEqual(missingCabin.statusCode, 404, 'missing direct user cabin override should return 404');
@@ -460,18 +455,17 @@ async function run() {
         console.log('SKIP redirected user asset parent test: junction creation unavailable');
       }
 
-      const themeOverridePath = path.join(themesDir, 'theme-default.css');
-      const outsideThemePath = path.join(outsideAssetsDir, 'outside-theme.css');
-      fs.writeFileSync(outsideThemePath, '/* outside theme must not be served */', 'utf8');
-      fs.rmSync(themeOverridePath, { force: true });
+      const cabinOverridePath = path.join(userCabinStyleDir, 'climb.wav');
+      const outsideCabinPath = path.join(outsideAssetsDir, 'climb.wav');
+      fs.rmSync(cabinOverridePath, { force: true });
       try {
-        fs.symlinkSync(outsideThemePath, themeOverridePath, 'file');
-        const linkedTheme = await requestText(port, '/user-assets/themes/theme-default.css');
-        assertEqual(linkedTheme.statusCode, 403, 'linked user theme must be rejected when it escapes the owned theme root');
-        assertNotIncludes(linkedTheme.body, 'outside theme must not be served', 'linked user theme must not disclose an outside file');
+        fs.symlinkSync(outsideCabinPath, cabinOverridePath, 'file');
+        const linkedCabin = await requestText(port, '/user-assets/cabin/ff-demo/climb.wav');
+        assertEqual(linkedCabin.statusCode, 403, 'linked user cabin audio must be rejected when it escapes the owned cabin root');
+        assertNotIncludes(linkedCabin.body, 'outside-cabin-audio', 'linked user cabin audio must not disclose an outside file');
       } catch (error) {
         if (!['EPERM', 'EACCES', 'UNKNOWN'].includes(error?.code)) throw error;
-        console.log('SKIP linked user theme test: symbolic-link creation unavailable');
+        console.log('SKIP linked user cabin audio test: symbolic-link creation unavailable');
       }
     } finally {
       server.close();
