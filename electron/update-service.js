@@ -188,4 +188,4 @@ function createUpdateService({ currentVersion, supported, trust, feed, createEng
   return service;
 }
 
-module.exports = { createUpdateService, REPAIR_URL };
+module.exports = { createUpdateService };

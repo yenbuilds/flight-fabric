@@ -11,7 +11,6 @@ const { scoreLateralOffset } = require('../landing/landing-distance') as Landing
 const config = require('../core/config') as ConfigModule;
 const { assessApproach } = require('./approach-assessment') as typeof import('./approach-assessment');
 type GlidepathAngleOverride = {
-  default?: number;
   runways?: Record<string, number>;
   note?: string;
 };
@@ -40,11 +39,6 @@ const GLIDEPATH_ANGLE_OVERRIDES: Record<string, GlidepathAngleOverride> = Object
     note: 'Innsbruck LOC/DME East profile to runway 26.',
   }),
 });
-
-// IMC/VMC visibility threshold (meters)
-// FAA/ICAO: Basic VFR requires 3 statute miles (4828m) visibility
-// We use 5000m as a conservative threshold
-const VMC_VISIBILITY_THRESHOLD_M = 5000;
 
 // Simplified proxy thresholds (intentionally minimal and fixed).
 const SPEED_MINUS_KTS = 5;
@@ -399,26 +393,6 @@ type ConfigModule = {
   };
 };
 
-type StabilityRunParams = Record<string, any> & {
-  visibilityM?: number | null;
-  ra?: number;
-  spoilers?: unknown;
-  flaps?: unknown;
-  ias?: unknown;
-  vs?: unknown;
-  alt_msl_ft?: unknown;
-  gearDownLocked?: unknown;
-  wow?: unknown;
-};
-
-type StabilityRunResult = {
-  instantaneous: null;
-  ultimateScore: null;
-  isImc: boolean | null;
-  imcDataAvailable: boolean;
-  visibilityM: number | null | undefined;
-};
-
 function clamp01(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
@@ -672,13 +646,6 @@ function resolveGlidepathAngleForApproach(input: {
     return {
       angleDeg: clampGlidepathAngleDeg(override.runways[runwayId]),
       source: `${airportIcao}:${runwayId}`,
-    };
-  }
-
-  if (Number.isFinite(override.default)) {
-    return {
-      angleDeg: clampGlidepathAngleDeg(override.default),
-      source: `${airportIcao}:default`,
     };
   }
 
@@ -997,7 +964,6 @@ class SimpleStabilityScorer {
     const glidepathOkPct = smoothedGlidepathSamples.length === 0
       ? null
       : percentageOfSamples(smoothedGlidepathSamples, ({ sample, smoothedVsFpm }) => {
-          if (smoothedVsFpm === null) return true;
           const targetVsFpm = targetVerticalSpeedForGlidepath(sample.gsKts, criteria.glidepathAngleDeg);
           return Math.abs(smoothedVsFpm - targetVsFpm) <= criteria.glidepathVsDeltaMaxFpm;
         });
@@ -1008,7 +974,6 @@ class SimpleStabilityScorer {
     const glidepathBelowOkPct = smoothedGlidepathSamples.length === 0
       ? null
       : percentageOfSamples(smoothedGlidepathSamples, ({ sample, smoothedVsFpm }) => {
-          if (smoothedVsFpm === null) return true;
           const targetVsFpm = targetVerticalSpeedForGlidepath(sample.gsKts, criteria.glidepathAngleDeg);
           return smoothedVsFpm >= targetVsFpm - criteria.glidepathVsDeltaMaxFpm;
         });
@@ -1018,7 +983,6 @@ class SimpleStabilityScorer {
     const glidepathAboveOkPct = smoothedGlidepathSamples.length === 0
       ? null
       : percentageOfSamples(smoothedGlidepathSamples, ({ sample, smoothedVsFpm }) => {
-          if (smoothedVsFpm === null) return true;
           const targetVsFpm = targetVerticalSpeedForGlidepath(sample.gsKts, criteria.glidepathAngleDeg);
           return smoothedVsFpm <= targetVsFpm + criteria.glidepathVsDeltaMaxFpm;
         });
@@ -1613,62 +1577,7 @@ function frameToSample(frame: Record<string, any>): ApproachSample | null {
 // an in-memory current-approach buffer for the live landing popup and LANDING
 // CSV row; timeline-generator keeps a replay scorer for older or incomplete CSVs.
 
-/**
- * Determine if conditions are IMC (Instrument Meteorological Conditions).
- * Per FAR 91.155 / ICAO Annex 2:
- * - VMC requires visibility >= 3SM (~5km) and clear of clouds
- * - Below these minima = IMC
- * 
- * @param {number|null} visibilityM - Visibility in meters (from SimConnect AMBIENT VISIBILITY)
- * @returns {boolean|null} True if IMC, false if VMC, null when visibility is unavailable
- */
-function isImc(visibilityM: number | null | undefined): boolean | null {
-  // Missing visibility is unknown, not IMC. Callers that need conservative
-  // operational behavior should branch on imcDataAvailable explicitly.
-  if (typeof visibilityM !== 'number' || !Number.isFinite(visibilityM)) {
-    return null;
-  }
-  
-  // IMC if visibility less than threshold
-  return visibilityM < VMC_VISIBILITY_THRESHOLD_M;
-}
-
-/**
- * Primary stability-evaluation entry point.
- * Returns:
- *  {
- *    instantaneous: {...},   // stable/unstable + checks (per-tick)
- *    ultimateScore,          // final landing score (null until WOW)
- *    isImc,                  // boolean|null - weather condition, null if unknown
- *    imcDataAvailable        // boolean - true when visibility was available
- *  }
- */
-function runStability(params: StabilityRunParams): StabilityRunResult {
-  const imcConditions = isImc(params.visibilityM);
-
-  return {
-    instantaneous: null,
-    ultimateScore: null, // Computed by SimpleStabilityScorer at landing time/replay.
-    isImc: imcConditions,
-    imcDataAvailable: imcConditions !== null,
-    visibilityM: params.visibilityM,
-  };
-}
-
-/**
- * Reset all stability scoring state.
- * Call this between flights or on go-around.
- */
-function resetStability(): void {
-  // No-op: legacy per-tick scoring state was removed. CSV replay and the
-  // current-approach buffer manage their own retrospective scorer instances.
-}
-
-module.exports = { 
-  runStability, 
-  resetStability,
-  isImc,  // Exported for testing
-  VMC_VISIBILITY_THRESHOLD_M,  // Exported for documentation
+module.exports = {
   // Stability gate thresholds — exported so timeline-generator.js can
   // reference the same values for violation detection without re-defining them.
   BANK_MAX_DEG,

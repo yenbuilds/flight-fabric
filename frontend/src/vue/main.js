@@ -38,22 +38,19 @@ import {
 } from '../app/runtime-signals.js';
 
 const pinia = createPinia();
-const mountedApps = {};
 
-function mountVueIsland(key, rootId, component, props) {
+function mountVueIsland(rootId, component, props) {
   const mountEl = document.getElementById(rootId);
-  if (!mountEl) return null;
+  if (!mountEl) return;
   const app = createApp(component, props);
   app.use(pinia);
   app.mount(mountEl);
-  mountedApps[key] = app;
-  return app;
 }
 
 [
-  ['appShell', 'vue-app-root', AppShell],
-].forEach(([key, rootId, component, props]) => {
-  mountVueIsland(key, rootId, component, props);
+  ['vue-app-root', AppShell],
+].forEach(([rootId, component, props]) => {
+  mountVueIsland(rootId, component, props);
 });
 
 const appSettings = useAppSettingsStore(pinia);
@@ -123,9 +120,6 @@ subscribeAppSettingsSaved((detail = {}) => {
 });
 
 export const vueRuntimeContext = {
-  app: mountedApps.appShell || null,
-  apps: mountedApps,
-  pinia,
   stores: {
     appSettings,
     aircraftControls,

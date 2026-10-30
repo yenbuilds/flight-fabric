@@ -2,11 +2,8 @@
 /**
  * stability-runner.js focused tests
  *
- * `runStability()` is a thin compatibility shim that returns
- * `ultimateScore: null`. All scoring
- * happens via `SimpleStabilityScorer` in the CSV-replay path. These tests
- * therefore exercise the scorer directly using `frameToSample` to convert
- * raw input frames the same way the CSV-replay loop does.
+ * Exercise `SimpleStabilityScorer` directly using `frameToSample` to convert
+ * raw input frames the same way live collection and CSV replay do.
  */
 
 'use strict';
@@ -14,11 +11,8 @@
 const assert = require('assert');
 const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 const {
-  runStability,
   SimpleStabilityScorer,
   frameToSample,
-  isImc,
-  VMC_VISIBILITY_THRESHOLD_M,
   resolveGlidepathAngleForApproach,
   targetVerticalSpeedForGlidepath,
   verticalSpeedFactorForGlidepath,
@@ -56,7 +50,6 @@ function makeFrame(overrides = {}) {
     gearDownLocked: 1,
     flaps: { percent: 35 },
     spoilers: { state: 'STOWED', percent: 0 },
-    visibilityM: 10000,
     ...overrides,
   };
   if (merged.thrust == null && Array.isArray(merged.engineLevels) && merged.engineLevels.length > 0) {
@@ -144,21 +137,6 @@ test('eight-flight calibration corpus yields three unstable and five marginal ve
 
   assert.strictEqual(corpus.filter(value => value === 'unstable').length, 3);
   assert.strictEqual(corpus.filter(value => value === 'marginal').length, 5);
-});
-
-test('runStability shim never returns an ultimate score (CSV-replay scorer owns it)', () => {
-  // The shim carries IMC visibility classification.
-  const result = runStability(makeFrame({ ra: 400, wow: true }));
-  assert.strictEqual(result.instantaneous, null);
-  assert.strictEqual(result.ultimateScore, null);
-  assert.strictEqual(typeof result.isImc, 'boolean');
-  assert.strictEqual(result.imcDataAvailable, true);
-});
-
-test('runStability reports unknown IMC state when visibility is unavailable', () => {
-  const result = runStability(makeFrame({ visibilityM: null }));
-  assert.strictEqual(result.isImc, null);
-  assert.strictEqual(result.imcDataAvailable, false);
 });
 
 test('returns perfect score when configuration is stable after gate', () => {
@@ -615,14 +593,6 @@ test('getScore is single-use per scorer instance', () => {
   const first = scorer.getScore();
   assert(first.score != null, 'First getScore should return score');
   assert.throws(() => scorer.getScore(), /already been used/);
-});
-
-test('isImc follows visibility threshold', () => {
-  assert.strictEqual(isImc(null), null);
-  assert.strictEqual(isImc(undefined), null);
-  assert.strictEqual(isImc(VMC_VISIBILITY_THRESHOLD_M - 1), true);
-  assert.strictEqual(isImc(VMC_VISIBILITY_THRESHOLD_M), false);
-  assert.strictEqual(isImc(VMC_VISIBILITY_THRESHOLD_M + 1000), false);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

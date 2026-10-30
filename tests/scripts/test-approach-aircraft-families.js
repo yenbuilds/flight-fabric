@@ -124,10 +124,10 @@ test('explicit mode names work with or without engage only where the aircraft ad
     ['headingSelect', ['heading select', 'heading selected']],
     ['headingHold', ['heading hold']],
     ['altitudeHold', ['altitude hold']],
-    ['approach', ['approach', 'approach mode', 'app']],
+    ['approach', ['approach', 'approach mode', 'app', 'a p p', 'ay pee pee']],
     ['verticalSpeed', ['vertical speed', 'vertical speed mode']],
     ['flightLevelChange', ['level change', 'flight level change', 'flch']],
-    ['localizer', ['localizer', 'loc', 'vor loc']],
+    ['localizer', ['localizer', 'loc', 'l o c', 'ell oh see', 'l.o.c.', 'vor loc']],
     ['lnav', ['lnav']], ['vnav', ['vnav']],
     ['n1', ['n1', 'n one']], ['speed', ['mcp speed', 'speed mode']],
   ];
@@ -139,7 +139,7 @@ test('explicit mode names work with or without engage only where the aircraft ad
       const commandId = `flightGuidance.${mode}.engage`;
       const supported = catalogue.commands.some(command => command.id === commandId);
       if (entry.id === 'pmdg-737' && mode !== 'headingHold') assert.equal(supported, true, commandId);
-      for (const name of names) for (const phrase of [name, `engage ${name}`]) {
+      for (const name of names) for (const phrase of [name, `engage ${name}`, ...(['approach', 'localizer'].includes(mode) ? [`arm ${name}`] : [])]) {
         const voice = interpret(phrase, catalogue);
         assert.equal(voice.ok, supported, `${entry.id}: ${phrase}`);
         if (supported) {
@@ -161,6 +161,33 @@ test('explicit mode names work with or without engage only where the aircraft ad
           assert.deepEqual(off.input, { value: false });
         }
       }
+    }
+    for (const phrase of ['engage a p', 'arm a p', 'engage ay pee', 'arm ay pee']) {
+      assert.notEqual(interpret(phrase, catalogue).commandId, 'flightGuidance.approach.engage',
+        `${entry.id}: a complete AP acronym must not become APP`);
+    }
+    for (const phrase of ['arm l o', 'arm ell oh', 'arm l c', 'arm ell see']) {
+      assert.equal(interpret(phrase, catalogue).ok, false, `${entry.id}: incomplete LOC acronym`);
+    }
+    const speedModeId = 'flightGuidance.speed.engage';
+    const speedModeSupported = catalogue.commands.some(command => command.id === speedModeId);
+    const engageSpeed = interpret('engage speed', catalogue);
+    assert.equal(engageSpeed.ok, speedModeSupported, `${entry.id}: engage speed`);
+    if (speedModeSupported) {
+      assert.equal(engageSpeed.commandId, speedModeId);
+      assert.deepEqual(engageSpeed.input, {});
+      assert.deepEqual(resolveAircraftCommand(engageSpeed, options).controlRequests,
+        resolveAircraftCommand({ commandId: speedModeId, input: {} }, options).controlRequests);
+      for (const phrase of ['speed one eight zero', 'set speed one eight zero']) {
+        const target = interpret(phrase, catalogue);
+        assert.equal(target.commandId, 'flightGuidance.speed.set', `${entry.id}: ${phrase}`);
+        assert.deepEqual(target.input, { value: 180 });
+      }
+    }
+    for (const phrase of ['do not engage speed', "don't engage speed", 'disengage speed',
+      'engage speed off', 'engage speed and gear down', 'engage speed one eight zero',
+      'engage speed intervention']) {
+      assert.equal(interpret(phrase, catalogue).ok, false, `${entry.id}: ${phrase}`);
     }
     for (const phrase of ['heading', 'altitude', 'speed', 'altitude select', 'altitude selected']) {
       assert.equal(interpret(phrase, catalogue).ok, false, `${entry.id}: ${phrase}`);

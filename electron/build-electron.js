@@ -1657,8 +1657,6 @@ if (require.main === module) {
 module.exports = {
   assertBackendRuntimeInventoriesMatch,
   copyLockedBackendNodeModules,
-  getSimConnectDllCandidates,
-  normalizeSimConnectDllCandidate,
   selectSimConnectDllSource,
   snapshotBackendRuntimeProfile,
 };

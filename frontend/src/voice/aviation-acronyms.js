@@ -9,7 +9,7 @@ const LETTER_NAMES = Object.freeze({
 });
 const ACRONYM_PATTERNS = Object.freeze([
   'apu', 'qnh', 'vhf', 'fpa', 'hdg', 'trk', 'rto', 'flch', 'pfds', 'pfd',
-  'lnav', 'vnav', 'std', 'hpa', 'com', 'nav', 'ls', 'vs', 'nd', 'ap',
+  'lnav', 'vnav', 'std', 'hpa', 'com', 'nav', 'loc', 'ls', 'vs', 'nd', 'app', 'ap',
 ].map(acronym => ({
   acronym,
   pattern: new RegExp(`\\b${[...acronym].map(letter => `(?:${LETTER_NAMES[letter]})`).join('(?:\\. *| +)')}\\b\\.?`, 'g'),

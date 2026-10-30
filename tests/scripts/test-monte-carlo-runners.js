@@ -5,7 +5,7 @@ const { resolveBackendRuntimeFile } = require('./backend-runtime-paths');
 const { createPhaseRunner } = require(resolveBackendRuntimeFile('lifecycle', 'phase-runner.js'));
 const { PHASES } = require(resolveBackendRuntimeFile('lifecycle', 'phases.js'));
 const { createLandingRunner } = require(resolveBackendRuntimeFile('landing', 'landing-runner.js'));
-const { runStability, resetStability, SimpleStabilityScorer, frameToSample } = require(resolveBackendRuntimeFile('stability', 'stability-runner.js'));
+const { SimpleStabilityScorer, frameToSample } = require(resolveBackendRuntimeFile('stability', 'stability-runner.js'));
 
 let passed = 0;
 let failed = 0;
@@ -283,11 +283,8 @@ function runStabilityMonteCarlo() {
   for (let i = 0; i < iterations; i++) {
     const random = seeded(3000 + i);
 
-    // runStability() is now a shim that always returns ultimateScore=null
-    // (legacy per-tick scoring was removed in early 2026). Scoring happens via
-    // SimpleStabilityScorer in the CSV-replay path; this Monte Carlo replays
-    // synthetic frames through the same scorer to validate that stable vs.
-    // unstable approaches are clearly separable.
+    // Replay synthetic frames through the production scorer to validate that
+    // stable and unstable approaches remain clearly separable.
     const stableFrames = [];
     for (let t = 0; t < 24; t++) {
       const ra = Math.max(200, 1500 - t * 55);
@@ -299,14 +296,10 @@ function runStabilityMonteCarlo() {
         vs: withNoise(-700, 120, random),
         engineLevels: [withNoise(58, 5, random), withNoise(58, 5, random)],
       }));
-      // Smoke-call the live shim so its IMC/debug-logging path stays
-      // exercised by the regression suite even though it no longer scores.
-      runStability(stableFrames[stableFrames.length - 1]);
     }
     const stableResult = scoreApproach(stableFrames);
     assert(stableResult && stableResult.score != null, `Stable iteration ${i}: missing stability score`);
 
-    resetStability();
     const unstableFrames = [];
     for (let t = 0; t < 24; t++) {
       const ra = Math.max(200, 1500 - t * 55);
@@ -318,7 +311,6 @@ function runStabilityMonteCarlo() {
         vs: withNoise(-1300, 350, random),
         engineLevels: [withNoise(20, 18, random), withNoise(20, 18, random)],
       }));
-      runStability(unstableFrames[unstableFrames.length - 1]);
     }
     const unstableResult = scoreApproach(unstableFrames);
     assert(unstableResult && unstableResult.score != null, `Unstable iteration ${i}: missing stability score`);

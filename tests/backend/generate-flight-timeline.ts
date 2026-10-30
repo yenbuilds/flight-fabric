@@ -465,9 +465,6 @@ function replayFlightWithTimeline(flightData: AnyRecord, options: AnyRecord = {}
   const phaseRunner = createPhaseRunner({ timeNow: () => simTimeSource.get() });
   const landingRunner = createLandingRunner();
   
-  // Reset module-level stability runner
-  stabilityRunner.resetStability();
-  
   // Track state for timeline events
   let lastPhase = null;
   const altMarkers = { 1000: false, 500: false, 200: false };
@@ -665,29 +662,13 @@ function replayFlightWithTimeline(flightData: AnyRecord, options: AnyRecord = {}
     }
   }
   
-  // Get final stability score by checking last result
-  const finalStab = stabilityRunner.runStability({
-    display: { iasKts: 0, vsFpm: 0, raFt: 0, gsKts: 0 },
-    wow: true,
-    visibilityM: 10000
-  });
-  
-  // Extract numeric score (realtimeScore might be object with .score property)
-  let finalScore = 100;
-  if (typeof finalApproachScore?.score === 'number') {
-    finalScore = finalApproachScore.score;
-  } else if (typeof finalStab.realtimeScore === 'number') {
-    finalScore = finalStab.realtimeScore;
-  } else if (finalStab.realtimeScore?.score !== undefined) {
-    finalScore = finalStab.realtimeScore.score;
-  } else if (typeof finalStab.ultimateScore === 'number') {
-    finalScore = finalStab.ultimateScore;
-  }
+  // Use the finalized approach result, retaining the existing no-result fallback.
+  const finalScore = typeof finalApproachScore?.score === 'number'
+    ? finalApproachScore.score
+    : 100;
   
   timeline.recordFinalScore(finalScore, {
-    realtimeScore: finalStab.realtimeScore,
-    ultimateScore: finalStab.ultimateScore,
-    windowSamples: finalStab.windowSamples,
+    ultimateScore: null, // Retained in serialized test timelines for compatibility.
     frameCount: denseFrames.length,
     approachSamples: finalApproachScore?.samples ?? null,
     goAroundCount: goAroundEvents.length,

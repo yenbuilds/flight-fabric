@@ -130,4 +130,4 @@ async function verifyInstaller(file, release, signal) {
   }
 }
 
-module.exports = { DOMAIN, MAX_MANIFEST_BYTES, MAX_INSTALLER_BYTES, VERSION, keyId, validateKeys, getInstallerDownloadUrls, validatePayload, verifyManifest, verifyInstaller, versionGreater, updateError };
+module.exports = { DOMAIN, MAX_MANIFEST_BYTES, VERSION, keyId, validateKeys, getInstallerDownloadUrls, validatePayload, verifyManifest, verifyInstaller, versionGreater, updateError };

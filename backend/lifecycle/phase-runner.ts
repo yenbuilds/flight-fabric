@@ -856,7 +856,6 @@ module.exports = {
   getPhase: defaultInstance.getPhase,
   resetPhaseRunner: defaultInstance.reset,
   PHASES,
-  ALLOWED_TRANSITIONS,
 };
 
 export {};

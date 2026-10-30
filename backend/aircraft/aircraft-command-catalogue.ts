@@ -64,7 +64,7 @@ export const PARITY_COMMAND_DEFINITIONS: readonly AircraftCommandDefinition[] = 
     ];
   }),
   ...[
-    ['flightGuidance.speed.engage', 'MCP speed', ['engage mcp speed', 'mcp speed', 'engage speed mode', 'speed mode']],
+    ['flightGuidance.speed.engage', 'MCP speed', ['engage mcp speed', 'mcp speed', 'engage speed mode', 'speed mode', 'engage speed']],
     ['flightGuidance.n1.engage', 'N1 mode', ['engage n one', 'n one', 'engage n1', 'n1']],
   ].map(([id, label, patterns]) => ({ id: id as string, label: label as string, group: 'flightGuidance',
     input: { kind: 'none' } as const, speech: { patterns: patterns as string[], hints: [(label as string).toUpperCase()] } })),
@@ -665,10 +665,12 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
               'engage flch', 'flch', 'engage f l c h', 'f l c h']
             : []),
           ...(id === 'flightGuidance.localizer.engage'
-            ? ['engage localizer', 'localizer', 'engage loc', 'loc', 'engage vor loc', 'vor loc']
+            ? ['engage localizer', 'localizer', 'engage loc', 'loc', 'engage vor loc', 'vor loc',
+              'arm localizer', 'arm loc', 'arm vor loc']
             : []),
           ...(id === 'flightGuidance.approach.engage'
-            ? ['engage approach', 'approach', 'approach mode', 'engage app', 'app']
+            ? ['engage approach', 'approach', 'approach mode', 'engage app', 'app',
+              'arm approach', 'arm approach mode', 'arm app']
             : []),
         ],
         hints: [hint],

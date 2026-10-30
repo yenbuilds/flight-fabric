@@ -479,7 +479,6 @@ module.exports = {
   detectFlightPhase,
   getCategoryThresholds,
   getEffectivePhaseThresholds,
-  ICAO_CATEGORY_THRESHOLDS,
 };
 
 export {};

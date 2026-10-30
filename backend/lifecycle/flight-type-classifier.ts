@@ -363,7 +363,6 @@ function classifyFlight(
 
 module.exports = {
   FLIGHT_TYPE,
-  PATTERN_THRESHOLDS,
   classifyFlight,
   countTouchdowns,
   calculateAltitudeStats,
