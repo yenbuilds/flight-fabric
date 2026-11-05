@@ -1459,13 +1459,13 @@ test('SimBrief frontend surfaces use runtime-bound connection helpers instead of
   assert(simbriefStoreSource.includes('getHttpBase = null,'), 'SimBrief store should accept a live HTTP-base resolver');
   assert(simbriefStoreSource.includes('function resolveBackendHttpBase()'), 'SimBrief store should resolve the backend HTTP base at use time');
   assert(appRuntimeSource.includes('getHttpBase: () => connection.getBackendHttpBase()'), 'app runtime should bind the live backend HTTP base into SimBrief');
-  assert(appRuntimeSource.includes('simbriefStore?.relayPlan?.();'), 'app runtime should rebroadcast SimBrief plans on websocket open');
+  assert(appRuntimeSource.includes('simbriefStore?.relayPlan?.();'), 'app runtime should rebroadcast SimBrief plans after authorization');
   assert(!simbriefStoreSource.includes('window._getBackendHttpBase'));
   assert(!connectionSource.includes('windowRef._getWsUrl'));
   assert(!connectionSource.includes('windowRef._getBackendHttpBase'));
   assert(!connectionSource.includes('windowRef._wsSend'));
   assert(appRuntimeSource.includes('simbriefStore?.restore?.();'), 'app runtime should restore SimBrief state during app startup');
-  assert(appRuntimeSource.includes('simbriefStore?.relayPlan?.();'), 'app runtime should rebroadcast the active SimBrief plan when the websocket opens');
+  assert(appRuntimeSource.includes('simbriefStore?.relayPlan?.();'), 'app runtime should replay the active SimBrief plan on authorized reconnect');
 });
 
 test('SimBrief proxy rate limiter keeps its username cache bounded', () => {
@@ -1792,14 +1792,14 @@ test('remote access defaults to local-only and LAN aircraft control is narrowly 
   assert(systemHostSource.includes('const remoteControlPairingUrl = computed'), 'phone URL construction should retain the current session token URL');
   assert(systemHostSource.includes('remoteControlPairingUrl.value || remoteViewerUrl.value'), 'phone setup should choose one best URL without redistributing received tokens');
   assert(systemHostSource.includes("if (remoteAccessEnabled.value !== true) return ''"), 'phone URLs should fail closed unless the active backend confirms trusted-LAN access');
-  assert(phoneSetupSource.includes(':value="host.remoteBrowserUrl"')
+  assert(phoneSetupSource.includes(':value="host.remotePhoneEntryUrl"')
     && phoneSetupSource.includes("profiles.authorizationScope === 'full-control'")
-    && systemTabSource.includes('computed(() => systemHost.remoteViewerUrl)'), 'local setup uses the authorized URL while remote System shares viewer access only');
+    && systemTabSource.includes('computed(() => systemHost.remoteViewerUrl)'), 'phone setup shares the token-free entry page while remote System shares viewer access only');
   assert.equal((phoneSetupSource.match(/<RemoteBrowserQr/g) || []).length, 1, 'PC setup should render only one phone QR choice');
-  assert(phoneSetupSource.includes('After restarting FlightFabric, scan the QR again or request a new code on your phone.')
-    && !phoneSetupSource.includes('Bookmark this page'), 'PC setup should give concise app restart guidance without outdated webpage instructions');
+  assert(systemTabSource.includes('After restarting FlightFabric, request a new code on your phone.')
+    && !phoneSetupSource.includes('Bookmark this page'), 'connection help should explain app restart pairing without outdated QR instructions');
   assert(secondScreenGuideSource.includes('New flights appear automatically'), 'phone onboarding should explain repeat-flight behavior');
-  assert(secondScreenGuideSource.includes('Access lasts until the FlightFabric service restarts'), 'phone onboarding should explain when control re-pairing is required');
+  assert(secondScreenGuideSource.includes('After restarting FlightFabric, request a new pairing code.'), 'phone onboarding should explain when control re-pairing is required');
   assert(appHeaderSource.includes('id="header-mobile-access-btn"'), 'desktop header should expose an obvious Phone setup action');
   assert(aircraftControlSource.includes('open Settings → Devices. Scan the QR, or request controls here and approve the matching code'), 'read-only control attempts should explain both secure phone pairing paths');
 });
@@ -1809,8 +1809,8 @@ test('remote access UI warns users to stay on trusted private networks', () => {
   const httpServerSource = readRepoFile('backend/core/http-server.js');
 
   assert(phoneSetupSource.includes('Use FlightFabric on phones and tablets'), 'settings should make the phone and tablet access path explicit');
-  assert(phoneSetupSource.includes('Use only on a private network you trust'), 'setup should clearly restrict use to a trusted private network');
-  assert(phoneSetupSource.includes('Pairing grants aircraft controls, not access to your settings or recordings'), 'setup should explain the limited permission');
+  assert(phoneSetupSource.includes('Same trusted private network.'), 'setup should clearly restrict use to a trusted private network');
+  assert(phoneSetupSource.includes('Paired devices can’t access your settings or recordings.'), 'setup should explain the limited permission');
   assert(phoneSetupSource.includes('Save and restart to apply your choices'), 'setup should explain the required restart');
   assert(httpServerSource.includes('Trusted LAN only.'), 'mobile setup page should warn that LAN access is trusted-network only');
   assert(httpServerSource.includes('public/shared networks'), 'mobile setup page should warn against public/shared networks');

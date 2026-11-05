@@ -182,6 +182,15 @@ async function browser() {
           await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled:width<760,maxTouchPoints:5 });
           await evaluate(`await layoutTest.scenario(${JSON.stringify(id)});await layoutTest.remount();document.getElementById('vue-main-root').scrollTop=0;`);
           const before = await evaluate('return layoutTest.sent.length;');
+          if (id === 'fenix-a320') {
+            await click('[aria-label="Find controls"]');
+            await evaluate(`const input=document.getElementById('aircraft-find-input');input.value='all cockpit lights';input.dispatchEvent(new Event('input',{bubbles:true}));await layoutTest.settle();`);
+            await click('[data-aircraft-search-result="configuration.lighting.all"] button');
+            assert(await evaluate(`return document.querySelector('[data-lighting-combined]').open
+              && document.activeElement.dataset.lightingPreset === 'all'
+              && document.activeElement.checkVisibility();`), 'catalogue navigation opens and focuses the combined preset');
+            await click('[data-lighting-combined] > summary');
+          }
           await click('[aria-label="Find controls"]');
           assert.equal(await evaluate("return document.querySelector('[data-aircraft-workspace]').dataset.aircraftWorkspace;"),'presets','catalogue discovery preserves the view');
           assert.equal(await evaluate("return document.activeElement.id;"),'aircraft-find-input','opening focuses the query');
@@ -498,6 +507,27 @@ async function browser() {
           await ready(`[data-aircraft-template="${templateFor(id)}"]`);
           await wait(150);
           assert.deepEqual(await state(),{view:'presets',cockpitVisible:false,presetsVisible:true,inertControls:true,inertPresets:false,presetSections:1,overflow:false,selected:'presets'}, id+'/'+width+': first arrival is preset-first');
+          if (['fenix-a320', 'fbw-a32nx', 'inibuilds-a350-900'].includes(id)) {
+            assert.equal(await evaluate(`return document.querySelector('[data-lighting-combined]').open;`), false,
+              'combined lighting starts secondary and collapsed');
+            assert.deepEqual(await evaluate(`return [...document.querySelectorAll('[data-lighting-preset]')]
+              .filter(form => form.checkVisibility()).map(form => form.dataset.lightingPreset);`),
+            ['cockpit', 'flood', 'displays'], 'three independent primary lighting controls');
+            for (const [target, value] of [['cockpit', 40], ['flood', 0], ['displays', 75], ['all', 30]]) {
+              if (target === 'all') await click('[data-lighting-combined] > summary');
+              await evaluate(`const form = document.querySelector('[data-lighting-preset="${target}"]');
+                const input = form.querySelector('input[type="number"]'); input.value = '${value}';
+                input.dispatchEvent(new Event('input', { bubbles: true })); await layoutTest.settle();`);
+              await click(`[data-lighting-preset="${target}"] button[type="submit"]`);
+              assert.deepEqual(await evaluate('return layoutTest.sent.at(-1);'), {
+                type: 'canonical', commandId: `configuration.lighting.${target}`, input: { value },
+              }, `${id}/${width}: ${target} preserves its own requested target`);
+            }
+            await capture(`lighting-expanded-${id}-${width}.png`);
+            await click('[data-lighting-combined] > summary');
+            await evaluate(`document.querySelector('[data-cockpit-lighting-presets]').scrollIntoView({block:'start',behavior:'instant'});`);
+            await capture(`lighting-${id}-${width}.png`);
+          }
           const before = await evaluate('return layoutTest.sent.length;');
           const memory = await evaluate("return JSON.stringify({...sessionStorage});");
           await evaluate('document.getElementById("vue-main-root").scrollTop=250;'); await wait(100);

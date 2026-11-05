@@ -10,7 +10,7 @@ const capabilities = { simulator: 'msfs', actionTypes: ['aircraft-integration'],
   integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] };
 const request = (target: string, value: unknown = 70) => ({ commandId: `configuration.lighting.${target}`, input: { value } });
 
-test('YAML lighting groups preserve the independent pre-extraction catalogue and isolate callers', () => {
+test('YAML lighting groups preserve the reviewed catalogue (original mappings plus ambient classification) and isolate callers', () => {
   const expected = JSON.parse(require('node:fs').readFileSync(require('node:path').join(
     process.cwd(), 'tests/fixtures/cockpit-lighting-groups-baseline.json'), 'utf8'));
   for (const integration of registry.list()) {
@@ -31,6 +31,8 @@ test('lighting presentation rejects missing and ambiguous action or field refere
     groups => { groups[0].fields.push(groups[0].fields[0]); },
     groups => { groups.push(structuredClone(groups[0])); },
     groups => { groups[0].displays = 'true'; },
+    groups => { groups[0].ambient = 'true'; },
+    groups => { groups[0].ambient = true; groups[0].displays = true; },
     groups => { groups[0].unreviewed = true; },
   ]) {
     const integration = structuredClone(registry.getById('inibuilds-a350'));
@@ -40,11 +42,11 @@ test('lighting presentation rejects missing and ambiguous action or field refere
 });
 
 const coverage = [
-  ...['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900'].map(id => [id, 16, 8]),
-  ...['pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f'].map(id => [id, 17, 6]),
-  ...['fenix-a319', 'fenix-a320', 'fenix-a321'].map(id => [id, 16, 8]),
-  ['fbw-a32nx', 16, 8], ['fbw-a380x', 18, 10], ['headwind-a330', 14, 8],
-  ['inibuilds-a350-900', 15, 4], ['inibuilds-a350-1000', 15, 4],
+  ...['pmdg-737', 'pmdg-737-600', 'pmdg-737-700', 'pmdg-737-900'].map(id => [id, 16, 8, 0]),
+  ...['pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f'].map(id => [id, 17, 6, 0]),
+  ...['fenix-a319', 'fenix-a320', 'fenix-a321'].map(id => [id, 16, 8, 4]),
+  ['fbw-a32nx', 16, 8, 4], ['fbw-a380x', 18, 10, 4], ['headwind-a330', 14, 8, 2],
+  ['inibuilds-a350-900', 15, 4, 8], ['inibuilds-a350-1000', 15, 4, 8],
 ] as const;
 
 test('independent brightness coverage includes every profile with declared lighting groups', () => {
@@ -53,8 +55,8 @@ test('independent brightness coverage includes every profile with declared light
   assert.deepEqual(profiles.sort(), coverage.map(([id]) => id).sort());
 });
 
-for (const [id, allCount, displayCount] of coverage) {
-  test(`${id}: cockpit and display presets preserve each other in either order`, async () => {
+for (const [id, allCount, displayCount, ambientCount] of coverage) {
+  test(`${id}: panel, ambient and display presets preserve each other; only explicit all combines cockpit groups`, async () => {
     const profile = loader.loadProfile(`bundled/msfs/${id}`);
     const options = { profile, capabilities, profileRevision: 9 };
     const integration = registry.resolveForProfile(profile._profileKey);
@@ -62,9 +64,11 @@ for (const [id, allCount, displayCount] of coverage) {
     const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
     const cockpit = catalogue.commands.find(c => c.id === request('cockpit').commandId).brightnessFields;
     const displays = catalogue.commands.find(c => c.id === request('displays').commandId).brightnessFields;
-    const all = [...cockpit, ...displays];
+    const ambient = catalogue.commands.find(c => c.id === request('flood').commandId)?.brightnessFields || [];
+    const all = [...cockpit, ...ambient, ...displays];
+    assert.equal(ambient.length, ambientCount);
     assert.equal(all.length, allCount); assert.equal(new Set(all).size, allCount);
-    assert.equal(cockpit.length, Number(allCount) - Number(displayCount));
+    assert.equal(cockpit.length, Number(allCount) - Number(displayCount) - Number(ambientCount));
     assert.equal(displays.length, displayCount);
     assert.ok(displays.every(field => !cockpit.includes(field)), 'the preset groups must be disjoint');
     const state = Object.fromEntries(all.map(field => [field, 25]));
@@ -82,16 +86,28 @@ for (const [id, allCount, displayCount] of coverage) {
         return { ok: true, code: 'executed' };
       } };
     assert.equal((await executeAircraftCommand(provider, request('cockpit', 50), options)).ok, true);
-    assert.deepEqual(writes, groups.filter(group => !group.displays).map(group => group.actionId));
-    for (const field of all) assert.equal(state[field], displays.includes(field) ? 25 : 50, field);
+    assert.deepEqual(writes, groups.filter(group => !group.displays && !group.ambient).map(group => group.actionId));
+    for (const field of all) assert.equal(state[field], cockpit.includes(field) ? 50 : 25, field);
     writes.length = 0;
     assert.equal((await executeAircraftCommand(provider, request('displays', 80), options)).ok, true);
     assert.deepEqual(writes, groups.filter(group => group.displays).map(group => group.actionId));
-    for (const field of all) assert.equal(state[field], displays.includes(field) ? 80 : 50, field);
+    for (const field of all) assert.equal(state[field], displays.includes(field) ? 80 : cockpit.includes(field) ? 50 : 25, field);
     writes.length = 0;
     assert.equal((await executeAircraftCommand(provider, request('cockpit', 30), options)).ok, true);
+    assert.deepEqual(writes, groups.filter(group => !group.displays && !group.ambient).map(group => group.actionId));
+    for (const field of all) assert.equal(state[field], displays.includes(field) ? 80 : cockpit.includes(field) ? 30 : 25, field);
+    if (ambientCount) {
+      writes.length = 0;
+      assert.equal((await executeAircraftCommand(provider, request('flood', 0), options)).ok, true);
+      assert.deepEqual(writes, groups.filter(group => group.ambient).map(group => group.actionId));
+      for (const field of all) assert.equal(state[field], ambient.includes(field) ? 0 : displays.includes(field) ? 80 : 30, field);
+      assert.equal((await executeAircraftCommand(provider, request('cockpit', 60), options)).ok, true);
+      for (const field of ambient) assert.equal(state[field], 0, 'night-flight flood/task settings stay off');
+    }
+    writes.length = 0;
+    assert.equal((await executeAircraftCommand(provider, request('all', 40), options)).ok, true);
     assert.deepEqual(writes, groups.filter(group => !group.displays).map(group => group.actionId));
-    for (const field of all) assert.equal(state[field], displays.includes(field) ? 80 : 30, field);
+    for (const field of all) assert.equal(state[field], displays.includes(field) ? 80 : 40, field);
     for (const value of [-1, 101, 50.5, NaN, '', null]) {
       assert.equal(resolveAircraftCommand(request('displays', value), options).ok, false, String(value));
     }
@@ -191,6 +207,24 @@ test('A350 brightness uses explicit source dimmers, excluding contrast, power an
   }
 });
 
+test('night panel presets exclude A350 dome/task dimmers and the separate Fenix dome switch', () => {
+  for (const id of ['fenix-a320', 'inibuilds-a350-900']) {
+    const profile = loader.loadProfile(`bundled/msfs/${id}`);
+    const commands = buildAircraftControlCapabilities(profile, { capabilities }).aircraftCommands.commands;
+    const panels = commands.find(command => command.id === request('cockpit').commandId);
+    const floods = commands.find(command => command.id === request('flood').commandId);
+    assert.equal(panels.label, 'Panel backlighting');
+    assert.ok(panels.speech.patterns.includes('set panel backlighting {value}'));
+    assert.deepEqual(panels.brightnessFields, id === 'fenix-a320'
+      ? ['lighting.fcuPercent', 'lighting.fcuTextPercent', 'lighting.overheadPercent', 'lighting.pedestalPercent']
+      : ['lighting.integralPercent', 'lighting.fcuPercent', 'lighting.fcuTextPercent']);
+    assert.equal(floods.brightnessFields.includes('lighting.domePercent'), id !== 'fenix-a320');
+    for (const command of commands.filter(command => command.brightnessFields)) {
+      assert.ok(!command.brightnessFields.includes('displays.domeLightMode'), 'OFF/DIM/BRIGHT is not a percentage dimmer');
+    }
+  }
+});
+
 test('A350 presets report a no-op only when every lighting group was already set', async () => {
   const profile = loader.loadProfile('bundled/msfs/inibuilds-a350-900');
   const groups = cockpitLightingGroups('inibuilds-a350');
@@ -207,12 +241,12 @@ test('A350 presets report a no-op only when every lighting group was already set
       return { ok: true, code: 'executed' };
     } };
   const options = { profile, capabilities };
-  const mixed = await executeAircraftCommand(provider, request('cockpit', 100), options);
+  const mixed = await executeAircraftCommand(provider, request('all', 100), options);
   assert.equal(mixed.ok, true);
   assert.equal(writes.length, 3, 'earlier cockpit groups change while the final group is already set');
   assert.notEqual(mixed.noOp, true, 'the last cockpit group cannot mark the whole preset as skipped');
   assert.notEqual(mixed.idempotent, true, 'last-step no-op metadata cannot describe a mixed execution');
-  const repeated = await executeAircraftCommand(provider, request('cockpit', 100), options);
+  const repeated = await executeAircraftCommand(provider, request('all', 100), options);
   assert.equal(repeated.noOp, true); assert.equal(repeated.idempotent, true);
   assert.equal(writes.length, 3);
   const displays = await executeAircraftCommand(provider, request('displays', 100), options);
@@ -234,7 +268,7 @@ for (const scenario of ['no-op then disconnect', 'no-op then rejection', 'no-op 
           ...(scenario.startsWith('no-op') ? { noOp: true, idempotent: true } : {}) };
       } };
     const options = { profile, capabilities, canExecute: () => connected };
-    const result = await executeAircraftCommand(provider, request('cockpit'), options);
+    const result = await executeAircraftCommand(provider, request('all'), options);
     assert.equal(result.ok, false);
     assert.equal(result.completedStepCount, 1, 'already-correct state still completes its step');
     assert.equal(result.failedStepIndex, 1);
@@ -283,14 +317,14 @@ test('A350 preset stops on one unconfirmed dimmer without retries or later-group
   const provider = { aircraftControlCapabilities: capabilities,
     executeAircraftControlAction: (action, options) => realProvider._executeAircraftIntegrationAction(bridge, action, 'test', options) };
   const options = { profile, capabilities, profileRevision: config.profileRevision };
-  const result = await executeAircraftCommand(provider, request('cockpit'), options);
+  const result = await executeAircraftCommand(provider, request('all'), options);
   assert.equal(result.ok, false); assert.equal(result.code, 'aircraft_integration_readback_timeout');
   assert.equal(result.completedStepCount, 2); assert.equal(result.failedStepIndex, 2);
   assert.equal(result.executionStarted, true); assert.match(result.error, /captainTablePercent/);
   assert.deepEqual(writes, groups.slice(0, 3).flatMap(group => group.fields.map(id => integration.fields[id].sources[0].route.name)),
     'each attempted dimmer is written once; no retries, rollback or subsequent groups');
   failedField = ''; refresh();
-  assert.equal((await executeAircraftCommand(provider, request('cockpit'), options)).ok, true,
+  assert.equal((await executeAircraftCommand(provider, request('all'), options)).ok, true,
     'both command and provider group locks release after failed confirmation');
 });
 
@@ -305,9 +339,11 @@ test('one lighting preset lock covers the whole recipe and releases after failur
       return writes.length === 2 ? { ok: false, code: 'readback_timeout', error: 'A knob did not confirm.' }
         : { ok: true, code: 'executed' };
     } };
-  const pending = executeAircraftCommand(provider, request('cockpit'), options);
+  const pending = executeAircraftCommand(provider, request('all'), options);
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal((await executeAircraftCommand(provider, request('displays'), options)).code, 'action_in_flight');
+  for (const target of ['cockpit', 'flood', 'displays', 'all']) {
+    assert.equal((await executeAircraftCommand(provider, request(target), options)).code, 'action_in_flight', target);
+  }
   assert.equal(writes.length, 1); release();
   const failure = await pending;
   assert.equal(failure.ok, false); assert.equal(failure.completedStepCount, 1);

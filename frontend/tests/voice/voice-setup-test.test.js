@@ -302,6 +302,112 @@ test('setup cancellation and disposal close real PCM capture across delayed brow
   }
 });
 
+test('setup final during pending flush rejects incomplete capture and allows retry', async t => {
+  let settleFlush, sessionNumber = 0;
+  const h = harness({ start: async () => ({ sessionId: `setup-${++sessionNumber}` }),
+    createCapture: callbacks => ({ callbacks,
+      start: async () => ({ deviceLabel: 'Test microphone', sampleRate: 48000 }),
+      stop: () => new Promise(resolve => { settleFlush = resolve; }),
+      async cancel() { settleFlush?.(); },
+    }),
+  });
+  t.after(() => h.controller.dispose());
+  await h.controller.start(); h.audio();
+  const finishing = h.controller.finish();
+  await h.controller.handleRecognitionEvent({ type: 'final', sessionId: 'setup-1', text: 'set heading 270' });
+  assert.equal(await finishing, false);
+  assert.equal(h.state.voiceTest.phase, 'error');
+  assert.match(h.state.voiceTest.message, /before.*finished.*try again/i);
+  assert.equal(h.state.voiceTest.playbackAvailable, false);
+  assert.equal(h.state.voiceTest.recognized, false);
+  assert.equal(h.calls.some(([type]) => type === 'finish'), false);
+  assert.equal(h.scheduled.size, 0);
+  assert.equal(await h.controller.start(), true);
+  await h.controller.handleRecognitionEvent({ type: 'final', sessionId: 'setup-1', text: 'set heading 270' });
+  assert.equal(h.state.voiceTest.phase, 'listening');
+  h.audio();
+  const retry = h.controller.finish(); settleFlush();
+  assert.equal(await retry, true);
+  await h.controller.handleRecognitionEvent({ type: 'final', sessionId: 'setup-2', text: 'set heading 270' });
+  assert.equal(h.state.voiceTest.recognized, true);
+  assert.equal(h.state.voiceTest.playbackAvailable, true);
+});
+
+test('setup PCM flush timeout prevents recognition, clears playback and permits a complete retry', async t => {
+  // Withhold the worklet acknowledgement, exercising the production capture
+  // timeout without depending on machine scheduling or physical input.
+  const timers = new Map(), tracks = [], nodes = [], contexts = [];
+  let timerId = 0, sessionId = 0;
+  class AudioContext {
+    constructor() {
+      this.state = 'running'; this.sampleRate = 48000; this.destination = {};
+      this.audioWorklet = { addModule: async () => {} };
+      this.closeReply = new Promise(resolve => { this.resolveClose = resolve; });
+      contexts.push(this);
+    }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+    close() { this.state = 'closed'; return this.closeReply; }
+  }
+  class AudioWorkletNode {
+    constructor() { this.port = { close() {}, postMessage() {} }; nodes.push(this); }
+    connect() {} disconnect() {}
+  }
+  const h = harness({ start: async () => ({ sessionId: `flush-test-${++sessionId}` }),
+    createCapture: createPcmCapture, globalRef: {
+      AudioContext, AudioWorkletNode, isSecureContext: true,
+      setTimeout(fn, ms) { timers.set(++timerId, { fn, ms }); return timerId; },
+      clearTimeout(id) { timers.delete(id); },
+      navigator: { mediaDevices: { async getUserMedia() {
+        const track = { readyState: 'live', label: 'Synthetic microphone',
+          addEventListener() {}, removeEventListener() {}, stop() { this.readyState = 'ended'; } };
+        tracks.push(track);
+        return { getAudioTracks: () => [track], getVideoTracks: () => [], getTracks: () => [track] };
+      } } },
+    },
+  });
+  t.after(async () => { contexts.forEach(context => context.resolveClose()); await h.controller.dispose(); });
+  assert.equal(await h.controller.start(), true);
+  const lateMessage = nodes[0].port.onmessage;
+  lateMessage({ data: { type: 'pcm', samples: new Float32Array([0.2, -0.2]) } });
+  const finishing = h.controller.finish();
+  const timeout = [...timers.values()][0];
+  assert.equal(timeout.ms, 250);
+  timeout.fn();
+  assert.equal(await finishing, false);
+  assert.equal(tracks[0].readyState, 'ended');
+  assert.equal(h.controller.busy, false);
+  assert.equal(h.state.voiceTest.phase, 'error');
+  assert.equal(h.state.voiceTest.message, 'Audio capture did not finish. Please try again.');
+  assert.equal(h.state.voiceTest.playbackAvailable, false);
+  assert.equal(h.scheduled.size, 0);
+  assert.equal(timers.size, 0);
+  assert.equal(h.calls.some(([type]) => type === 'finish'), false);
+  assert(h.calls.some(([type, id]) => type === 'cancel' && id === 'flush-test-1'));
+
+  assert.equal(await h.controller.start(), true, 'retry does not await old browser closure');
+  const audioCount = h.calls.filter(([type]) => type === 'audio').length;
+  lateMessage({ data: { type: 'pcm', samples: new Float32Array([0.4]) } });
+  lateMessage({ data: { type: 'flushed' } });
+  for (const type of ['final', 'cancelled', 'error']) {
+    await h.controller.handleRecognitionEvent({ type, sessionId: 'flush-test-1', text: 'set heading 270', message: 'Old error' });
+  }
+  contexts[0].resolveClose();
+  assert.equal(tracks[1].readyState, 'live');
+  assert.equal(h.state.voiceTest.phase, 'listening');
+  assert.equal(h.calls.filter(([type]) => type === 'audio').length, audioCount);
+  const retried = h.controller.finish();
+  nodes[1].port.onmessage({ data: { type: 'pcm', samples: new Float32Array([0.2, -0.2]) } });
+  nodes[1].port.onmessage({ data: { type: 'flushed' } });
+  assert.equal(await retried, true);
+  assert.deepEqual(h.calls.filter(([type]) => type === 'finish'), [['finish', 'flush-test-2']]);
+  await h.controller.handleRecognitionEvent({ type: 'final', sessionId: 'flush-test-2', text: 'set heading 270' });
+  assert.equal(h.state.voiceTest.recognized, true);
+  assert.equal(h.state.voiceTest.playbackAvailable, true);
+  assert.equal(h.state.voiceTest.phase, 'complete');
+  assert.equal(timers.size, 0);
+  assert.equal(h.scheduled.size, 0);
+});
+
 test('cancel and fatal errors close capture; stale final results cannot resurrect tests', async () => {
   for (const failure of [false, true]) {
     const h = harness(); await h.controller.start(); h.audio();

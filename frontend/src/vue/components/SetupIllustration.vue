@@ -35,6 +35,24 @@ defineProps({ kind: { type: String, default: 'headset' } });
         <path d="M60 30v10m-5-3a5 5 0 0 0 10 0M60 45v-3" />
         <path d="M66 75 55 62q-4-5 0-7 2-1 7 3V43q0-6 5-6t5 6v12q17-4 17 8l-2 12" fill="rgb(var(--panel))" />
       </g>
+      <g v-else-if="kind === 'phone-microphone'">
+        <rect x="24" y="5" width="46" height="77" rx="8" />
+        <path d="M41 12h12M42 74h10" opacity=".5" />
+        <rect x="42" y="28" width="10" height="21" rx="5" class="setup-illustration-accent" />
+        <path d="M36 43v2a11 11 0 0 0 22 0v-2M47 56v7m-6 0h12M82 36v16m7-23v30m7-18v6" class="setup-illustration-accent" />
+      </g>
+      <g v-else-if="kind === 'certificate'">
+        <path d="M31 10h40l18 18v47H31Z" />
+        <path d="M71 10v18h18M43 38h31M43 47h20" opacity=".5" />
+        <circle cx="68" cy="62" r="10" class="setup-illustration-accent" />
+        <path d="m63 62 4 4 7-8m-12 13-3 10 9-4 8 4-2-11" class="setup-illustration-accent" />
+      </g>
+      <g v-else-if="kind === 'trust'">
+        <rect x="35" y="5" width="50" height="77" rx="9" />
+        <path d="M53 12h14M55 74h10M44 28h31M44 35h21" opacity=".5" />
+        <rect x="44" y="47" width="32" height="17" rx="8.5" class="setup-illustration-accent" />
+        <circle cx="67" cy="55.5" r="5" fill="rgb(var(--primary))" stroke="none" />
+      </g>
       <g v-else-if="kind === 'phone'">
         <rect x="9" y="16" width="65" height="43" rx="5" />
         <path d="M41 59v12m-14 0h29M28 37l8 8 17-18" class="setup-illustration-accent" />

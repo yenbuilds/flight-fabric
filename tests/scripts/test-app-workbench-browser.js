@@ -581,6 +581,50 @@ async function browser() {
       }
       await wait(70);
     }
+    async function checkSimbriefMapRoute() {
+      for (const [scope, width] of [['full-control', 1440], ['read-only', 390], ['aircraft-control', 320]]) {
+        win.setContentSize(width, 844);
+        await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: width < 760, maxTouchPoints: 5 });
+        const url = new URL(width < 760 ? '/remote' : process.env.FF_WORKBENCH_TEST_URL, process.env.FF_WORKBENCH_TEST_URL);
+        url.search = `?scope=${scope}`;
+        await win.loadURL(url.href);
+        for (let n = 0; n < 180 && !await evaluate('return !!window.workbenchTest;'); n++) await wait(50);
+        await evaluate("await workbenchTest.open('livemap');");
+        await wait(200);
+        const oldRoute = await evaluate("return document.querySelector('#live-map path[stroke-dasharray=\"8 8\"]')?.getAttribute('d');");
+        assert(oldRoute, `${scope}: the old route is drawn in Leaflet`);
+        await evaluate(`await workbenchTest.open('dispatch');
+          const originalFetch=window.fetch;
+          window.fetch=async (url,options)=> String(url).startsWith('/api/simbrief?')
+            ? new Response(JSON.stringify({ok:true,ofp:{origin:{icao_code:'YSSY',plan_rwy:'34L'},destination:{icao_code:'YBBN',plan_rwy:'01R'}}}),{status:200})
+            : originalFetch(url,options);
+          workbenchTest.sent.length=0;`);
+        await pointerActivate('#sb-fetch-btn', width < 760);
+        assert.equal(await evaluate("return document.getElementById('sb-dest').textContent;"), 'YBBN', `${scope}: the real fetch action loads the new briefing`);
+        await evaluate("await workbenchTest.open('livemap');");
+        await wait(200);
+        const route = await evaluate(`return {
+          path:document.querySelector('#live-map path[stroke-dasharray="8 8"]')?.getAttribute('d'),
+          label:document.getElementById('dest-progress-label').textContent,
+          overlay:document.getElementById('live-map-target-primary').textContent,
+          overflow:document.documentElement.scrollWidth>innerWidth+1,
+          writes:workbenchTest.sent.filter(message=>['flightPlan','setOriginTarget','setDestinationTarget','clearOriginTarget','clearDestinationTarget'].includes(message.type))};`);
+        assert(route.path && route.path !== oldRoute, `${scope}: the rendered 2D route changes`);
+        assert.equal(route.label, 'From YSSY RWY 34L -> To YBBN RWY 01R');
+        assert.match(route.overlay, /^YBBN - /);
+        assert.equal(route.overflow, false);
+        if (scope !== 'full-control') assert.deepEqual(route.writes, [], 'phone imports send no privileged mutations');
+        else assert(route.writes.some(message => message.type === 'flightPlan'), 'desktop imports retain their relay');
+        await capture(`simbrief-route-${scope}-${width}`);
+      }
+      await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+      console.log('SimBrief map route passed: native fetch on desktop, 390px viewer and 320px paired phone; real Leaflet paths, route labels, and no phone shared-plan mutations.');
+    }
+    if (process.env.FF_SIMBRIEF_ROUTE_ONLY === '1') {
+      await checkSimbriefMapRoute();
+      assert.deepEqual(errors, [], 'SimBrief route checks have no browser errors');
+      app.exit(0); return;
+    }
     if (process.env.FF_AIRCRAFT_WORKSPACE_ONLY === '1') {
       for (const width of [1440,390,320]) {
         win.setContentSize(width,900);
@@ -671,8 +715,14 @@ async function browser() {
           assert.equal(await evaluate('return document.activeElement.id;'), 'settings-phone-tablet-access', 'header retains the same pairing destination');
         }
         assert.equal(await evaluate("return !!document.getElementById('phone-setup-qr');"), false, 'access off shows no QR');
+        assert(await evaluate("return document.querySelector('.phone-setup').innerText.includes('Same trusted private network.');"), 'trusted-network guidance is visible before enabling phone access at every width');
+        assert(await evaluate("return ['setting-remote-access','setting-remote-aircraft-control'].every(id=>document.getElementById(id).getClientRects().length>0);"), 'both phone options are visible before access is enabled');
+        assert(await evaluate("return document.getElementById('setting-remote-aircraft-control').disabled && document.getElementById('phone-control-access-reason').getClientRects().length>0;"), 'disabled paired-control option explains its prerequisite');
+        const pairedPreference = await evaluate("return document.getElementById('setting-remote-aircraft-control').checked;");
         await capture(`phone-linking-off-${width}`);
         await pointerActivate('#setting-remote-access', width < 760);
+        assert.equal(await evaluate("return document.getElementById('setting-remote-aircraft-control').disabled;"), false);
+        assert.equal(await evaluate("return document.getElementById('setting-remote-aircraft-control').checked;"), pairedPreference, 'enabling access preserves the stored paired-control choice');
         await pointerActivate('[data-phone-restart]', width < 760);
         assert(await evaluate('return workbenchTest.setupFixture.requests.length===1 && workbenchTest.setupFixture.restarts===0;'), 'restart waits for save confirmation');
         await evaluate('await workbenchTest.completeSetupSave(false);');
@@ -684,6 +734,11 @@ async function browser() {
         assert.equal(await evaluate("return !!document.getElementById('phone-setup-qr');"), false, 'saved access still waits for running service confirmation');
         await evaluate('workbenchTest.phoneFixture.active=true; await workbenchTest.systemHost.refresh(); await workbenchTest.nextTick();');
         assert(await evaluate("return !!document.querySelector('#phone-setup-qr svg');"), 'active access reveals a QR in the same place');
+        assert(await evaluate("return ['setting-remote-access','setting-remote-aircraft-control'].every(id=>document.getElementById(id).getClientRects().length>0);"), 'active access does not collapse the everyday settings');
+        await pointerActivate('#setting-remote-aircraft-control', width < 760);
+        assert.equal(await evaluate("return !!document.querySelector('#phone-setup-qr');"), false, 'unsaved control changes still hide sharing until applied');
+        await pointerActivate('#setting-remote-aircraft-control', width < 760);
+        assert.equal(await evaluate("return !!document.querySelector('#phone-setup-qr svg');"), true, 'restoring the saved choice restores the existing sharing state');
         if (width >= 760) {
           await evaluate("await workbenchTest.open('flight');");
           assert(await evaluate("return !!document.querySelector('[data-phone-setup-sidebar]')?.getClientRects().length;"), 'phone shortcut remains available after access is enabled');
@@ -695,45 +750,103 @@ async function browser() {
         assert.equal(await evaluate("return document.querySelector('.phone-setup').innerText.includes('fixture-private-phone-token');"), false, 'QR credential is never printed');
         await evaluate("document.getElementById('settings-phone-tablet-access').scrollIntoView({block:'start',behavior:'instant'});");
         await capture(`phone-linking-ready-${width}`);
-        await pointerActivate('[data-phone-address-toggle]', width < 760);
+        assert.equal(await evaluate('return document.querySelectorAll("[data-mobile-voice-setup], [data-phone-voice-access], [data-phone-voice-download]").length;'), 0, 'phone microphone and certificate setup are absent at every width');
+        assert.deepEqual(await evaluate('return workbenchTest.phoneFixture.voiceActions;'), [], 'opening phone settings never enables voice');
+        assert.equal(await evaluate('return document.querySelectorAll("#settings-phone-tablet-access [role=img]").length;'), 1, 'only the normal phone connection QR remains');
+        assert(await evaluate("return document.getElementById('phone-setup-address').getClientRects().length>0 && document.querySelector('[data-phone-copy]').getClientRects().length>0;"), 'address and copy action are available without a disclosure');
         assert.equal(await evaluate("return document.getElementById('phone-setup-address').textContent;"), 'http://192.168.1.42:8100/phone');
         await evaluate("window.phoneCopied=''; Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>{phoneCopied=value;}}});");
         await pointerActivate('[data-phone-copy]', width < 760);
         assert.equal(await evaluate('return phoneCopied;'), 'http://192.168.1.42:8100/phone', 'copy shares only the token-free address');
+        await evaluate("await workbenchTest.open('flight'); document.getElementById('vue-main-root').focus();");
         await evaluate(`workbenchTest.phoneFixture.requests=[{id:'native-phone',confirmationCode:'654321',expiresAt:Date.now()+120000}];
           workbenchTest.emitWsMessage({type:'devicePairingRequests',enabled:true,requests:workbenchTest.phoneFixture.requests}); await workbenchTest.nextTick();`);
+        for(let n=0;n<80 && !await evaluate('return document.querySelector("[data-device-pairing-modal]").matches(":modal");');n++) await wait(50);
+        assert.equal(await evaluate('return workbenchTest.tabs.activeTabId;'), 'flight', 'pairing appears over the current workspace without navigating');
+        assert.equal(await evaluate('return document.activeElement.id;'), 'device-pairing-approval-title', 'new requests focus the matching-code prompt');
+        assert(await evaluate('const d=document.querySelector("[data-device-pairing-modal]"),r=d.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight && d.scrollWidth<=d.clientWidth+1;'), 'native modal fits desktop and phone widths');
         await capture(`phone-linking-code-${width}`);
+        win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,x:2,y:2});
+        win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:2,y:2});
+        assert(await evaluate('return document.querySelector("[data-device-pairing-modal]").open;'), 'backdrop clicks never dismiss the request');
+        await evaluate('document.querySelector("[data-pairing-close]").focus();'); await key('Tab');
+        assert(await evaluate('return document.querySelector("[data-device-pairing-modal]").contains(document.activeElement);'), 'keyboard focus stays within the native modal');
+        await pointerActivate('[data-pairing-close]', width < 760);
+        assert.equal(await evaluate('return document.querySelector("[data-device-pairing-modal]").open;'), false);
+        assert.equal(await evaluate('return document.activeElement.id;'), 'vue-main-root', 'close restores the interrupted workspace focus');
+        await evaluate('workbenchTest.emitWsMessage({type:"devicePairingRequests",enabled:true,requests:workbenchTest.phoneFixture.requests}); await workbenchTest.open("settings");');
+        assert.equal(await evaluate('return document.querySelector("[data-device-pairing-modal]").open;'), false, 'polling and navigation do not reopen dismissed requests');
+        await pointerActivate('[data-pairing-review]', width < 760);
         await pointerActivate('[data-phone-approve]', width < 760);
         assert.deepEqual(await evaluate('return workbenchTest.phoneFixture.approvals.map(({requestId,confirmationCode})=>({requestId,confirmationCode}));'),
           [{requestId:'native-phone',confirmationCode:'654321'}], 'explicit approval sends only the matching request and code');
-        assert(await evaluate("return document.querySelector('#phone-pairing-requests [role=status]').textContent.includes('Controls approved');"), 'approval confirms the next destination');
-        assert.equal(await evaluate('return document.activeElement.id;'), 'settings-phone-tablet-access', 'removed approval button restores focus to setup');
+        assert(await evaluate('return !document.querySelector("[data-device-pairing-modal]").open && workbenchTest.phoneFixture.approvals[0].approvalId;'), 'confirmed approval closes the modal and carries an attempt correlation');
+        assert.equal(await evaluate('return document.activeElement.id;'), 'vue-main-root', 'approval restores workspace focus when the Review requests trigger disappears');
         if (width === 1440) {
+          await evaluate(`await workbenchTest.open('autopilot'); workbenchTest.voice.panelOpen=true; await workbenchTest.nextTick();
+            workbenchTest.phoneFixture.requests=[{id:'multi-a',confirmationCode:'111111',expiresAt:Date.now()+120000},{id:'multi-b',confirmationCode:'222222',expiresAt:Date.now()+120000}];
+            workbenchTest.emitWsMessage({type:'devicePairingRequests',enabled:true,requests:workbenchTest.phoneFixture.requests}); await workbenchTest.nextTick();`);
+          assert(await evaluate('const d=document.querySelector("[data-device-pairing-modal]"),r=d.getBoundingClientRect();return workbenchTest.voice.panelOpen && d.matches(":modal") && d.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));'), 'pairing is above an already-open voice dialog');
+          await capture('phone-pairing-over-voice-1440');
+          await pointerActivate('[data-phone-approve]', false);
+          assert(await evaluate('return document.querySelector("[data-device-pairing-modal]").open && document.querySelectorAll("[data-phone-approve]").length===1;'), 'approving one phone leaves the other request open');
+          await pointerActivate('[data-phone-approve]', false);
+          assert.equal(await evaluate('return document.querySelector("[data-device-pairing-modal]").open;'), false);
+          assert(await evaluate('return workbenchTest.voice.panelOpen && document.querySelector("[data-aircraft-voice-control-modal]").contains(document.activeElement);'), 'approval returns focus to the interrupted voice dialog without closing it');
+          await evaluate('workbenchTest.voice.panelOpen=false;');
+          await evaluate(`workbenchTest.phoneFixture.requests=[{id:'expired-phone',confirmationCode:'333333',expiresAt:Date.now()+120000}];
+            workbenchTest.emitWsMessage({type:'devicePairingRequests',enabled:true,requests:workbenchTest.phoneFixture.requests}); await workbenchTest.nextTick();
+            const realNow=Date.now; Date.now=()=>realNow()+120001;
+            workbenchTest.phoneFixture.requests=[]; workbenchTest.emitWsMessage({type:'devicePairingRequests',enabled:true,requests:[]}); Date.now=realNow; await workbenchTest.nextTick();`);
+          assert(await evaluate('return document.querySelector("[data-device-pairing-modal]").open && document.querySelector("[data-phone-approve]").getAttribute("aria-disabled")==="true";'), 'expired code stays visible with disabled approval until close');
+          await key('Escape');
+          assert.equal(await evaluate('return document.querySelector("[data-device-pairing-modal]").open;'), false, 'Escape deliberately dismisses the expired request');
           await evaluate(`workbenchTest.phoneFixture.requests=[{id:'retired-phone',confirmationCode:'112233',expiresAt:Date.now()+120000}];
             workbenchTest.phoneFixture.holdApproval=true;
             workbenchTest.emitWsMessage({type:'devicePairingRequests',enabled:true,requests:workbenchTest.phoneFixture.requests}); await workbenchTest.nextTick();`);
           await pointerActivate('[data-phone-approve]', false);
           await evaluate("workbenchTest.emitWsMessage({type:'devicePairingApprovalResult',requestId:'another-phone',ok:true});");
-          assert(await evaluate("return document.querySelector('[data-phone-approve]').disabled;"), 'another request cannot settle this approval');
+          assert(await evaluate('return document.querySelector("[data-phone-approve]").getAttribute("aria-disabled")==="true";'), 'another request cannot settle this approval');
           await wait(10100);
-          assert(await evaluate("return !document.querySelector('[data-phone-approve]').disabled && document.querySelector('#phone-pairing-requests [role=status]').textContent.includes('not confirmed');"), 'missing approval reply settles with retry feedback');
+          assert(await evaluate('return document.querySelector("[data-phone-approve]").getAttribute("aria-disabled")==="false" && document.querySelector("[data-device-pairing-modal] [role=alert]")?.textContent.includes("not confirmed");'), 'missing approval reply settles with retry feedback across routine host refreshes');
           await pointerActivate('[data-phone-approve]', false);
-          await evaluate("window.retiredApprove=document.querySelector('[data-phone-approve]'); await workbenchTest.authorize('read-only'); retiredApprove.click();");
-          assert.equal(await evaluate('return workbenchTest.phoneFixture.approvals.length;'), 3, 'revocation blocks a retained approval callback');
-          await evaluate("workbenchTest.emitWsMessage({type:'devicePairingApprovalResult',requestId:'retired-phone',ok:true}); workbenchTest.phoneFixture.requests=[]; await workbenchTest.authorize('full-control');");
-          assert.equal(await evaluate("return !!document.getElementById('phone-pairing-requests');"), false, 'late replies cannot restore retired approvals');
-          await evaluate("await workbenchTest.open('flight');");
-          const before = await evaluate("return workbenchTest.sent.filter(message=>message.type==='requestDevicePairingRequests').length;");
+          const approvedBeforeRevocation=await evaluate('return workbenchTest.phoneFixture.approvals.length;');
+          await evaluate("window.retiredApprove=document.querySelector('[data-phone-approve]'); window.retiredRequest=workbenchTest.phoneFixture.approvals.at(-1); await workbenchTest.authorize('read-only'); retiredApprove.click();");
+          assert.equal(await evaluate('return workbenchTest.phoneFixture.approvals.length;'), approvedBeforeRevocation, 'revocation blocks a retained approval callback');
+          await evaluate('workbenchTest.emitWsMessage({...retiredRequest,type:"devicePairingApprovalResult",ok:true}); workbenchTest.phoneFixture.requests=[];');
+          assert.equal(await evaluate('return document.querySelector("[data-device-pairing-modal]").open;'), false, 'late replies cannot restore retired approvals');
+          let before = await evaluate("return workbenchTest.sent.filter(message=>message.type==='requestDevicePairingRequests').length;");
           await wait(2700);
-          assert.equal(await evaluate("return workbenchTest.sent.filter(message=>message.type==='requestDevicePairingRequests').length;"), before, 'leaving Settings releases pairing polling');
+          assert.equal(await evaluate("return workbenchTest.sent.filter(message=>message.type==='requestDevicePairingRequests').length;"), before, 'revocation releases pairing polling');
+          await evaluate('await workbenchTest.authorize("full-control"); await workbenchTest.open("flight");');
+          before = await evaluate("return workbenchTest.sent.filter(message=>message.type==='requestDevicePairingRequests').length;");
+          await wait(2700);
+          assert(await evaluate("return workbenchTest.sent.filter(message=>message.type==='requestDevicePairingRequests').length;") > before, 'pairing keeps watching while Settings is closed');
         }
       }
       const remoteUrl = new URL(process.env.FF_WORKBENCH_TEST_URL);
+      remoteUrl.pathname = '/remote';
       remoteUrl.search = '?scope=read-only';
       await win.loadURL(remoteUrl.href);
       for (let n=0;n<180 && !await evaluate('return !!window.workbenchTest;');n++) await wait(50);
       assert.equal(await evaluate("return !!document.querySelector('[data-phone-setup-sidebar]');"), false, 'remote viewers do not offer PC pairing setup');
-      console.log('Phone setup passed: permanent expanded/collapsed sidebar link, guarded pointer/keyboard navigation, desktop/900px/320px layouts, failed-save retry, acknowledged restart, private QR, safe address, code approval, revocation, stale replies and polling cleanup.');
+      await evaluate(`window.phoneVoiceRequests = 0;
+        const originalFetch = window.fetch;
+        window.fetch = (input, options) => String(input).includes('/api/mobile-voice')
+          ? (phoneVoiceRequests++, Promise.resolve(new Response(JSON.stringify({ enabled: true, port: 8101 }))))
+          : originalFetch(input, options);
+        localStorage.setItem('ff_phone_microphone_guide_v1', JSON.stringify({ step: 3, fingerprint: 'old-test-certificate' }));
+        window.dispatchEvent(new Event('flightfabric:phone-microphone-setup'));
+        window.dispatchEvent(new Event('flightfabric:mobile-voice-changed'));`);
+      assert.equal(await evaluate('return document.querySelectorAll("[data-mobile-voice-setup], [data-phone-voice-start], [data-phone-voice-download]").length;'), 0, 'old setup events cannot reopen certificate installation');
+      await evaluate("await workbenchTest.open('autopilot'); workbenchTest.voice.setBridgeAvailable(false); await workbenchTest.nextTick();");
+      await pointerActivate('[data-aircraft-voice-control-trigger]', true);
+      assert(await evaluate('return workbenchTest.voice.panelOpen;'), 'the desktop voice phrase reference remains available');
+      assert.equal(await evaluate('return document.querySelectorAll("[data-mobile-voice-control], [data-mobile-voice-setup-open], [data-voice-push-to-talk]").length;'), 0, 'phone phrase reference has no microphone activation or capture');
+      assert.equal(await evaluate('return phoneVoiceRequests;'), 0, 'phone navigation does not contact the deferred voice service');
+      assert.equal(await evaluate('return document.documentElement.scrollWidth>innerWidth;'), false, 'phone reference fits the complete 320px app');
+      await capture('phone-voice-disabled-320');
+      console.log('Phone setup passed: permanent expanded/collapsed sidebar link, guarded pointer/keyboard navigation, desktop/900px/320px layouts, failed-save retry, acknowledged restart, token-free QR/address, app-wide native approval, dismissal, multiple requests, expiry, focus restoration, timeout across host refresh, revocation and stale replies.');
     }
     if (process.env.FF_PHONE_SETUP_ONLY === '1') {
       await checkPhoneSetup();
@@ -1066,6 +1179,15 @@ async function browser() {
     }
     async function checkRecordingPointer(name, touch) {
       await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled:true });
+      await evaluate(`workbenchTest.status.ingestMessage({type:'flightRecording',status:'stopped'});
+        workbenchTest.status.ingestMessage({type:'flightTime',elapsedHms:'00:18:25'}); await workbenchTest.nextTick();`);
+      assert(await evaluate(`const timer=document.getElementById('flight-time'), group=timer.closest('.header-flight-time');
+        return document.getElementById('start-recording-btn')?.getClientRects().length > 0
+          && !document.getElementById('recording-indicator').getClientRects().length
+          && timer.textContent === '00:18:25' && group.textContent.includes('Flight time')
+          && group.title.includes('even when recording is off')
+          && Math.max(document.documentElement.scrollWidth,document.body.scrollWidth)<=innerWidth+1;`), `${name}: elapsed flight time is labelled independently of the stopped recorder and fits the header`);
+      await capture(`${name}-recording-off-flight-time`);
       await evaluate(`workbenchTest.status.ingestMessage({type:'flightRecording',status:'recording',fileName:'telemetry.csv',sizeBytes:862208}); await workbenchTest.nextTick();`);
       assert.equal(await evaluate("return document.getElementById('recording-size').textContent;"), '842 KB', `${name}: active flight size is visible`);
       const before = await evaluate('return window.recordingEndRequested;');
@@ -1117,7 +1239,7 @@ async function browser() {
       await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled:false });
     }
     if (!process.env.FF_TOOLBAR_SETUP_ONLY) {
-    await evaluate("window.recordingEndRequested=0; workbenchTest.status.bindHeaderActions({onEndFlightManual:()=>{window.recordingEndRequested++;return true;}}); document.getElementById('recording-details-btn').focus();");
+    await evaluate("window.recordingEndRequested=0; workbenchTest.status.bindHeaderActions({onStartRecordingManual:()=>false,onEndFlightManual:()=>{window.recordingEndRequested++;return true;}}); document.getElementById('recording-details-btn').focus();");
     await key('Return');
     const recordingOpened = await evaluate("return {expanded:document.getElementById('recording-details-btn').getAttribute('aria-expanded'),focus:document.activeElement.outerHTML.slice(0,300),dialog:document.getElementById(document.getElementById('recording-details-btn').getAttribute('aria-controls')).outerHTML.slice(0,300)};");
     assert(recordingOpened.expanded==='true' && recordingOpened.focus.includes('app-tooltip'), `Enter opens and focuses labelled recording details: ${JSON.stringify(recordingOpened)}`);
@@ -1872,6 +1994,7 @@ async function browser() {
     assert.equal(await evaluate("return workbenchTest.sent.some(message=>message.type==='saveAppSettings');"), false, 'revoked settings submit cannot send a save request');
     await capture('authorization-revoked-settings');
     reportPhase('Desktop authorization recovery');
+    await checkSimbriefMapRoute();
     await checkDesktopAuthorizationRecovery();
     reportPhase('Cloud voice settings');
     await checkReadbackVoiceSettings();

@@ -10,9 +10,9 @@ export type PushbackPlan = {
     headingDeg: number;
     taxiRoute: TaxiRoute;
 };
-/** Back straight, then one reversing arc and a short alignment on the taxiway. Choose the
- * onward direction by routing to the selected runway, never its compass number.
- * This bounded manoeuvre deliberately rejects complex/ambiguous apron layouts.
+/** Back clear, turn in reverse and align on the taxiway. Prefer one arc; a bounded
+ * opposite turn first can leave room to face out of a dead-end apron.
+ * Choose direction by routing to the selected runway, never its compass number.
  */
 export declare function planPushback(airport: TaxiAirport, start: Point, headingDeg: number, runway: string, dimensions: {
     wheelbaseM: number;

@@ -243,7 +243,11 @@ test('FlyByWire A32NX catalogue exposes guarded FCU custom-event commands with n
     'flightGuidance.altitudeMode.set',
     'propulsion.throttleDetent.set',
   ]);
-  assert.equal(commandIds.length, 87);
+  assert.equal(commandIds.length, 89);
+  assert.deepEqual(commandIds.filter((id) => id.startsWith('configuration.lighting.')), [
+    'configuration.lighting.cockpit', 'configuration.lighting.flood',
+    'configuration.lighting.displays', 'configuration.lighting.all',
+  ]);
   assert.deepEqual(commandIds.filter((id) => id.startsWith('radios.com')), [
     'radios.com1.setStandby', 'radios.com1.swap', 'radios.com1.switchTo',
     'radios.com2.setStandby', 'radios.com2.swap', 'radios.com2.switchTo',
@@ -435,7 +439,9 @@ test('Fenix A32X catalogue exposes one reviewed UI and voice command slice acros
     'visibility.captain.wiper',
     'visibility.firstOfficer.wiper',
     'configuration.lighting.cockpit',
+    'configuration.lighting.flood',
     'configuration.lighting.displays',
+    'configuration.lighting.all',
   ];
 
   for (const variant of ['a319', 'a320', 'a321'] as const) {
@@ -609,7 +615,9 @@ test('iniBuilds A350 catalogue exposes the shared page controls to voice across 
     'systems.crossBleed.set',
     'systems.packFlow.set',
     'configuration.lighting.cockpit',
+    'configuration.lighting.flood',
     'configuration.lighting.displays',
+    'configuration.lighting.all',
   ];
 
   for (const variant of ['900', '1000'] as const) {
@@ -783,6 +791,7 @@ test('PMDG 777 catalogue exposes one reviewed UI and voice command slice across 
     'visibility.firstOfficer.wiper',
     'configuration.lighting.cockpit',
     'configuration.lighting.displays',
+    'configuration.lighting.all',
   ];
 
   for (const variant of ['pmdg-777', 'pmdg-777-200er', 'pmdg-777-200lr', 'pmdg-777f'] as const) {
@@ -1047,6 +1056,7 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'visibility.firstOfficer.wiper',
     'configuration.lighting.cockpit',
     'configuration.lighting.displays',
+    'configuration.lighting.all',
   ]);
   assert.deepEqual(commands.get('flightGuidance.altitude.set').speech.patterns, [
     'set altitude {value}',
@@ -1067,6 +1077,12 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'set both courses {value}',
     'set course windows {value}',
     'set both course windows {value}',
+    'course {value}',
+    'courses {value}',
+    'both course {value}',
+    'both courses {value}',
+    'course windows {value}',
+    'both course windows {value}',
   ]);
   assert.deepEqual(commands.get('surfaces.flaps.set').input.values, [
     'up', '1', '2', '5', '10', '15', '25', '30', '40',
@@ -1092,7 +1108,14 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
   assert.deepEqual(commands.get('configuration.lighting.cockpit').speech.patterns, [
     'set cockpit lighting {value}',
     'set cockpit lights {value}',
+    'cockpit lighting {value}',
+    'cockpit lights {value}',
+  ]);
+  assert.deepEqual(commands.get('configuration.lighting.all').speech.patterns, [
     'set all cockpit lights {value}',
+    'set all cockpit lighting {value}',
+    'all cockpit lights {value}',
+    'all cockpit lighting {value}',
   ]);
   assert.equal(commands.get('radios.nav.setBothActive').kind, 'preset');
   assert.equal(commands.get('radios.nav.setBothActive').group, 'presets');
@@ -1104,6 +1127,8 @@ test('PMDG 737 catalogue exposes the complete reviewed UI and voice command slic
     'set nav radios {value}',
     'set both nav radios {value}',
     'tune nav radios {value}',
+    'nav radios {value}',
+    'both nav radios {value}',
   ]);
   assert.equal(commands.get('configuration.lights.takeoff').kind, 'preset');
   assert.equal(

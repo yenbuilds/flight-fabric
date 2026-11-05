@@ -171,13 +171,13 @@ function hasValues(object) {
       </div>
     </header>
     <p v-if="remoteView" class="simbrief-device-note">
-      Plans stay on this device. Fetch or clear on your simulator PC to update the shared plan.
+      Plans update the Flight map on this device. Fetch or clear on your simulator PC to update the shared plan.
     </p>
 
     <div v-if="!simbrief.plan" class="ff-empty-state simbrief-empty-state" :aria-busy="simbrief.fetchInProgress">
       <svg class="ff-empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z M14 3v6h6 M8 13h8M8 17h5" /></svg>
-      <h3>{{ simbrief.fetchInProgress ? 'Bringing your flight plan aboard' : 'Ready for your next flight' }}</h3>
-      <p>{{ remoteView ? 'Fetch your latest SimBrief plan to read it on this device.' : 'Your latest SimBrief plan will appear here and in your connected flight strips.' }}</p>
+      <h3>{{ simbrief.fetchInProgress ? 'Fetching your flight plan…' : 'No flight plan loaded' }}</h3>
+      <p v-if="!simbrief.fetchInProgress">Enter your SimBrief username or pilot ID above, then choose Fetch latest OFP.</p>
     </div>
 
     <div

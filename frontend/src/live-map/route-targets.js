@@ -2,6 +2,7 @@ export function createRouteTargetsController({
   liveMapStore,
   isValidCoord,
   sendWsMessage = () => false,
+  canSyncTargets = () => true,
   getLastPosition = () => null,
   getDistanceNm,
   getInitialBearingDeg,
@@ -66,7 +67,7 @@ export function createRouteTargetsController({
     }
     updateTargetStatus(statusText, isError);
     redrawDestinationState();
-    if (syncServer) {
+    if (syncServer && canSyncTargets()) {
       sendWsMessage({ type: 'clearDestinationTarget' });
     }
   }
@@ -88,7 +89,7 @@ export function createRouteTargetsController({
     }
     updateOriginStatus(statusText, isError);
     redrawOriginState();
-    if (syncServer) {
+    if (syncServer && canSyncTargets()) {
       sendWsMessage({ type: 'clearOriginTarget' });
     }
   }
@@ -301,7 +302,15 @@ export function createRouteTargetsController({
     return sendWsMessage({ type: 'requestOriginTarget' });
   }
 
-  function handleFlightPlanMessage(message = {}) {
+  function handleFlightPlanMessage(message = {}, { replaceTargets = false } = {}) {
+    if (replaceTargets) {
+      // A fresh device-local import owns both targets, including pending lookups
+      // and any earlier manual clear. Never publish those changes to the PC.
+      clearOriginSelection(false);
+      clearTargetSelection(false);
+      ignoredSyncIcao.origin = null;
+      ignoredSyncIcao.destination = null;
+    }
     if (message.cleared) {
       plannedRunways = null;
       updateDestinationProgress();
@@ -409,16 +418,20 @@ export function createRouteTargetsController({
 
     if (isOrigin) {
       applyOriginTarget(resolvedAirport, `From set: ${resolvedAirport.icao} (${resolvedAirport.name})`);
-      sendWsMessage({
-        type: 'setOriginTarget',
-        target: resolvedAirport,
-      });
+      if (canSyncTargets()) {
+        sendWsMessage({
+          type: 'setOriginTarget',
+          target: resolvedAirport,
+        });
+      }
     } else {
       applyDestinationTarget(resolvedAirport, `Target set: ${resolvedAirport.icao} (${resolvedAirport.name})`);
-      sendWsMessage({
-        type: 'setDestinationTarget',
-        target: resolvedAirport,
-      });
+      if (canSyncTargets()) {
+        sendWsMessage({
+          type: 'setDestinationTarget',
+          target: resolvedAirport,
+        });
+      }
     }
 
     return true;

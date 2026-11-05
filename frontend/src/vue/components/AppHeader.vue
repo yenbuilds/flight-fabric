@@ -134,7 +134,7 @@ async function openRecordingView(tabId, close) {
           <div class="header-activity-controls flex min-w-0 items-center gap-4">
             <AppTooltip
               v-if="profiles.authorizationScope === 'full-control' && status.startRecordingActionBound && status.recordingStartAvailable && !status.recordingVisible"
-              content="Start Recording Manually"
+              content="Recording is off. Start recording flight data."
             >
               <button
                 id="start-recording-btn"
@@ -200,7 +200,10 @@ async function openRecordingView(tabId, close) {
             <div id="vue-phase-mobile-root" class="header-mobile-phase">
               <FlightStatusBadges mode="mobile" />
             </div>
-            <span id="flight-time" class="header-flight-time tabular text-sm text-muted-fg">{{ status.flightTimeLabel }}</span>
+            <div class="header-flight-time flex flex-col text-muted-fg" title="Elapsed time for the current flight session. This timer runs even when recording is off.">
+              <span class="text-[10px] leading-tight">Flight time</span>
+              <span id="flight-time" class="tabular text-sm">{{ status.flightTimeLabel }}</span>
+            </div>
             <div class="header-aircraft-summary flex min-w-0 items-center">
               <div class="header-aircraft-copy flex min-w-0 flex-col leading-tight">
                 <span id="aircraft-name" class="max-w-[120px] truncate text-sm text-gray-200 sm:max-w-[200px] sm:text-base">{{ status.aircraftNameLabel }}</span>

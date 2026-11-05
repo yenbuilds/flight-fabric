@@ -47,12 +47,12 @@ async function remove(row) {
     <div class="settings-panel-header">
       <div class="settings-panel-title-row">
         <div id="settings-toolbar-panel-title" class="settings-panel-title">MSFS 2024 toolbar panel</div>
-        <HelpTooltip label="MSFS toolbar panel help">Adds FlightFabric to the MSFS 2024 toolbar, including taxi guidance and experimental pushback. Connects to this PC only, with no settings, recording or logbook access.</HelpTooltip>
+        <HelpTooltip label="MSFS toolbar panel help">Connects to this PC only. Settings, recordings and Logbook stay in the desktop app.</HelpTooltip>
       </div>
     </div>
 
     <p class="text-xs leading-relaxed text-muted-fg">
-      View your SimBrief plan, voice commands, last landing and push-to-talk status in MSFS. Apply the same presets as the Aircraft page.
+      Flight plans, aircraft controls and voice status inside MSFS.
     </p>
 
     <div v-if="!toolbarPanel.available" id="toolbar-panel-desktop-only" class="mt-4 rounded-lg border border-border/60 bg-panel-subtle/60 px-4 py-3 text-xs leading-relaxed text-muted-fg">
@@ -60,7 +60,7 @@ async function remove(row) {
     </div>
 
     <template v-else>
-      <p class="mt-3 text-xs text-muted-fg">Close MSFS before installing, updating or removing the toolbar package, then restart it.</p>
+      <p class="mt-3 text-xs text-muted-fg">Close MSFS before installing, updating or removing this panel.</p>
 
       <div id="toolbar-panel-source-error" v-if="toolbarPanel.sourceError" class="mt-4 rounded-r-lg border-l-2 border-danger/70 bg-danger/5 px-4 py-3 text-xs leading-relaxed text-danger">
         {{ toolbarPanel.sourceError }}
@@ -117,20 +117,9 @@ async function remove(row) {
         <span v-if="toolbarPanel.restartNotice" class="text-warning">{{ toolbarPanel.restartNotice }}</span>
       </div>
 
-      <details class="settings-instructions" :open="toolbarPanel.rows.some(row => row.found && row.status === 'not_installed')">
-        <summary>Installation and update help</summary>
-        <div class="mt-4 rounded-lg border border-border/60 bg-panel-subtle/40 px-4 py-3 text-xs leading-relaxed">
-          <h3 class="font-semibold text-fg">Get started in three steps</h3>
-          <ol class="mt-2 list-decimal space-y-1 pl-5 text-muted-fg">
-            <li>Close Microsoft Flight Simulator 2024 before installing or updating.</li>
-            <li>Choose Install, Update or Repair as shown.</li>
-            <li>Start MSFS again, load a flight and open <strong class="text-fg">FlightFabric</strong> from the in-flight toolbar. Keep the FlightFabric desktop app running.</li>
-          </ol>
-        </div>
-
-        <p class="mt-4 text-xs text-muted-fg">Use Reinstall to refresh an already-installed toolbar package.</p>
-
-      </details>
+      <p id="toolbar-panel-start-help" class="mt-4 text-xs leading-relaxed text-muted-fg">
+        Then start a flight in MSFS and open <strong class="text-fg">FlightFabric</strong> from its toolbar. Keep FlightFabric running on your PC.
+      </p>
 
       <div class="mt-3 flex items-center justify-between gap-3">
         <span v-if="toolbarPanel.packageVersion" class="text-[11px] text-gray-500" style="font-family: var(--ff-font-mono);">Package {{ toolbarPanel.packageVersion }}</span>

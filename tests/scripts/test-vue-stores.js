@@ -246,6 +246,74 @@ async function main() {
     assert.deepEqual(ids(''), [], 'reset cannot retain an old search index');
   });
 
+  await test('pairing owner scopes prompts, dismissal, approval attempts and cleanup to the privileged connection', async () => {
+    resetStoreTestContext();
+    const { useDevicePairingStore } = await import(toFrontendUrl('src', 'vue', 'stores', 'device-pairing.js'));
+    const { emitWsMessage } = await import(toFrontendUrl('src', 'app', 'runtime-signals.js'));
+    const real = { now: Date.now, setTimeout, clearTimeout, setInterval, clearInterval };
+    let time = Date.now(), cleanup;
+    const timeouts = new Map(), intervals = new Map(), sent = [];
+    globalThis.electronAPI = { getBackendBootstrap: async () => ({ body: { remoteAccessEnabled: true } }) };
+    Date.now = () => time;
+    globalThis.setTimeout = fn => { const token = {}; timeouts.set(token, fn); return token; };
+    globalThis.clearTimeout = token => timeouts.delete(token);
+    globalThis.setInterval = fn => { const token = {}; intervals.set(token, fn); return token; };
+    globalThis.clearInterval = token => intervals.delete(token);
+    setAppService('sendWs', message => { sent.push(message); return true; });
+    try {
+      const pairing = useDevicePairingStore(), profiles = useProfilesStore(), status = useStatusStore(), host = useSystemHostStore();
+      const snapshot = requests => emitWsMessage({ type: 'devicePairingRequests', enabled: true, requests });
+      const reply = (request, ok = true) => emitWsMessage({ ...request, type: 'devicePairingApprovalResult', ok });
+      const request = (id, code = '123456') => ({ id, confirmationCode: code, expiresAt: time + 120000 });
+      cleanup = pairing.connect();
+      snapshot([request('remote')]);
+      assert.equal(pairing.open, false); assert.equal(intervals.size, 0);
+      host.remoteAccessEnabled = true; status.setWebsocket('ready'); profiles.setAuthorizationScope('full-control');
+      assert.equal(intervals.size, 1); assert.equal(sent[0].type, 'requestDevicePairingRequests');
+      const first = request('first'); snapshot([first]);
+      assert.equal(pairing.open, true);
+      pairing.dismiss(); snapshot([first]);
+      assert.equal(pairing.open, false, 'polling cannot reopen an explicitly closed request');
+      const second = request('second', '654321'); snapshot([first, second]);
+      assert.deepEqual(pairing.displayed.map(item => item.id), ['second'], 'a new phone prompts without repeating dismissed requests');
+      pairing.approve(pairing.displayed[0]); const oldAttempt = sent.at(-1);
+      await host.refresh();
+      assert.equal(pairing.approvingId, 'second', 'routine host refresh must not retire a pending approval');
+      pairing.approve(pairing.displayed[0]); assert.equal(sent.at(-1), oldAttempt, 'one approval at a time');
+      pairing.dismiss(); pairing.review();
+      pairing.approve(pairing.displayed.find(item => item.id === 'second')); const current = sent.at(-1);
+      assert.notEqual(current.approvalId, oldAttempt.approvalId);
+      reply(oldAttempt); reply(oldAttempt, false);
+      assert.equal(pairing.approvingId, 'second'); assert.equal(pairing.error, '');
+      reply(current);
+      assert.equal(pairing.open, true, 'another waiting device keeps the dialog open');
+      assert.deepEqual(pairing.displayed.map(item => item.id), ['first']);
+      pairing.approve(pairing.displayed[0]); const timedOut = sent.at(-1);
+      [...timeouts.values()][0]();
+      assert.match(pairing.error, /not confirmed/); assert.equal(pairing.approvingId, '');
+      pairing.approve(pairing.displayed[0]); const retry = sent.at(-1);
+      reply(timedOut, false); assert.equal(pairing.approvingId, 'first');
+      reply(retry);
+      assert.equal(pairing.open, false, 'only confirmed approval closes the final request');
+      snapshot([first, second]); assert.equal(pairing.open, false, 'stale pending lists cannot reopen approved codes');
+      const expiring = request('expiring'); snapshot([expiring]);
+      time += 120001; [...intervals.values()][0](); snapshot([]);
+      assert.equal(pairing.open, true, 'expiry leaves an explanation until explicit close');
+      assert.equal(pairing.canApprove(pairing.displayed[0]), false);
+      pairing.dismiss(); const retained = request('retained'); snapshot([retained]);
+      pairing.approve(pairing.displayed[0]); const revoked = sent.at(-1);
+      profiles.setAuthorizationScope('read-only');
+      assert.equal(pairing.open, false); assert.equal(intervals.size, 0); assert.equal(timeouts.size, 0);
+      reply(revoked); snapshot([retained]); assert.equal(pairing.open, false);
+      profiles.setAuthorizationScope('full-control'); snapshot([request('fresh')]); assert.equal(pairing.open, true);
+      status.setWebsocket('disconnected'); assert.equal(pairing.open, false); assert.equal(intervals.size, 0);
+      cleanup(); cleanup = null; snapshot([request('unmounted')]); assert.equal(pairing.open, false);
+    } finally {
+      cleanup?.(); Date.now = real.now;
+      for (const name of ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval']) globalThis[name] = real[name];
+    }
+  });
+
   await test('system host store stays safe outside Electron', async () => {
     resetStoreTestContext();
 
@@ -2579,36 +2647,9 @@ async function main() {
     assert.equal(flight.telemetry.alt, '3,450', 'altitude should render with thousands separators');
     assert.equal(flight.telemetry.ra, '185', 'radio altitude should render below the display threshold');
     assert.equal(flight.telemetry.raVisible, true, 'radio altitude card should be visible below threshold');
-    assert.deepEqual(flight.telemetry.altitudeDiagnostics, {
-      indicated: '3,450',
-      calibrated: '3,299',
-      plane: '3,295',
-      pressure: '3,561',
-      radio: '185',
-      aircraftAgl: '176',
-      aircraftAboveObstacles: '165',
-      planeAgl: '165',
-      planeAglMinusCg: '158',
-      kohlsmanSettingMb: '1013.25',
-      kohlsmanTunedMb: '1008.40',
-      kohlsmanStd: 'STD',
-    }, 'altitude diagnostics should retain independent references and barometer state');
-
     flight.updateAltitudeDisplay({ msl: 3460.4, indicated: 3460.4, ra: 190.1 });
-    assert.deepEqual(flight.telemetry.altitudeDiagnostics, {
-      indicated: '3,460',
-      calibrated: '-----',
-      plane: '-----',
-      pressure: '-----',
-      radio: '190',
-      aircraftAgl: '----',
-      aircraftAboveObstacles: '----',
-      planeAgl: '----',
-      planeAglMinusCg: '----',
-      kohlsmanSettingMb: '----.--',
-      kohlsmanTunedMb: '----.--',
-      kohlsmanStd: '--',
-    }, 'altitude snapshots should clear optional values that are no longer available');
+    assert.equal(flight.telemetry.alt, '3,460', 'altitude should update with the next snapshot');
+    assert.equal(flight.telemetry.ra, '190', 'radio altitude should update with the next snapshot');
     assert.equal(flight.telemetry.hdg, '087', 'heading should be zero-padded');
     assert.equal(flight.telemetry.xwind, '18', 'crosswind should display absolute rounded speed');
     assert.equal(flight.telemetry.xwindArrow, '\u2192', 'negative crosswind should point right');

@@ -75,7 +75,7 @@ function dismissGuide() {
           Checking access with your FlightFabric PC. Keep this page open while it reconnects.
         </p>
         <p v-else-if="controlsPaired" class="mt-2 text-xs leading-5 text-muted-fg">
-          Use Controls for presets, cockpit switches and instruments. Voice uses the microphone on your PC.
+          Open Controls for presets and cockpit switches.
         </p>
         <p v-else-if="pairingProblem === 'expired'" id="second-screen-pairing-expired" class="mt-2 text-xs leading-5 text-rose-200">
           Control access has expired. Request a new code below, then approve it on your PC.
@@ -84,14 +84,14 @@ function dismissGuide() {
           On your PC, allow aircraft controls in Settings → Devices, save and restart FlightFabric. Then reconnect this device.
         </p>
         <p v-else class="mt-2 text-xs leading-5 text-muted-fg">
-          Request a code below to enable controls. Approve the matching code in Settings → Devices on your PC.
+          Request a code below to enable controls. Approve the matching code in the prompt on your FlightFabric PC.
         </p>
         <div class="mt-3 flex flex-wrap gap-2">
           <button v-if="controlsPaired" type="button" class="ff-button-primary text-xs" data-second-screen-open-controls @click="tabs.requestTabChange('autopilot')">Open Controls</button>
           <button id="second-screen-guide-dismiss" type="button" class="ff-button-secondary text-xs"
             aria-label="Dismiss second-screen guidance" @click="dismissGuide">Got it</button>
         </div>
-        <details v-if="controlsPaired" class="setup-details mt-2"><summary>About pairing</summary><p class="text-xs text-muted-fg">Access lasts until the FlightFabric service restarts. Then request a new code here or scan the current QR in Settings → Devices on your PC.</p></details>
+        <p v-if="controlsPaired" class="mt-2 text-xs text-muted-fg">After restarting FlightFabric, request a new pairing code.</p>
       </div>
     </div>
   </aside>

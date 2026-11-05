@@ -320,7 +320,9 @@ export function createAircraftControlController({
       });
       return false;
     }
-    return send({ commandId: normalizedCommandId, input }, {
+    return send({ commandId: normalizedCommandId, input,
+      ...(options.mobileVoiceSessionId ? { mobileVoiceSessionId: options.mobileVoiceSessionId } : {}),
+    }, {
       ...options,
       messageType: 'executeAircraftCommand',
     });

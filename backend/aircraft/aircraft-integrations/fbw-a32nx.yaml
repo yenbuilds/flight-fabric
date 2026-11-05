@@ -101,6 +101,7 @@ integration:
           - lighting.mainAndPedestalPercent
           - lighting.overheadPercent
       - actionId: lighting.preset.flood.set
+        ambient: true
         label: Flood and table lights
         fields:
           - lighting.mainFloodPercent

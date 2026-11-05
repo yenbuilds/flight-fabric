@@ -1,6 +1,6 @@
 {
   "name": "flight-fabric",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "Airline flying telemetry, debrief, and overlays for MSFS",
   "engines": {
     "node": ">=22.12"
@@ -137,6 +137,7 @@
     "test:approach-families-browser": "node tests/scripts/test-approach-families-browser.js",
     "test:aircraft-layout-browser": "npm run frontend:build && node tests/scripts/test-aircraft-layout-browser.js",
     "test:voice:cloud": "node --test electron/tests/voice-cloud.test.js",
+    "test:mobile-voice": "node node_modules/typescript/bin/tsc -p tsconfig.backend.runtime.json && node --test tests/scripts/test-phone-voice-disabled.js && node --test dist/backend/tests/core/mobile-voice.test.js frontend/tests/voice/mobile-voice-client.test.js frontend/tests/voice/voice-controller.test.js && npm run frontend:build && node tests/scripts/test-mobile-voice-browser.js",
     "test:updates": "node --test electron/tests/update-manifest.test.js electron/tests/update-service.test.js electron/tests/update-backend.test.js tests/scripts/desktop-update-release.test.js",
     "release:updates": "node scripts/desktop-update-release.js",
     "test:updates:browser": "node tests/scripts/test-desktop-updates-browser.js",
@@ -156,6 +157,7 @@
   },
   "homepage": "https://github.com/yenbuilds/flight-fabric#readme",
   "dependencies": {
+    "selfsigned": "5.5.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
@@ -175,7 +177,9 @@
     "yaml": "2.9.0"
   },
   "overrides": {
-    "minimatch": "10.2.6",
+    "rimraf": "6.1.4",
+    "glob": "14.0.3",
+    "minimatch": "11.0.4",
     "postcss-selector-parser": "7.1.6"
   }
 }

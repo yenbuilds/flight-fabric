@@ -10,16 +10,10 @@ type BasicStreamsPayload = {
   alt_msl_ft: number;
   raFeet: number;
   altIndicatedFt: number | null;
-  altCalibratedFt: number | null;
   altPlaneFt: number | null;
   aircraftAglFt: number | null;
-  aircraftAboveObstaclesFt: number | null;
   planeAglFt: number | null;
-  planeAglMinusCgFt: number | null;
   pressureAltFt: number | null;
-  kohlsmanSettingMb: number | null;
-  kohlsmanTunedMb: number | null;
-  kohlsmanStd: boolean | null;
   xwind: number | null;
   lights: unknown;
   navRadios?: unknown;
@@ -190,21 +184,17 @@ function roundedOrNull(value: unknown, decimals = 0): number | null {
 }
 
 function buildAltitudeBroadcastPayload(payload: BasicStreamsPayload): AnyRecord {
+  // Keep the altitude references consumed by readouts, the 3D map and the
+  // pressure-altitude sparkline. Recording-only diagnostics stay off this stream.
   return {
     type: MSG.ALTITUDE,
     msl: Math.round(payload.alt_msl_ft),
     indicated: roundedOrNull(payload.altIndicatedFt ?? payload.alt_msl_ft),
-    calibrated: roundedOrNull(payload.altCalibratedFt),
     plane: roundedOrNull(payload.altPlaneFt),
     ra: Math.round(payload.raFeet),
     aircraftAgl: roundedOrNull(payload.aircraftAglFt),
-    aircraftAboveObstacles: roundedOrNull(payload.aircraftAboveObstaclesFt),
     planeAgl: roundedOrNull(payload.planeAglFt),
-    planeAglMinusCg: roundedOrNull(payload.planeAglMinusCgFt),
     pressureAlt: roundedOrNull(payload.pressureAltFt),
-    kohlsmanSettingMb: roundedOrNull(payload.kohlsmanSettingMb, 2),
-    kohlsmanTunedMb: roundedOrNull(payload.kohlsmanTunedMb, 2),
-    kohlsmanStd: typeof payload.kohlsmanStd === 'boolean' ? payload.kohlsmanStd : null,
   };
 }
 

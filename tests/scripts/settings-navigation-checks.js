@@ -27,7 +27,7 @@ module.exports = async function checkSettingsNavigation({ win, evaluate, capture
       [...document.querySelectorAll('#tab-settings input[id^="setting-"],#tab-settings select[id^="setting-"]')].every(el=>el.form?.id==='settings-form') &&
       !document.querySelector('form form');`), 'all preferences share one form without nesting the voice forms');
     assert(await evaluate("return getComputedStyle(document.getElementById('voice-settings-configuration')).display==='none';"), 'voice starts with a compact overview');
-    assert(await evaluate("return !document.querySelector('#settings-toolbar-panel details').open;"), 'installed toolbar starts with status and actions');
+    assert(await evaluate("return ['setting-ws-port','setting-http-port'].every(id=>document.getElementById(id).getClientRects().length>0);"), 'network port fields are available without a second expansion');
     const sectionIds = await evaluate("return [...document.querySelectorAll('.settings-section-links a')].map(a=>a.hash.slice(1));");
     assert.deepEqual(sectionIds, ['settings-general','settings-voice-control','settings-phone-tablet-access','settings-cabin-audio','settings-advanced','vue-settings-about-root']);
     await evaluate("document.getElementById('setting-recording-auto-start').click(); await workbenchTest.nextTick();");
@@ -67,6 +67,7 @@ module.exports = async function checkSettingsNavigation({ win, evaluate, capture
       await focusToolbarPanelSettings(workbenchTest.tabs);
     `);
     await capture(`settings-navigation-${width}-toolbar`);
+    assert(await evaluate("return document.getElementById('toolbar-panel-start-help').getClientRects().length>0;"), 'toolbar setup instructions are available without opening another disclosure');
     assert.equal(await evaluate('return document.activeElement.id;'), 'settings-toolbar-panel', 'existing toolbar shortcut still focuses installation');
     assert.deepEqual(await evaluate('return workbenchTest.toolbarFixture.writes;'), [], 'navigation never installs or removes a package');
     await evaluate(`const delay=document.getElementById('setting-cabin-announcements-startup-grace-ms');delay.value='1.001';delay.dispatchEvent(new Event('input',{bubbles:true}));await workbenchTest.nextTick();`);

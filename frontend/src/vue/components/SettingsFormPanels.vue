@@ -29,9 +29,7 @@ const startupDelaySeconds = computed({
       <div class="settings-panel-header">
         <div class="settings-panel-title-row">
           <h3 class="settings-panel-title">General</h3>
-          <HelpTooltip label="Simulator and telemetry panel help">Simulator connection protocol, recording behavior, and advanced diagnostics.</HelpTooltip>
         </div>
-        <p class="settings-section-description">Save to apply. Changes needing a restart are marked.</p>
       </div>
 
       <div class="settings-preferences-stack">
@@ -51,13 +49,6 @@ const startupDelaySeconds = computed({
           </select>
         </div>
 
-        <div class="settings-option-row flex flex-col items-stretch gap-3">
-          <div class="min-w-0">
-            <div class="text-sm font-medium text-gray-200">Aircraft compatibility</div>
-            <div class="mt-1 text-xs leading-relaxed text-gray-400">FlightFabric automatically detects your aircraft. If the match is wrong, use <span class="text-primary">Wrong aircraft?</span> beside the aircraft name.</div>
-          </div>
-        </div>
-
         <div class="settings-option-row flex items-center gap-3">
           <input form="settings-form" id="setting-recording-auto-start" v-model="settings.recordingAutoStart" type="checkbox" class="h-4 w-4 rounded border-surface-300 bg-surface-100 text-cyan-400 focus:ring-cyan-500/30" aria-describedby="setting-recording-auto-start-help" />
           <div class="min-w-0 flex-1">
@@ -65,7 +56,7 @@ const startupDelaySeconds = computed({
               <label for="setting-recording-auto-start" class="block text-sm font-medium text-gray-200 cursor-pointer">Automatically start recording flights</label>
               <HelpTooltip label="Automatic flight recording help">Live monitoring continues when automatic recording is off. Restart to apply.</HelpTooltip>
             </span>
-            <p id="setting-recording-auto-start-help" class="mt-1 text-xs leading-relaxed text-gray-500">Starts recording when a flight is detected. Recordings are stored locally and can be deleted from the Logbook.</p>
+            <p id="setting-recording-auto-start-help" class="mt-1 text-xs leading-relaxed text-gray-500">Saved on this PC. Manage recordings in Logbook.</p>
           </div>
         </div>
       </div>
@@ -76,7 +67,7 @@ const startupDelaySeconds = computed({
           <div class="min-w-0 flex-1">
             <span class="settings-toggle-head">
               <label for="setting-update-checks" class="block text-sm font-medium text-gray-200 cursor-pointer">Check for app updates</label>
-              <HelpTooltip label="Update checks help">Packaged builds fetch the public update manifest from GitHub after startup and then daily. Turn this off for a fully quiet app.</HelpTooltip>
+              <HelpTooltip label="Update checks help">Checks for updates at startup and daily.</HelpTooltip>
             </span>
           </div>
         </div>
@@ -92,12 +83,9 @@ const startupDelaySeconds = computed({
         </div>
       </div>
       <div class="settings-option-row mt-4 flex flex-col items-start gap-3">
-        <div>
-          <div class="text-sm font-medium text-fg">Introduction</div>
-          <p id="settings-intro-help" class="mt-1 text-xs leading-relaxed text-muted-fg">{{ settingsUi.introBlockedReason || 'Revisit voice control, flight recording and the MSFS toolbar setup.' }}</p>
-        </div>
+        <p v-if="settingsUi.introBlockedReason" id="settings-intro-help" class="text-xs leading-relaxed text-muted-fg">{{ settingsUi.introBlockedReason }}</p>
         <button id="settings-show-intro" type="button" class="ff-button-secondary sm:self-start"
-          :disabled="Boolean(settingsUi.introBlockedReason)" aria-describedby="settings-intro-help"
+          :disabled="Boolean(settingsUi.introBlockedReason)" :aria-describedby="settingsUi.introBlockedReason ? 'settings-intro-help' : undefined"
           @click="settingsUi.requestIntro()">Show intro again</button>
       </div>
     </section>
@@ -107,14 +95,12 @@ const startupDelaySeconds = computed({
       <div class="settings-panel-header">
         <div class="settings-panel-title-row">
           <h3 class="settings-panel-title">Cabin audio</h3>
-          <HelpTooltip label="Cabin audio panel help">PA audio enablement, selected pack, and startup grace timing.</HelpTooltip>
         </div>
-        <p class="settings-section-description">Save to apply changes to cabin announcements.</p>
       </div>
 
       <div id="setting-cabin-announcements-warning" class="settings-warning-card mb-4 rounded-lg px-4 py-3">
         <div class="settings-warning-title text-[11px] font-semibold uppercase tracking-[0.14em]" style="font-family: 'B612 Mono', monospace;">Experimental</div>
-        <p class="settings-warning-copy mt-1.5 text-xs leading-relaxed">Announcement timing can vary; audio may be missed or repeated. Enable only for testing.</p>
+        <p class="settings-warning-copy mt-1.5 text-xs leading-relaxed">Announcements may be missed or repeated. Enable only for testing.</p>
       </div>
 
       <div class="settings-option-row flex items-center gap-3">
@@ -143,13 +129,13 @@ const startupDelaySeconds = computed({
           spellcheck="false"
           @input="settings.sanitizeCabinAnnouncementStyleValue()"
         />
-        <p class="settings-section-description mt-2">Enter the folder name of an installed pack, for example <span class="font-mono">standard</span>.</p>
+        <p class="settings-section-description mt-2">Use an installed pack’s folder name, e.g. <span class="font-mono">standard</span>.</p>
       </div>
 
       <div class="mt-4">
         <div class="settings-label-row">
           <label for="setting-cabin-announcements-startup-grace-ms" class="block text-xs text-gray-400 uppercase tracking-wider">Startup delay (seconds)</label>
-          <HelpTooltip label="Startup grace help">How long to ignore phase-triggered PA audio after startup, flight start, or aircraft change. Set to <span class="app-tooltip-kbd">0</span> to disable the grace window.</HelpTooltip>
+          <HelpTooltip label="Startup grace help">Wait before playing announcements after startup, a new flight or an aircraft change. Set to <span class="app-tooltip-kbd">0</span> for no delay.</HelpTooltip>
         </div>
         <input form="settings-form"
           id="setting-cabin-announcements-startup-grace-ms"
@@ -165,13 +151,11 @@ const startupDelaySeconds = computed({
       </div>
     </section>
 
-    <details v-if="section === 'all' || section === 'advanced'" id="settings-advanced" data-settings-section tabindex="-1" class="settings-panel settings-advanced settings-panel--wide">
-      <summary>
-        <span>
-          <span class="settings-panel-title">Advanced network ports</span>
-          <span class="settings-advanced-copy">Change these only if another application is already using a FlightFabric port.</span>
-        </span>
-      </summary>
+    <section v-if="section === 'all' || section === 'advanced'" id="settings-advanced" data-settings-section tabindex="-1" class="settings-panel settings-advanced settings-panel--wide" aria-labelledby="settings-advanced-title">
+      <div class="settings-advanced-heading">
+        <h3 id="settings-advanced-title" class="settings-panel-title">Advanced network ports</h3>
+        <p class="settings-advanced-copy">Change these only if another application is already using a FlightFabric port.</p>
+      </div>
       <div class="settings-grid-2">
         <div>
           <label for="setting-ws-port" class="block text-xs text-gray-400 uppercase tracking-wider mb-1.5">WebSocket Port</label>
@@ -202,7 +186,7 @@ const startupDelaySeconds = computed({
         </div>
       </div>
 
-    </details>
+    </section>
 
   </div>
 </template>

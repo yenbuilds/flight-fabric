@@ -97,7 +97,12 @@ var FlightFabricToolbarPresets = (() => {
               };
               return order(a) - order(b) || a.id.localeCompare(b.id);
             }),
-            brightness: ["configuration.lighting.cockpit", "configuration.lighting.displays"].map(function(id) {
+            brightness: [
+              "configuration.lighting.cockpit",
+              "configuration.lighting.flood",
+              "configuration.lighting.displays",
+              "configuration.lighting.all"
+            ].map(function(id) {
               return list.find(function(command) {
                 return command.id === id;
               });
@@ -110,8 +115,14 @@ var FlightFabricToolbarPresets = (() => {
           var value = Number(text), position = (value - input.min) / input.step;
           return Number.isFinite(value) && value >= input.min && value <= input.max && Math.abs(position - Math.round(position)) < 1e-7 ? value : null;
         }
-        function brightnessLabel2(id) {
-          return id === "configuration.lighting.cockpit" ? "Cockpit lighting" : "All flight displays";
+        function brightnessLabel2(id, separateFloods) {
+          if (id === "configuration.lighting.cockpit" && separateFloods) return "Panel backlighting";
+          return {
+            "configuration.lighting.cockpit": "Cockpit lighting",
+            "configuration.lighting.flood": "Flood and task lights",
+            "configuration.lighting.displays": "All flight displays",
+            "configuration.lighting.all": "All cockpit lights"
+          }[id] || "Lighting";
         }
         function readbackFields(commands) {
           var fields = SOURCE_FIELDS.slice();
@@ -292,10 +303,13 @@ var FlightFabricToolbarPresets = (() => {
       }
       return true;
     }
+    function lightingLabel(command) {
+      return brightnessLabel(command.id, (catalogue.commands || []).some((entry) => entry.id === "configuration.lighting.flood"));
+    }
     function row(command, parent, brightness) {
       const item = node("form", "preset-row" + (brightness ? " preset-brightness" : ""));
       item.setAttribute("data-preset", command.id);
-      item.appendChild(node("h4", "preset-label", brightness ? brightnessLabel(command.id) : command.label));
+      item.appendChild(node("h4", "preset-label", brightness ? lightingLabel(command) : command.label));
       item.appendChild(node("p", "preset-description", command.description));
       const observed = node("p", "preset-observed muted");
       item.appendChild(observed);
@@ -304,7 +318,7 @@ var FlightFabricToolbarPresets = (() => {
       const actions = node("div", "preset-actions");
       let input = null, range = null, target = null;
       if (command.input.kind === "number") {
-        if (brightness && drafts[command.id] === void 0) drafts[command.id] = command.id.endsWith(".cockpit") ? "50" : "75";
+        if (brightness && drafts[command.id] === void 0) drafts[command.id] = command.id.endsWith(".flood") ? "0" : command.id.endsWith(".displays") ? "75" : "50";
         if (brightness) {
           target = node("label", "preset-target");
           target.htmlFor = "preset-range-" + command.id;
@@ -316,7 +330,7 @@ var FlightFabricToolbarPresets = (() => {
           range.max = command.input.max;
           range.step = command.input.step;
           range.value = drafts[command.id] || "0";
-          range.setAttribute("aria-label", brightnessLabel(command.id) + " target percentage");
+          range.setAttribute("aria-label", lightingLabel(command) + " target percentage");
           range.addEventListener("input", () => {
             drafts[command.id] = range.value;
             input.value = range.value;
@@ -332,7 +346,7 @@ var FlightFabricToolbarPresets = (() => {
         input.step = command.input.step;
         input.value = drafts[command.id] || "";
         input.placeholder = command.id === "flightGuidance.course.setBoth" ? "270" : command.id === "radios.nav.setBothActive" ? "110.30" : String(command.input.min);
-        input.setAttribute("aria-label", (brightness ? brightnessLabel(command.id) : command.label) + " value");
+        input.setAttribute("aria-label", (brightness ? lightingLabel(command) : command.label) + " value");
         input.addEventListener("input", () => {
           drafts[command.id] = input.value;
           if (range) range.value = input.value;
@@ -344,7 +358,7 @@ var FlightFabricToolbarPresets = (() => {
       }
       const button = node("button", "preset-apply");
       button.type = "submit";
-      button.setAttribute("aria-label", (brightness ? "Set " : "Apply ") + (brightness ? brightnessLabel(command.id) : command.label));
+      button.setAttribute("aria-label", (brightness ? "Set " : "Apply ") + (brightness ? lightingLabel(command) : command.label));
       actions.appendChild(button);
       item.appendChild(actions);
       const reason = node("p", "preset-reason warn");
@@ -404,7 +418,14 @@ var FlightFabricToolbarPresets = (() => {
         groups.lights.forEach((command) => row(command, lights, false));
         element.appendChild(lights);
       }
-      groups.brightness.forEach((command) => row(command, element, true));
+      groups.brightness.forEach((command) => {
+        if (command.id === "configuration.lighting.all") {
+          const disclosure = node("details", "preset-group");
+          disclosure.appendChild(node("summary", "preset-label", "Set panel and flood/task lights together"));
+          element.appendChild(disclosure);
+          row(command, disclosure, true);
+        } else row(command, element, true);
+      });
       element.hidden = rows.length === 0;
       refresh();
     }

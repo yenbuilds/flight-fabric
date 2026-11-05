@@ -21,6 +21,27 @@ function acknowledgeScope(connection, scope) {
   });
 }
 
+async function testSecurePhoneConnectionStaysOnItsOrigin() {
+  const { createConnection } = await loadConnectionModule();
+  const fetches = [], sockets = [];
+  class Socket {
+    static OPEN = 1;
+    constructor(url) { this.url = url; this.readyState = 1; sockets.push(this); }
+    close() {}
+    send() {}
+  }
+  const connection = createConnection({ WebSocketRef: Socket, windowRef: {
+    location: { protocol: 'https:', host: '192.168.1.20:8101', hostname: '192.168.1.20', port: '8101', search: '?wsPort=8099&host=other.example' },
+    fetch: async url => { fetches.push(url); return { ok: true, json: async () => ({ ok: true, wsAuthToken: '', aircraftControlToken: '' }) }; },
+  } });
+  await connection.initialize();
+  assert.deepEqual(fetches, ['https://192.168.1.20:8101/api/bootstrap']);
+  assert.equal(sockets[0].url, 'wss://192.168.1.20:8101/ws');
+  assert.equal(connection.getBackendHttpBase(), 'https://192.168.1.20:8101');
+  acknowledgeScope(connection, 'aircraft-control');
+  assert.equal(connection.getAuthorizationScope(), 'aircraft-control');
+}
+
 async function testPortMismatchBootstrapFallback() {
   const { createConnection } = await loadConnectionModule();
   let openedUrl = '';
@@ -1075,6 +1096,7 @@ async function testBrowserReconnectsAcrossBackendRestart() {
 }
 
 async function run() {
+  await testSecurePhoneConnectionStaysOnItsOrigin();
   const args = process.argv.slice(2);
   if (args.some(arg => arg !== '--lifecycle-only')) throw new Error('Unknown option. Use --lifecycle-only or no arguments.');
   await testPortMismatchBootstrapFallback();

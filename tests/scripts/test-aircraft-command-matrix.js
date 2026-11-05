@@ -77,6 +77,39 @@ for (const entry of loader.listProfiles()) {
         : { simulator: 'xplane', actionTypes: [], integrationTransports: [] },
     };
     const catalogue = buildAircraftControlCapabilities(profile, options).aircraftCommands;
+    for (const command of catalogue.commands) {
+      for (const pattern of command.speech?.patterns || []) {
+        if (pattern.startsWith('set ') && pattern.includes('{value}')) {
+          assert.ok(command.speech.patterns.includes(pattern.slice(4)), `${command.id}: SET is optional with an explicit value`);
+        }
+      }
+    }
+    for (const [commandId, names] of [
+      ['lights.runwayTurnoff.set', ['turnoff', 'turn off', 'runway']],
+      ['lights.turnoffLeft.set', ['left turnoff', 'left turn off']],
+      ['lights.turnoffRight.set', ['right turnoff', 'right turn off']],
+    ]) {
+      const supported = catalogue.commands.some(command => command.id === commandId);
+      for (const name of names) for (const state of ['on', 'off']) {
+        for (const phrase of [`${name} lights ${state}`, `set ${name} lights ${state}`, `${name} light ${state}`]) {
+          const match = interpret(phrase, catalogue);
+          assert.equal(match.ok, supported, `${profileKey}: ${phrase} coverage`);
+          if (supported) {
+            assert.equal(match.commandId, commandId, phrase);
+            assert.deepEqual(match.input, { value: state === 'on' });
+            assert.equal(resolveAircraftCommand(match, options).ok, true);
+          }
+        }
+      }
+    }
+    for (const phrase of ['runway lights', 'turnoff lights', 'set runway lights', 'set turnoff lights',
+      'cockpit lighting', 'cockpit lights', 'panel lights', 'displays', 'screens',
+      'do not runway lights on', 'runway lights on and taxi lights off']) {
+      assert.equal(interpret(phrase, catalogue).ok, false, `${profileKey}: incomplete/compound ${phrase}`);
+    }
+    const shortLighting = interpret('cockpit lights two t percent', catalogue);
+    assert.equal(shortLighting.ok, catalogue.commands.some(command => command.id === 'configuration.lighting.cockpit'));
+    if (shortLighting.ok) assert.deepEqual(shortLighting.input, { value: 20 }, 'short form retains the bounded percentage correction');
     // This checks semantic contract parity only; it is not an acoustic model
     // evaluation or evidence of a cockpit response.
     const cloudContext = cloudVoice.createContext(catalogue, [
@@ -169,26 +202,36 @@ for (const entry of loader.listProfiles()) {
     const supportsBrightness = /^(?:pmdg-(?:737|777)(?:-.+|f)?|fenix-a3(?:19|20|21)|fbw-a(?:32nx|380x)|headwind-a330|inibuilds-a350-(?:900|1000))$/.test(entry.id)
       && entry.simulator === 'msfs';
     for (const [target, phrases] of [
-      ['cockpit', ['set cockpit lighting fifty percent']],
+      ['cockpit', ['set cockpit lighting fifty percent', 'cockpit lighting fifty percent', 'cockpit lights fifty']],
+      ['all', ['set all cockpit lights fifty percent', 'set all cockpit lighting fifty percent', 'all cockpit lights fifty']],
+      ['flood', ['set flood lights fifty percent', 'set flood lighting fifty percent', 'flood lights fifty']],
       ['displays', ['set display brightness fifty percent', 'set all screens fifty percent',
-        'set all PFDs fifty percent', 'set all pee eff dees fifty percent', 'set p f d brightness fifty percent']],
+        'set all PFDs fifty percent', 'set all pee eff dees fifty percent', 'set p f d brightness fifty percent',
+        'display brightness fifty percent', 'displays fifty', 'screens fifty percent']],
     ]) {
+      const supported = supportsBrightness && (target !== 'flood' || !entry.id.startsWith('pmdg-'));
       for (const phrase of phrases) {
         const voice = interpret(phrase, catalogue);
-        assert.equal(voice.ok, supportsBrightness, `${profileKey}: ${phrase} coverage`);
+        assert.equal(voice.ok, supported, `${profileKey}: ${phrase} coverage`);
         assert.equal(resolveAircraftCommand({ commandId: `configuration.lighting.${target}`, input: { value: 50 } }, options).ok,
-          supportsBrightness, `${profileKey}: brightness route coverage`);
-        if (supportsBrightness) {
+          supported, `${profileKey}: brightness route coverage`);
+        if (supported) {
           assert.equal(voice.commandId, `configuration.lighting.${target}`);
           assert.deepEqual(voice.input, { value: 50 });
           const descriptor = catalogue.commands.find(command => command.id === voice.commandId);
-          if (entry.id.startsWith('inibuilds-a350-')) assert.equal(descriptor.brightnessFields.length, target === 'displays' ? 4 : 11);
-          else assert.ok(descriptor.brightnessFields.length >= 6);
+          if (entry.id.startsWith('inibuilds-a350-')) assert.equal(descriptor.brightnessFields.length, ({ cockpit: 3, flood: 8, displays: 4, all: 11 })[target]);
+          else assert.ok(descriptor.brightnessFields.length >= 2);
         }
       }
     }
     for (const phrase of ['set all pee eff fifty percent', 'set all screens one hundred one percent',
       'set display brightness minus five percent']) assert.equal(interpret(phrase, catalogue).ok, false, phrase);
+    for (const phrase of ['set panel backlighting fifty percent', 'set panel lighting fifty percent', 'set panel lights fifty percent',
+      'panel backlighting fifty percent', 'panel lighting fifty', 'panel lights fifty']) {
+      const voice = interpret(phrase, catalogue);
+      assert.equal(voice.ok, supportsBrightness && !entry.id.startsWith('pmdg-'), `${profileKey}: ${phrase}`);
+      if (voice.ok) assert.equal(voice.commandId, 'configuration.lighting.cockpit');
+    }
     const supportsTakeoffLights = entry.simulator === 'msfs' && takeoffLightsProfiles.has(entry.id);
     for (const phrase of ['set takeoff lights', 'set take off lights', 'set lights for takeoff',
       "Let's hit it", 'Let’s hit it!', 'lets hit it']) {

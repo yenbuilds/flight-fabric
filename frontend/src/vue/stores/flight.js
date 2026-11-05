@@ -50,17 +50,6 @@ function formatFuelValue(totalGal, totalWeightLbs, unit) {
   return numericGallons != null ? Math.round(numericGallons).toLocaleString() : '----';
 }
 
-function formatDecimalNumber(value, digits = 2, fallback = '--') {
-  if (value == null || value === '') return fallback;
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue.toFixed(digits) : fallback;
-}
-
-function formatOptionalNumber(value, fallback = '--') {
-  if (value == null || value === '') return fallback;
-  return formatNumber(value, fallback);
-}
-
 function getDefaultTelemetry() {
   return {
     ias: '---',
@@ -69,20 +58,6 @@ function getDefaultTelemetry() {
     alt: '-----',
     ra: '----',
     raVisible: true,
-    altitudeDiagnostics: {
-      indicated: '-----',
-      calibrated: '-----',
-      plane: '-----',
-      pressure: '-----',
-      radio: '----',
-      aircraftAgl: '----',
-      aircraftAboveObstacles: '----',
-      planeAgl: '----',
-      planeAglMinusCg: '----',
-      kohlsmanSettingMb: '----.--',
-      kohlsmanTunedMb: '----.--',
-      kohlsmanStd: '--',
-    },
     hdg: '---',
     xwind: '--',
     xwindArrow: '\u2190',
@@ -352,44 +327,10 @@ export const useFlightStore = defineStore('flight', {
       this.telemetry.tones.vs = descentTone(vsRaw);
     },
 
-    updateAltitudeDisplay({
-      msl = null,
-      indicated = null,
-      calibrated = null,
-      plane = null,
-      ra = null,
-      aircraftAgl = null,
-      aircraftAboveObstacles = null,
-      planeAgl = null,
-      planeAglMinusCg = null,
-      pressureAlt = null,
-      kohlsmanSettingMb = null,
-      kohlsmanTunedMb = null,
-      kohlsmanStd = null,
-    } = {}) {
+    updateAltitudeDisplay({ msl = null, ra = null } = {}) {
       if (msl != null) {
         this.telemetry.alt = formatNumber(msl, '-----');
       }
-
-      const diagnostics = this.telemetry.altitudeDiagnostics;
-      const indicatedValue = indicated ?? msl;
-      // Altitude messages are snapshots. Clear an optional channel as soon as
-      // the backend reports it unavailable so switching aircraft/providers
-      // cannot leave a plausible-looking value from the previous source.
-      diagnostics.indicated = formatOptionalNumber(indicatedValue, '-----');
-      diagnostics.calibrated = formatOptionalNumber(calibrated, '-----');
-      diagnostics.plane = formatOptionalNumber(plane, '-----');
-      diagnostics.pressure = formatOptionalNumber(pressureAlt, '-----');
-      diagnostics.radio = formatOptionalNumber(ra, '----');
-      diagnostics.aircraftAgl = formatOptionalNumber(aircraftAgl, '----');
-      diagnostics.aircraftAboveObstacles = formatOptionalNumber(aircraftAboveObstacles, '----');
-      diagnostics.planeAgl = formatOptionalNumber(planeAgl, '----');
-      diagnostics.planeAglMinusCg = formatOptionalNumber(planeAglMinusCg, '----');
-      diagnostics.kohlsmanSettingMb = formatDecimalNumber(kohlsmanSettingMb, 2, '----.--');
-      diagnostics.kohlsmanTunedMb = formatDecimalNumber(kohlsmanTunedMb, 2, '----.--');
-      diagnostics.kohlsmanStd = typeof kohlsmanStd === 'boolean'
-        ? (kohlsmanStd ? 'STD' : 'QNH')
-        : '--';
 
       const numericRa = Number(ra);
       if (ra != null && Number.isFinite(numericRa) && numericRa < RA_DISPLAY_THRESHOLD) {

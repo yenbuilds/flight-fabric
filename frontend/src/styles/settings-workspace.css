@@ -27,8 +27,6 @@
 .settings-page #settings-cabin-audio > .mt-4 { max-width: 40rem; }
 .settings-voice-summary { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding-top: .85rem; }
 .settings-summary-actions { display: flex; flex-wrap: wrap; flex-shrink: 0; gap: .5rem; }
-.settings-instructions { margin-top: 1rem; border-top: 1px solid rgb(var(--border) / .5); padding-top: .75rem; color: rgb(var(--muted-foreground)); font-size: .8125rem; }
-.settings-instructions > summary { cursor: pointer; color: rgb(var(--foreground)); font-weight: 600; }
 .settings-page .settings-action-bar { padding: 1rem 0; }
 @media (max-width: 1000px) {
   .settings-section-links { display: none; }

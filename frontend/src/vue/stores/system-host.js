@@ -296,13 +296,13 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     }
     // Saved choices may still be waiting for restart. Only the running
     // backend can confirm that the phone address is actually reachable.
-    remoteAccessEnabled.value = null;
+    let confirmedRemoteAccess = null;
     if (bootstrap.status === 'fulfilled') {
       const payload = bootstrap.value?.body && typeof bootstrap.value.body === 'object'
         ? bootstrap.value.body
         : bootstrap.value;
       if (typeof payload?.remoteAccessEnabled === 'boolean') {
-        remoteAccessEnabled.value = payload.remoteAccessEnabled;
+        confirmedRemoteAccess = payload.remoteAccessEnabled;
       }
       shareAircraftControlToken.value = typeof payload?.aircraftControlToken === 'string'
         ? payload.aircraftControlToken
@@ -310,6 +310,9 @@ export const useSystemHostStore = defineStore('systemHost', () => {
     } else {
       shareAircraftControlToken.value = '';
     }
+    // Publish one result. A transient unknown value would retire connection-
+    // owned work even when successive bootstrap checks both confirm access.
+    remoteAccessEnabled.value = confirmedRemoteAccess;
 
     const rejected = results.find((result) => result.status === 'rejected');
     if (rejected) {

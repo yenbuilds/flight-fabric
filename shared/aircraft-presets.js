@@ -19,7 +19,8 @@
         var order = function (c) { var i = LIGHT_ORDER.indexOf(c.id); return i < 0 ? LIGHT_ORDER.length : i; };
         return order(a) - order(b) || a.id.localeCompare(b.id);
       }),
-      brightness: ['configuration.lighting.cockpit', 'configuration.lighting.displays'].map(function (id) {
+      brightness: ['configuration.lighting.cockpit', 'configuration.lighting.flood', 'configuration.lighting.displays',
+        'configuration.lighting.all'].map(function (id) {
         return list.find(function (command) { return command.id === id; });
       }).filter(Boolean),
     };
@@ -31,7 +32,11 @@
     return Number.isFinite(value) && value >= input.min && value <= input.max
       && Math.abs(position - Math.round(position)) < 1e-7 ? value : null;
   }
-  function brightnessLabel(id) { return id === 'configuration.lighting.cockpit' ? 'Cockpit lighting' : 'All flight displays'; }
+  function brightnessLabel(id, separateFloods) {
+    if (id === 'configuration.lighting.cockpit' && separateFloods) return 'Panel backlighting';
+    return { 'configuration.lighting.cockpit': 'Cockpit lighting', 'configuration.lighting.flood': 'Flood and task lights',
+      'configuration.lighting.displays': 'All flight displays', 'configuration.lighting.all': 'All cockpit lights' }[id] || 'Lighting';
+  }
   function readbackFields(commands) {
     var fields = SOURCE_FIELDS.slice();
     (commands || []).filter(function (command) { return command && command.kind === 'preset'; }).forEach(function (command) {

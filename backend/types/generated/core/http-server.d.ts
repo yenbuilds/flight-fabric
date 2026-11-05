@@ -7,6 +7,7 @@ type RequestLike = import('http').IncomingMessage & {
     headers: import('http').IncomingHttpHeaders;
     method?: string | null;
 };
+type ResponseLike = import('http').ServerResponse;
 type SimbriefLimiterLease = {
     allowed: true;
     release: () => void;
@@ -33,6 +34,7 @@ export declare function createSimbriefRequestLimiter({ now, cooldownMs, retentio
 export declare function resolvePackagedFrontendDir(moduleDir: string, packaged: boolean): string | null;
 export declare const TOOLBAR_FRAME_ANCESTORS = "'self' coui: coui://html_ui";
 export declare function getLocalIPsFromInterfaces(nets: ReturnType<typeof os.networkInterfaces>): string[];
+export declare function getLocalIPs(): string[];
 export declare function isTrustedHttpRequest(req: RequestLike, remoteAccessEnable: boolean): boolean;
 export declare function buildContentSecurityPolicy(req: RequestLike, nonce: string, remoteAccessEnable: boolean, options?: {
     frameAncestors?: string;
@@ -52,7 +54,7 @@ export declare function buildBootstrapPayload(req: RequestLike, wsAuthToken: str
         wsPort: number | null;
     };
 };
-export declare function startHttpServer({ wsPort, httpPort, remoteAccessEnable, wsAuthToken, aircraftControlToken, devicePairing, Debug, onFatalError, isShuttingDown, }: {
+export declare function startHttpServer({ wsPort, httpPort, remoteAccessEnable, wsAuthToken, aircraftControlToken, devicePairing, Debug, onFatalError, isShuttingDown, handleAdditionalRequest, }: {
     wsPort: number;
     httpPort: number | null | undefined;
     remoteAccessEnable: boolean;
@@ -80,6 +82,7 @@ export declare function startHttpServer({ wsPort, httpPort, remoteAccessEnable, 
     Debug: DebugLike;
     onFatalError?: (error: Error) => void;
     isShuttingDown?: () => boolean;
+    handleAdditionalRequest?: (req: RequestLike, res: ResponseLike) => boolean;
 }): {
     httpServer: import('http').Server;
     httpPort: number;

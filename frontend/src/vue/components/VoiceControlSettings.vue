@@ -278,7 +278,6 @@ function toggleSpokenReadbacks(event) { voice.toggleSpokenReadbacks(event.curren
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="settings-panel-header">
         <h3 id="settings-voice-title" class="settings-panel-title">Voice control</h3>
-        <p class="settings-section-description">Test your microphone and set up push-to-talk.</p>
       </div>
       <button v-if="voice.settingsReturnToAircraft" type="button" class="ff-button-secondary text-xs" data-voice-back-to-aircraft @click="backToAircraft">Back to Aircraft</button>
     </div>

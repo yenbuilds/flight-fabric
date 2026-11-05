@@ -348,7 +348,7 @@ export function getLocalIPsFromInterfaces(nets: ReturnType<typeof os.networkInte
   return results.map((entry) => entry.address);
 }
 
-function getLocalIPs(): string[] {
+export function getLocalIPs(): string[] {
   return getLocalIPsFromInterfaces(os.networkInterfaces());
 }
 
@@ -512,6 +512,7 @@ export function buildContentSecurityPolicy(
     const hostSource = formatCspHostSource(requestHost);
     connectSources.add(`http://${hostSource}:*`);
     connectSources.add(`ws://${hostSource}:*`);
+    connectSources.add(`wss://${hostSource}:*`);
   }
 
   return [
@@ -684,6 +685,7 @@ export function startHttpServer({
   Debug,
   onFatalError,
   isShuttingDown = () => false,
+  handleAdditionalRequest = () => false,
 }: {
   wsPort: number;
   httpPort: number | null | undefined;
@@ -698,6 +700,7 @@ export function startHttpServer({
   Debug: DebugLike;
   onFatalError?: (error: Error) => void;
   isShuttingDown?: () => boolean;
+  handleAdditionalRequest?: (req: RequestLike, res: ResponseLike) => boolean;
 }): {
   httpServer: import('http').Server;
   httpPort: number;
@@ -751,7 +754,7 @@ export function startHttpServer({
       // apply when there is no Origin, so this is safe.
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Flight-Fabric-Pairing');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Flight-Fabric-Pairing, X-FlightFabric-Token');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -775,6 +778,19 @@ export function startHttpServer({
         },
         remoteAccessEnable,
       )));
+      return;
+    }
+
+    if (handleAdditionalRequest(req, res)) return;
+
+    // Phone voice is not shipped in this release. Old bookmarks/cached pages
+    // must not offer activation or download a PC root certificate. The dormant
+    // service is mounted only by its isolated test fixtures, never by the app.
+    if (requestPathname === '/api/mobile-voice' || requestPathname.startsWith('/api/mobile-voice/')
+        || requestPathname.startsWith('/mobile-voice/')) {
+      res.writeHead(410, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ enabled: false, available: false,
+        error: 'Phone voice is unavailable in this version of FlightFabric.' }));
       return;
     }
 
@@ -823,7 +839,8 @@ export function startHttpServer({
         ? devicePairing.claimApprovedRequest(requestId, req.socket?.remoteAddress || null)
         : null;
       if (sessionId) {
-        res.setHeader('Set-Cookie', `ff_aircraft_pair=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`);
+        const secure = (req.socket as import('tls').TLSSocket).encrypted === true;
+        res.setHeader('Set-Cookie', `${secure ? '__Secure-ff_voice_pair' : 'ff_aircraft_pair'}=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure ? '; Secure' : ''}`);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, max-age=0' });
         res.end(JSON.stringify({ ok: true, status: 'approved' }));
         return;

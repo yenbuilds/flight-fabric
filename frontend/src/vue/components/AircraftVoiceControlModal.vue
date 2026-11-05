@@ -82,18 +82,18 @@ onMounted(() => { mounted.value = true; });
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0">
               <h2 id="aircraft-voice-control-title" class="text-xl font-semibold text-white sm:text-2xl">
-                {{ voice.bridgeAvailable ? 'Voice commands' : 'Voice phrases' }}
+                Voice commands
               </h2>
               <p id="aircraft-voice-control-description" class="mt-1 max-w-2xl text-xs leading-5 text-muted-fg sm:text-sm">
                 <template v-if="voice.bridgeAvailable">Hold your push-to-talk button or the button below, say a phrase, then release.</template>
-                <template v-else>Keep these phrases beside your cockpit. Voice runs on your simulator PC.</template>
+                <template v-else>Browse phrases to use with voice control on your PC.</template>
               </p>
             </div>
             <button
               ref="closeButtonRef"
               type="button"
               class="ff-touch-target shrink-0 rounded-lg p-2 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
-              :aria-label="voice.bridgeAvailable ? 'Close voice commands' : 'Close voice phrases'"
+              aria-label="Close voice commands"
               @click="closeModal"
             >
               <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

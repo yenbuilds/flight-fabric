@@ -26,7 +26,7 @@ import { createVoiceSetupTest } from './voice-setup-test.js';
 import { createContext, validateIntent, sameContext, feedback, cloudSelectionKey } from './cloud-intent.js';
 
 const VOICE_CAPTURE_PREFERENCES_KEY = 'flight-fabric.voice-capture-preferences.v1';
-const VOICE_RELEASE_TAIL_MS = 250;
+const VOICE_RELEASE_TAIL_MS = 500;
 
 function formatCommand(match) {
   const value = Object.prototype.hasOwnProperty.call(match.input || {}, 'value')
@@ -49,8 +49,8 @@ export function createVoiceControlController({
   pushToTalkTone = null,
   releaseTailMs = VOICE_RELEASE_TAIL_MS,
 } = {}) {
-  if (!Number.isFinite(releaseTailMs) || releaseTailMs < 0 || releaseTailMs > 500) {
-    throw new RangeError('Voice release tail must be between 0 and 500 milliseconds.');
+  if (!Number.isFinite(releaseTailMs) || releaseTailMs < 0 || releaseTailMs > VOICE_RELEASE_TAIL_MS) {
+    throw new RangeError(`Voice release tail must be between 0 and ${VOICE_RELEASE_TAIL_MS} milliseconds.`);
   }
   let active = null;
   let captureGeneration = 0;
@@ -449,7 +449,9 @@ export function createVoiceControlController({
     return true;
   }
 
-  async function begin(source = 'local', pttAttemptId = '') {
+  async function begin(source = 'local', pttAttemptId = '', remote = null) {
+    if (source === 'remote' && (!remote || typeof remote.createCapture !== 'function'
+        || !/^[a-f0-9]{32}$/.test(remote.id) || voiceStore.runtime.mode === 'cloud')) return false;
     const input = { source, pttAttemptId: source === 'global' && typeof pttAttemptId === 'string' ? pttAttemptId : '' };
     const refuse = () => { retireGlobalAttempt(input); return false; };
     if (source === 'global' && !input.pttAttemptId) return false;
@@ -487,6 +489,7 @@ export function createVoiceControlController({
     const session = {
       generation: ++captureGeneration,
       source,
+      mobileVoiceSessionId: source === 'remote' ? remote.id : '',
       pttAttemptId: input.pttAttemptId,
       sessionId: '',
       mode: voiceStore.runtime.mode === 'cloud' ? 'cloud' : 'offline',
@@ -498,6 +501,7 @@ export function createVoiceControlController({
       profileRevision: activeCatalogue().profileRevision,
       configurationId: activeCatalogue().configurationId || '',
       releaseRequested: false,
+      recognitionFinishRequested: false,
       abort: new AbortController(),
       pressCuePending: true,
       captureReady: false,
@@ -552,7 +556,7 @@ export function createVoiceControlController({
         try { await api.cancelRecognition(session.sessionId); } catch {}
         return false;
       }
-      const capture = createCapture({
+      const capture = (source === 'remote' ? remote.createCapture : createCapture)({
         deviceId: String(voiceStore.selectedInputDeviceId || ''),
         globalRef,
         onChunk({ sampleRate, samples, sequence }) {
@@ -582,7 +586,7 @@ export function createVoiceControlController({
       session.captureReady = true;
       voiceStore.setDeviceLabel(captureInfo.deviceLabel);
       voiceStore.setInputDevicesError?.('');
-      void refreshInputDevices();
+      if (source !== 'remote') void refreshInputDevices();
       if (session.releaseRequested) return finish();
       voiceStore.setState('listening', session.transcriptionOnly
         ? 'Listening… speak the complete phrase, then release to transcribe. Nothing will be sent.'
@@ -626,7 +630,7 @@ export function createVoiceControlController({
         // Keep the microphone open very briefly after key-up so samples already
         // moving through the OS and AudioWorklet are not cut off. This is a
         // fixed privacy-bounded tail, not silence synthesis or inferred speech.
-        if (releaseTailMs > 0) {
+        if (releaseTailMs > 0 && session.source !== 'remote') {
           await new Promise((resolve) => globalThis.setTimeout(resolve, releaseTailMs));
           if (active !== session) return false;
         }
@@ -637,7 +641,11 @@ export function createVoiceControlController({
         // stop() detaches capture input and stops the microphone tracks.
         // The release cue therefore cannot become microphone input.
         void acknowledgementTone.play?.('release', { signal: session.abort.signal });
-        await api.finishRecognition(session.sessionId);
+        // Set before invoking IPC: a valid final can arrive before its reply.
+        // Key-up alone cannot authorize a result during the tail or PCM flush.
+        session.recognitionFinishRequested = true;
+        const result = await api.finishRecognition(session.sessionId);
+        if (result?.finishing === false) throw new Error('Voice recognition stopped. Please try again.');
         return true;
       } catch (error) {
         if (active !== session) return false;
@@ -682,12 +690,13 @@ export function createVoiceControlController({
 
     if (session.finalReceived) return;
     session.finalReceived = true;
-    const releasedBeforeFinal = session.releaseRequested;
-    if (!releasedBeforeFinal) {
+    if (!session.recognitionFinishRequested) {
       active = null;
       session.abort.abort();
       voiceStore.setSession('');
-      voiceStore.setState('error', 'Recognition ended before push-to-talk was released. Nothing was executed.');
+      voiceStore.setState('error', session.releaseRequested
+        ? 'Recognition ended before audio capture finished. Please try again. Nothing was executed.'
+        : 'Recognition ended before push-to-talk was released. Nothing was executed.');
       retireGlobalAttempt(session);
       try { await session.capture?.cancel?.(); } catch {}
       return;
@@ -817,6 +826,7 @@ export function createVoiceControlController({
     };
     pendingCommand = command;
     const sent = aircraftControl.sendCommand(match.commandId, match.input, {
+      ...(session.mobileVoiceSessionId ? { mobileVoiceSessionId: session.mobileVoiceSessionId } : {}),
       pendingKey: `aircraft-command:${match.commandId}`,
       onResult: (result) => handleCommandResult(command, result),
     });
@@ -1178,8 +1188,8 @@ export function createVoiceControlController({
     }
     if (!api) { refreshReadyState(); return false; }
     unsubscribers.push(api.onRecognitionEvent((event) => {
-      // Offline capture expiry finalizes an empty worker session; cloud expiry
-      // emits an error. Either terminal event must retire discovery's stream.
+      // Expiry emits an error. Every terminal event must retire discovery's
+      // stream, including an unsolicited final or explicit cancellation.
       if (deviceDiscovery && ['final', 'error', 'cancelled'].includes(event.type)
           && (event.sessionId === deviceDiscovery.sessionId || (event.fatal === true && !event.sessionId))) {
         cancelDeviceDiscovery();
@@ -1295,6 +1305,9 @@ export function createVoiceControlController({
 
   return Object.freeze({
     begin,
+    beginRemote: (id, createRemoteCapture) => begin('remote', '', { id, createCapture: createRemoteCapture }),
+    finishRemote: id => active?.mobileVoiceSessionId === id ? finish() : Promise.resolve(false),
+    cancelRemote: id => active?.mobileVoiceSessionId === id ? cancel('remote-cancelled') : Promise.resolve(false),
     cancel,
     collectHints: () => [...collectVoiceHints(activeCatalogue()),
       ...(canQueryAircraftState(aircraftSpecificStore) ? stateQueryExamples(aircraftSpecificStore).map((text) => text.toUpperCase()) : []),

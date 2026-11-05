@@ -212,8 +212,16 @@ function correctedNumericSlot(tokens, input) {
   if (input?.units === 'squawk') return null;
   if (input?.kind !== 'number') return null;
   const numericTokens = stripMatchingUnitSuffix(tokens, input.units);
-  if (numericTokens.length < 3) return null;
   const unitSuffix = tokens.slice(numericTokens.length);
+  // Reported recognition of "twenty percent": "TWO T", sometimes without
+  // the unit. Repair only this complete percentage slot, never a loose T,
+  // a partial larger number, or a heading/altitude/radio target. Exact matches
+  // win first; normal range/step checks still validate the corrected target.
+  if (input.units === 'percent' && numericTokens.length === 2
+      && numericTokens[0] === 'two' && numericTokens[1] === 't') {
+    return ['twenty', ...unitSuffix];
+  }
+  if (numericTokens.length < 3) return null;
   const groupedTensWithTrailingZeroRepair = numericTokens.length === 3
     && (DIGIT_SEQUENCE_TOKENS.has(numericTokens[0]) || /^\d$/.test(numericTokens[0]))
     && GROUPED_TENS_TOKENS.has(numericTokens[1])

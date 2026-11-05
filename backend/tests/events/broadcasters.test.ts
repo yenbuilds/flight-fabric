@@ -32,8 +32,25 @@ const {
   buildFuelBroadcastPayload: (fuel?: Record<string, any> | null) => Record<string, any> | null;
 };
 
-test('altitude broadcasts keep legacy indicated altitude and expose independent diagnostics', () => {
-  const payload = buildAltitudeBroadcastPayload({
+test('altitude wire messages retain map and widget references without retired diagnostics', () => {
+  const { sendBasicStreams } = require('../../events/broadcasters');
+  const { createBroadcast } = require('../../core/ws-broadcaster');
+  const desktopMessages: string[] = [];
+  const phoneMessages: string[] = [];
+  const broadcast = createBroadcast({
+    wss: { clients: [desktopMessages, phoneMessages].map(messages => ({
+      readyState: 1,
+      send: (message: string) => messages.push(message),
+      terminate: () => assert.fail('healthy client should remain connected'),
+    })) },
+    eventBus: { emit: () => {} },
+    Debug: { log: () => {} },
+  });
+  // Include the retired inputs to catch accidental whole-frame forwarding.
+  sendBasicStreams(broadcast, {
+    vsFeetPerMin: -650,
+    iasKnots: 144,
+    gsKnots: 151,
     alt_msl_ft: 4321.4,
     altIndicatedFt: 4321.4,
     altCalibratedFt: 4012.6,
@@ -47,23 +64,38 @@ test('altitude broadcasts keep legacy indicated altitude and expose independent 
     kohlsmanSettingMb: 1013.25,
     kohlsmanTunedMb: 1002.37,
     kohlsmanStd: true,
+    xwind: 8,
+    lights: { nav: true, beacon: true, strobe: true, landing: true, taxi: false },
+    hdgMag: 180,
+    hdgTrue: 190,
   });
 
-  assert.deepEqual(payload, {
+  const expected = {
     type: 'altitude',
     msl: 4321,
     indicated: 4321,
-    calibrated: 4013,
     plane: 4008,
     ra: 613,
     aircraftAgl: 590,
-    aircraftAboveObstacles: 552,
     planeAgl: 552,
-    planeAglMinusCg: 545,
     pressureAlt: 4389,
-    kohlsmanSettingMb: 1013.25,
-    kohlsmanTunedMb: 1002.37,
-    kohlsmanStd: true,
+  };
+  for (const messages of [desktopMessages, phoneMessages]) {
+    const altitudeMessages = messages.map(message => JSON.parse(message)).filter(message => message.type === 'altitude');
+    assert.deepEqual(altitudeMessages, [expected]);
+  }
+});
+
+test('altitude wire references preserve unknown and zero values', () => {
+  assert.deepEqual(buildAltitudeBroadcastPayload({ alt_msl_ft: 0, raFeet: 0, altPlaneFt: 0, aircraftAglFt: 0 }), {
+    type: 'altitude',
+    msl: 0,
+    indicated: 0,
+    plane: 0,
+    ra: 0,
+    aircraftAgl: 0,
+    planeAgl: null,
+    pressureAlt: null,
   });
 });
 

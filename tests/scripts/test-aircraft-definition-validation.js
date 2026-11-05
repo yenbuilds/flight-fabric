@@ -96,6 +96,9 @@ test('backend build rejects invalid YAML before deleting an existing runtime', t
   const scripts = path.join(root, 'scripts');
   fs.mkdirSync(scripts);
   fs.copyFileSync(path.join(ROOT, 'scripts/build-backend-runtime.js'), path.join(scripts, 'build-backend-runtime.js'));
+  fs.copyFileSync(path.join(ROOT, 'scripts/build-owner.js'), path.join(scripts, 'build-owner.js'));
+  fs.mkdirSync(path.join(root, 'electron'));
+  fs.copyFileSync(path.join(ROOT, 'electron/runtime-owner-lock.js'), path.join(root, 'electron/runtime-owner-lock.js'));
   // Only toolchain/scratch location lookup is stubbed. The build invokes the
   // real validator with the real parser and malformed fixture; no Cargo/tsc runs.
   fs.writeFileSync(path.join(scripts, 'rust-toolchain.js'), 'exports.resolveCargo = () => { throw new Error("Unexpected Cargo invocation"); };\n');

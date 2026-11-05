@@ -73,10 +73,13 @@ export function createPresetPanel({ document, send, setTimeout, clearTimeout, no
     }
     return true;
   }
+  function lightingLabel(command) {
+    return brightnessLabel(command.id, (catalogue.commands || []).some(entry => entry.id === 'configuration.lighting.flood'));
+  }
   function row(command, parent, brightness) {
     const item = node('form', 'preset-row' + (brightness ? ' preset-brightness' : ''));
     item.setAttribute('data-preset', command.id);
-    item.appendChild(node('h4', 'preset-label', brightness ? brightnessLabel(command.id) : command.label));
+    item.appendChild(node('h4', 'preset-label', brightness ? lightingLabel(command) : command.label));
     item.appendChild(node('p', 'preset-description', command.description));
     const observed = node('p', 'preset-observed muted');
     item.appendChild(observed);
@@ -85,7 +88,7 @@ export function createPresetPanel({ document, send, setTimeout, clearTimeout, no
     const actions = node('div', 'preset-actions');
     let input = null, range = null, target = null;
     if (command.input.kind === 'number') {
-      if (brightness && drafts[command.id] === undefined) drafts[command.id] = command.id.endsWith('.cockpit') ? '50' : '75';
+      if (brightness && drafts[command.id] === undefined) drafts[command.id] = command.id.endsWith('.flood') ? '0' : command.id.endsWith('.displays') ? '75' : '50';
       if (brightness) {
         target = node('label', 'preset-target');
         target.htmlFor = 'preset-range-' + command.id;
@@ -93,21 +96,21 @@ export function createPresetPanel({ document, send, setTimeout, clearTimeout, no
         range = node('input', 'preset-range'); range.type = 'range'; range.id = target.htmlFor;
         range.min = command.input.min; range.max = command.input.max; range.step = command.input.step;
         range.value = drafts[command.id] || '0';
-        range.setAttribute('aria-label', brightnessLabel(command.id) + ' target percentage');
+        range.setAttribute('aria-label', lightingLabel(command) + ' target percentage');
         range.addEventListener('input', () => { drafts[command.id] = range.value; input.value = range.value; refresh(); });
         item.appendChild(range);
       }
       input = node('input', 'preset-value'); input.type = 'number'; input.inputMode = 'decimal';
       input.min = command.input.min; input.max = command.input.max; input.step = command.input.step;
       input.value = drafts[command.id] || ''; input.placeholder = command.id === 'flightGuidance.course.setBoth' ? '270' : command.id === 'radios.nav.setBothActive' ? '110.30' : String(command.input.min);
-      input.setAttribute('aria-label', (brightness ? brightnessLabel(command.id) : command.label) + ' value');
+      input.setAttribute('aria-label', (brightness ? lightingLabel(command) : command.label) + ' value');
       input.addEventListener('input', () => { drafts[command.id] = input.value; if (range) range.value = input.value; refresh(); });
       actions.appendChild(input);
       const units = { degrees: 'deg', megahertz: 'MHz', percent: '%', feet: 'ft', knots: 'kt' };
       if (units[command.input.units]) actions.appendChild(node('span', 'muted', units[command.input.units]));
     }
     const button = node('button', 'preset-apply'); button.type = 'submit';
-    button.setAttribute('aria-label', (brightness ? 'Set ' : 'Apply ') + (brightness ? brightnessLabel(command.id) : command.label));
+    button.setAttribute('aria-label', (brightness ? 'Set ' : 'Apply ') + (brightness ? lightingLabel(command) : command.label));
     actions.appendChild(button); item.appendChild(actions);
     const reason = node('p', 'preset-reason warn'); reason.id = 'preset-reason-' + command.id;
     button.setAttribute('aria-describedby', reason.id); item.appendChild(reason);
@@ -138,7 +141,13 @@ export function createPresetPanel({ document, send, setTimeout, clearTimeout, no
       lights.appendChild(node('p', 'muted', 'Reviewed light configurations by flight phase.'));
       groups.lights.forEach(command => row(command, lights, false)); element.appendChild(lights);
     }
-    groups.brightness.forEach(command => row(command, element, true));
+    groups.brightness.forEach(command => {
+      if (command.id === 'configuration.lighting.all') {
+        const disclosure = node('details', 'preset-group');
+        disclosure.appendChild(node('summary', 'preset-label', 'Set panel and flood/task lights together'));
+        element.appendChild(disclosure); row(command, disclosure, true);
+      } else row(command, element, true);
+    });
     element.hidden = rows.length === 0;
     refresh();
   }

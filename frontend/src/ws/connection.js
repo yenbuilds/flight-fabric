@@ -97,6 +97,7 @@ export function createConnection({
   }
 
   function getWsBaseUrl() {
+    if (windowRef.location.protocol === 'https:') return `wss://${windowRef.location.host}/ws`;
     // When opening via file:// protocol, hostname is empty - use localhost.
     // Use localhost (not 127.0.0.1) to match backend binding.
     const host = getBackendHost();
@@ -127,11 +128,16 @@ export function createConnection({
   }
 
   function getBackendHttpBase() {
+    if (windowRef.location.protocol === 'https:') return `https://${windowRef.location.host}`;
     const host = resolvedHttpHost || getBackendHost();
     return `http://${host}:${resolvedHttpPort}`;
   }
 
   function getBootstrapCandidates() {
+    if (windowRef.location.protocol === 'https:') return [{
+      base: `https://${windowRef.location.host}`, host: windowRef.location.hostname,
+      port: Number(windowRef.location.port) || 443,
+    }];
     const host = getBackendHost();
     const candidates = [];
     const seen = new Set();

@@ -2063,6 +2063,20 @@ try {
     console.error(startupResult.error || startupResult.stderr || startupResult.stdout);
   }
   test('packaged aircraft registry loads YAML using only locked packaged dependencies', startupResult.status === 0);
+  const phoneIdentityResult = spawnSync(process.execPath, ['--no-global-search-paths', '-e', `
+    const assert = require('node:assert/strict');
+    const { X509Certificate } = require('node:crypto');
+    const { loadMobileVoiceIdentity } = require('./core/mobile-voice-identity');
+    loadMobileVoiceIdentity('./phone-identity-fixture', ['192.168.1.50']).then(identity => {
+      const ca = new X509Certificate(identity.certificate), leaf = new X509Certificate(identity.cert);
+      assert.equal(leaf.verify(ca.publicKey), true);
+      assert.equal(leaf.checkIP('192.168.1.50'), '192.168.1.50');
+      assert.equal(ca.fingerprint256, identity.fingerprint);
+    }).catch(error => { console.error(error); process.exitCode = 1; });
+  `], { cwd: packagedRoot, env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' },
+    encoding: 'utf8', timeout: 15000, windowsHide: true });
+  if (phoneIdentityResult.status !== 0) console.error(phoneIdentityResult.error || phoneIdentityResult.stderr);
+  test('packaged phone microphone creates a valid identity using only locked runtime dependencies', phoneIdentityResult.status === 0);
   const expectStartupFailure = (name, matchesError) => {
     const result = runStartupProbe();
     const expectedFailure = result.status !== 0 && matchesError(result.stderr || '');

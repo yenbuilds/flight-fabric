@@ -34,21 +34,6 @@ const environmentCards = [
   { cardId: 'oat-card', label: 'OAT', valueId: 'oat-value', valueKey: 'oat', unit: '\u00b0C' },
 ];
 
-const altitudeDiagnosticCards = [
-  { cardId: 'alt-diag-indicated-card', label: 'Cockpit indicated', valueId: 'alt-diag-indicated-value', valueKey: 'indicated', unit: 'ft' },
-  { cardId: 'alt-diag-calibrated-card', label: 'Calibrated indicated', valueId: 'alt-diag-calibrated-value', valueKey: 'calibrated', unit: 'ft' },
-  { cardId: 'alt-diag-plane-card', label: 'MSFS plane altitude', valueId: 'alt-diag-plane-value', valueKey: 'plane', unit: 'ft' },
-  { cardId: 'alt-diag-pressure-card', label: 'Pressure altitude', valueId: 'alt-diag-pressure-value', valueKey: 'pressure', unit: 'ft' },
-  { cardId: 'alt-diag-radio-card', label: 'Radio height', valueId: 'alt-diag-radio-value', valueKey: 'radio', unit: 'ft' },
-  { cardId: 'alt-diag-aircraft-agl-card', label: 'Aircraft AGL', valueId: 'alt-diag-aircraft-agl-value', valueKey: 'aircraftAgl', unit: 'ft' },
-  { cardId: 'alt-diag-obstacles-card', label: 'Above obstacles', valueId: 'alt-diag-obstacles-value', valueKey: 'aircraftAboveObstacles', unit: 'ft' },
-  { cardId: 'alt-diag-plane-agl-card', label: 'Plane AGL', valueId: 'alt-diag-plane-agl-value', valueKey: 'planeAgl', unit: 'ft' },
-  { cardId: 'alt-diag-plane-agl-cg-card', label: 'Plane AGL minus CG', valueId: 'alt-diag-plane-agl-cg-value', valueKey: 'planeAglMinusCg', unit: 'ft' },
-  { cardId: 'alt-diag-baro-effective-card', label: 'Baro effective', valueId: 'alt-diag-baro-effective-value', valueKey: 'kohlsmanSettingMb', unit: 'hPa' },
-  { cardId: 'alt-diag-baro-tuned-card', label: 'Baro tuned', valueId: 'alt-diag-baro-tuned-value', valueKey: 'kohlsmanTunedMb', unit: 'hPa' },
-  { cardId: 'alt-diag-baro-mode-card', label: 'Baro mode', valueId: 'alt-diag-baro-mode-value', valueKey: 'kohlsmanStd', unit: '' },
-];
-
 const lightItems = [
   { id: 'light-nav', name: 'nav', label: 'Nav' },
   { id: 'light-bcn', name: 'beacon', label: 'Beacon' },
@@ -255,26 +240,6 @@ const lightItems = [
       </section>
     </div>
 
-    <details id="flight-altitude-diagnostics" class="flight-section-block flight-altitude-diagnostics">
-      <summary id="flight-altitude-diagnostics-toggle" class="dashboard-section-kicker flight-altitude-diagnostics-summary">
-        <span>Altitude diagnostics</span>
-        <span class="flight-altitude-diagnostics-chevron" aria-hidden="true">⌄</span>
-      </summary>
-      <div id="flight-altitude-diagnostics-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-        <div
-          v-for="card in altitudeDiagnosticCards"
-          :id="card.cardId"
-          :key="card.cardId"
-          :class="secondaryCardClass"
-        >
-          <div class="flight-card-caption text-xs text-gray-500 uppercase tracking-wider mb-1">{{ card.label }}</div>
-          <div class="flex items-baseline gap-1">
-            <span :id="card.valueId" :class="telemetryValueMediumClass">{{ flight.telemetry.altitudeDiagnostics[card.valueKey] }}</span>
-            <span v-if="card.unit" class="flight-card-unit text-sm text-gray-500">{{ card.unit }}</span>
-          </div>
-        </div>
-      </div>
-    </details>
   </div>
 </template>
 

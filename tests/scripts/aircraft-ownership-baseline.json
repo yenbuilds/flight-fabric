@@ -164,9 +164,9 @@
     ]
   },
   "frontend/toolbar/presets.js": {
-    "reason": "Checked-in generated toolbar bundle of existing preset observation rules. Reviewed 27 October 2026: changes rename the cockpit-lighting label, format displayed punctuation and wrap presets in a collapsed-by-default native disclosure. No aircraft branches, mappings or control behavior were added. Source ownership remains unchanged. See docs/MSFS-TOOLBAR-PANEL.md and docs/COCKPIT-LIGHTING-VALIDATION.md.",
+    "reason": "Checked-in generated toolbar bundle of existing preset observation rules. Reviewed 2 November 2026: changes add neutral catalogue lighting IDs, panel/flood labels, default targets and a collapsed combined-lighting disclosure. No aircraft branches, raw mappings or observation rules were added; source ownership remains unchanged. Focused toolbar runtime tests cover independent readback availability, zero targets and overlapping commands. See docs/COCKPIT-LIGHTING-VALIDATION.md.",
     "accepted": [
-      "aircraft-source-placement:cb9bfb1e97bd841f170f3494115cb86274ded2e602c5f94dec4cd142febbb357"
+      "aircraft-source-placement:443a101766a2895563852e67268d62fea27683ce9c15cf8e07c8c79712dea354"
     ]
   },
   "packages/telemetry-types/src/messages.ts": {

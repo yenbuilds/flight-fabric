@@ -16,7 +16,8 @@
       "fields": [
         "lighting.mainFloodPercent",
         "lighting.pedestalFloodPercent"
-      ]
+      ],
+      "ambient": true
     },
     {
       "actionId": "lighting.preset.captainDisplays.set",
@@ -67,7 +68,8 @@
         "lighting.pedestalFloodPercent",
         "lighting.captainMapPercent",
         "lighting.firstOfficerMapPercent"
-      ]
+      ],
+      "ambient": true
     },
     {
       "actionId": "lighting.preset.captainDisplays.set",
@@ -118,7 +120,8 @@
         "lighting.pedestalFloodPercent",
         "lighting.captainTablePercent",
         "lighting.firstOfficerTablePercent"
-      ]
+      ],
+      "ambient": true
     },
     {
       "actionId": "lighting.preset.captainDisplays.set",
@@ -169,7 +172,8 @@
         "lighting.pedestalFloodPercent",
         "lighting.captainTablePercent",
         "lighting.firstOfficerTablePercent"
-      ]
+      ],
+      "ambient": true
     },
     {
       "actionId": "lighting.preset.captainDisplays.set",
@@ -219,7 +223,8 @@
       "fields": [
         "lighting.mainFloodPercent",
         "lighting.domePercent"
-      ]
+      ],
+      "ambient": true
     },
     {
       "actionId": "lighting.preset.captainTask.set",
@@ -228,7 +233,8 @@
         "lighting.captainMapPercent",
         "lighting.captainTablePercent",
         "lighting.captainConsolePercent"
-      ]
+      ],
+      "ambient": true
     },
     {
       "actionId": "lighting.preset.firstOfficerTask.set",
@@ -237,7 +243,8 @@
         "lighting.firstOfficerMapPercent",
         "lighting.firstOfficerTablePercent",
         "lighting.firstOfficerConsolePercent"
-      ]
+      ],
+      "ambient": true
     },
     {
       "actionId": "lighting.preset.displays.set",

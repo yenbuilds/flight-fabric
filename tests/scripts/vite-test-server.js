@@ -18,7 +18,7 @@ async function createViteTestServer(config) {
     server: {
       ...config.server,
       middlewareMode: { server: httpServer },
-      hmr: { server: httpServer },
+      hmr: config.server?.hmr === false ? false : { server: httpServer },
     },
   });
   httpServer.on('request', vite.middlewares);

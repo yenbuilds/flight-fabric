@@ -6,8 +6,161 @@ import { createMessageFrameBatcher, FRAME_COALESCED_MESSAGE_TYPES, IMMEDIATE_MES
 import { emitWsMessage, emitWsMessageReceived, subscribeWsMessage, subscribeWsMessageReceived } from '../../src/app/runtime-signals.js';
 import { createFakeScene, createFakeWindow, flushPromises } from '../maps/three-d/fake-scene.js';
 import { useLiveMapStore } from '../../src/vue/stores/live-map.js';
+import { useSimbriefStore } from '../../src/vue/stores/simbrief.js';
 import { createLiveMap3dController } from '../../src/live-map/map-3d-controller.js';
 import { initLiveMapRuntime } from '../../src/live-map/runtime.js';
+
+test('a phone SimBrief import replaces its map route without a privileged server echo', async (t) => {
+  setActivePinia(createPinia());
+  const liveMapStore = useLiveMapStore();
+  const simbriefStore = useSimbriefStore();
+  const tabsStore = reactive({ activeTabId: 'livemap' });
+  const statusStore = reactive({ websocket: 'ready' });
+  const windowRef = createFakeWindow();
+  windowRef.addEventListener = () => {};
+  windowRef.removeEventListener = () => {};
+  const airports = {
+    YSSY: { icao: 'YSSY', lat: -33.9461, lon: 151.1772 },
+    YMML: { icao: 'YMML', lat: -37.6733, lon: 144.8433 },
+    YBBN: { icao: 'YBBN', lat: -27.3842, lon: 153.1175 },
+  };
+  const sent = [];
+  let scene;
+  liveMapStore.setViewMode('3d');
+  const cleanup = initLiveMapRuntime({
+    liveMapStore, simbriefStore, tabsStore, statusStore, windowRef,
+    canSyncTargets: () => false,
+    localStorageRef: null,
+    allowOnlineMapTiles: () => false,
+    getElementById: () => ({ offsetParent: {}, clientWidth: 390, clientHeight: 600 }),
+    sendMessage: (message) => { sent.push(message); return true; },
+    subscribeWsMessageSignal: subscribeWsMessage,
+    create3dController: (options) => createLiveMap3dController({
+      ...options, loadThree: async () => ({}),
+      createScene: (sceneOptions) => (scene = createFakeScene(sceneOptions)),
+    }),
+  });
+  t.after(cleanup);
+  const reply = (request, success = true) => emitWsMessage({
+    type: 'airportLookupResult', requestId: request.requestId, success,
+    ...airports[request.icao], error: success ? undefined : 'Airport lookup failed',
+  });
+  const pendingLookups = () => sent.filter(message => message.type === 'requestAirportLookup');
+  const sharedPlan = { type: 'flightPlan', origin: 'YSSY', destination: 'YMML', arrivalRunway: '16' };
+  emitWsMessage({ type: 'position', lat: -33.9461, lon: 151.1772 });
+  emitWsMessage({ type: 'originTarget', target: airports.YSSY });
+  emitWsMessage({ type: 'destinationTarget', target: airports.YMML });
+  emitWsMessage(sharedPlan);
+  await flushPromises();
+  const oldRoute = Array.from(scene.state.routeLine);
+
+  // The phone can fetch the OFP, but cannot publish flightPlan/setTarget messages.
+  simbriefStore.bindRuntime({ sendMessage: () => false, httpBase: 'http://fixture' });
+  simbriefStore.username = 'fixture-pilot';
+  t.mock.method(globalThis, 'fetch', async () => ({
+    ok: true, status: 200,
+    json: async () => ({ ok: true, ofp: {
+      origin: { icao_code: 'YSSY', plan_rwy: '34L' },
+      destination: { icao_code: 'YBBN', plan_rwy: '01R' },
+    } }),
+  }));
+  tabsStore.activeTabId = 'dispatch';
+  await simbriefStore.fetchOfp();
+  await nextTick();
+  assert.equal(simbriefStore.plan.destination, 'YBBN');
+  assert.equal(liveMapStore.targetInput, 'YBBN', 'the fetched plan must reach the map without a server echo');
+  const firstRequests = pendingLookups();
+  assert.deepEqual(firstRequests.map(request => request.icao), ['YSSY', 'YBBN']);
+  firstRequests.forEach(request => reply(request));
+  tabsStore.activeTabId = 'livemap';
+  await nextTick();
+  await flushPromises();
+  assert.equal(liveMapStore.destinationProgressLabel, 'From YSSY RWY 34L -> To YBBN RWY 01R');
+  assert.notDeepEqual(Array.from(scene.state.routeLine), oldRoute, 'the rendered route must change too');
+
+  // Reconnect replay of the PC's older shared route cannot replace the phone's import.
+  statusStore.websocket = 'disconnected';
+  await nextTick();
+  statusStore.websocket = 'ready';
+  await nextTick();
+  emitWsMessage(sharedPlan);
+  emitWsMessage({ type: 'originTarget', target: airports.YSSY });
+  emitWsMessage({ type: 'destinationTarget', target: airports.YMML });
+  pendingLookups().slice(firstRequests.length).forEach(request => reply(request));
+  assert.equal(liveMapStore.targetInput, 'YBBN');
+  assert.equal(liveMapStore.destinationProgressLabel, 'From YSSY RWY 34L -> To YBBN RWY 01R');
+  assert.equal(sent.some(message => /^(set|clear)(Origin|Destination)Target$/.test(message.type)), false,
+    'phone lookups must never try to mutate shared PC targets');
+
+  // Clearing relinquishes the local route; late lookup replies cannot restore it.
+  await simbriefStore.fetchOfp();
+  await nextTick();
+  const retiredRequests = pendingLookups().slice(-2);
+  simbriefStore.clearOfp();
+  await nextTick();
+  retiredRequests.forEach(request => reply(request));
+  retiredRequests.forEach(request => reply(request, false));
+  emitWsMessage({ type: 'originTarget', target: airports.YSSY });
+  emitWsMessage({ type: 'destinationTarget', target: airports.YMML });
+  assert.equal(liveMapStore.targetInput, 'YMML');
+  assert.equal(liveMapStore.destinationProgressLabel, 'From YSSY -> To YMML RWY 16');
+});
+
+test('a restored phone plan retries on connection and retires lookups on replacement and disposal', async (t) => {
+  setActivePinia(createPinia());
+  const liveMapStore = useLiveMapStore();
+  const simbriefStore = useSimbriefStore();
+  simbriefStore.plan = { origin: 'YSSY', destination: 'YMML', arrivalRunway: '16' };
+  const statusStore = reactive({ websocket: 'connecting' });
+  const windowRef = createFakeWindow();
+  windowRef.addEventListener = () => {};
+  windowRef.removeEventListener = () => {};
+  const sent = [];
+  let connected = false;
+  const cleanup = initLiveMapRuntime({
+    liveMapStore, simbriefStore, statusStore, windowRef, localStorageRef: null,
+    canSyncTargets: () => false,
+    getElementById: id => id === 'live-map' ? { offsetParent: {} } : null,
+    sendMessage: message => { sent.push(message); return connected; },
+    subscribeWsMessageSignal: subscribeWsMessage,
+  });
+  t.after(cleanup);
+  assert.equal(liveMapStore.targetInput, 'YMML', 'a plan restored before map mount seeds the route');
+  connected = true;
+  statusStore.websocket = 'ready';
+  await nextTick();
+  const lookups = () => sent.filter(message => message.type === 'requestAirportLookup');
+  const retired = lookups().slice(-2);
+  assert.deepEqual(retired.map(request => request.icao), ['YSSY', 'YMML']);
+  simbriefStore.plan = { origin: 'YMML', destination: 'YSSY', arrivalRunway: '34L' };
+  const current = lookups().slice(-2);
+  const airports = { YSSY: { lat: -33.9461, lon: 151.1772 }, YMML: { lat: -37.6733, lon: 144.8433 } };
+  const reply = (request, success) => emitWsMessage({
+    type: 'airportLookupResult', requestId: request.requestId, icao: request.icao,
+    success, ...airports[request.icao], error: success ? undefined : 'Airport database unavailable',
+  });
+  for (const request of retired) {
+    reply(request, true);
+    reply(request, false);
+  }
+  assert.equal(liveMapStore.targetInput, 'YSSY');
+  assert.equal(liveMapStore.targetStatusMessage, 'Looking up YSSY...');
+  reply(current[0], true);
+  reply(current[1], false);
+  assert.equal(liveMapStore.targetStatusMessage, 'Airport database unavailable');
+  assert.equal(liveMapStore.destinationProgressVisible, false, 'failed replacement cannot display the previous route');
+
+  simbriefStore.plan = { ...simbriefStore.plan };
+  lookups().slice(-2).forEach(request => reply(request, true));
+  assert.equal(liveMapStore.destinationProgressLabel, 'From YMML -> To YSSY RWY 34L');
+  cleanup();
+  const countAfterCleanup = sent.length;
+  simbriefStore.plan = { origin: 'YSSY', destination: 'YMML' };
+  await nextTick();
+  retired.forEach(request => reply(request, true));
+  assert.equal(sent.length, countAfterCleanup, 'disposed runtime removes its plan watcher');
+  assert.equal(liveMapStore.targetInput, 'YSSY', 'disposed runtime ignores late lookup results');
+});
 
 for (const suspendedFrames of [false, true]) {
   test(`live 3D preserves a continuous climb and descent with ${suspendedFrames ? 'suspended' : 'normal'} display frames`, async () => {

@@ -129,6 +129,7 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
       // Flush the same worklet used by ordinary push-to-talk before recognition.
       await session.capture.stop();
       if (active !== session) return false;
+      session.recognitionFinishRequested = true;
       const result = await api.finishRecognition(session.id);
       if (result?.finishing === false) throw new Error('Recognition stopped. Try the test again.');
       return true;
@@ -151,6 +152,7 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
     feedbackOwned = false;
     cancelReadback();
     const session = { id: '', mode: voiceStore.runtime.mode || 'offline', capture: null, ready: false, finishing: false,
+      recognitionFinishRequested: false,
       cloudSelection: cloudSelectionKey(voiceStore.runtime.cloud),
       chunks: [], frames: 0, sampleRate: 0, heardAudio: false };
     active = session;
@@ -219,7 +221,7 @@ export function createVoiceSetupTest({ api, voiceStore, canStart = () => true,
       await fail(session, 'Voice mode changed. Please start the test again.');
       return;
     }
-    if (!session.finishing) {
+    if (!session.recognitionFinishRequested) {
       await fail(session, 'Recognition ended before the test finished. Please try again.');
       return;
     }

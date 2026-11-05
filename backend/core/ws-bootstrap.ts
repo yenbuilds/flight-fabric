@@ -266,11 +266,22 @@ export function createWsServer({
     port: wsPort,
     maxPayload: WS_MAX_PAYLOAD_BYTES,
     verifyClient: (info: { origin?: string; req: RequestLike }, done: (result: boolean, code?: number, name?: string) => void) => {
+      // Never reinterpret a retired phone audio/host URL as a telemetry socket,
+      // including when an old desktop client supplies a valid session token.
+      let pathname: string;
+      try { pathname = new URL(info.req?.url || '/', 'http://localhost').pathname; }
+      catch { done(false, 400, 'Bad Request'); return; }
+      if (pathname.startsWith('/mobile-voice/')) {
+        done(false, 410, 'Phone voice unavailable');
+        return;
+      }
       const requestHost = extractHostnameFromHostHeader(info.req?.headers?.host);
       const origin = typeof info.origin === 'string' ? info.origin : '';
       const token = extractTokenFromRequestUrl(info.req?.url, 'token');
       const requestedAircraftControlToken = extractTokenFromRequestUrl(info.req?.url, 'aircraftControlToken');
-      const devicePairingSessionId = parseCookieHeader(info.req?.headers?.cookie).ff_aircraft_pair || '';
+      const cookies = parseCookieHeader(info.req?.headers?.cookie);
+      const devicePairingSessionId = ((info.req.socket as import('tls').TLSSocket).encrypted === true
+        ? cookies['__Secure-ff_voice_pair'] : cookies.ff_aircraft_pair) || '';
       const subscribedTypes = parseSubscriptionParameter(info.req?.url);
       const hasValidToken = Boolean(wsAuthToken) && token === wsAuthToken;
       const remoteAddress = info.req?.socket?.remoteAddress || null;

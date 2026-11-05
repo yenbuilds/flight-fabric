@@ -227,6 +227,11 @@ async function openSearchCommand(request) {
     const target = Array.from(searchableContent.value?.querySelectorAll('[data-aircraft-preset]') || [])
       .find(element => element.dataset.aircraftPreset === command.id);
     if (target) {
+      let disclosure = target.closest('details');
+      while (disclosure) {
+        disclosure.open = true;
+        disclosure = disclosure.parentElement?.closest('details');
+      }
       target.scrollIntoView({ block: 'center', behavior: 'instant' });
       target.focus({ preventScroll: true });
     }
@@ -380,7 +385,7 @@ function configureVoice() {
             <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="9" y="2.5" width="6" height="12" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
             </svg>
-            <span>{{ voice.bridgeAvailable ? 'Voice commands' : 'Voice phrases' }}</span>
+            <span>Voice commands</span>
           </button>
           <button v-if="hasCdu" ref="cduButton" type="button" class="aircraft-integration-guide-button ff-touch-target"
             aria-haspopup="dialog" :aria-expanded="cduOpen" data-cdu-trigger aria-label="Open MCDU / CDU" @click="cduOpen = true">

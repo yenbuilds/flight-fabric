@@ -44,35 +44,23 @@ export interface VSMessage extends BaseMessage {
   value: number;
 }
 
-/** Independent altitude and barometer diagnostics; heights are in feet. */
+/** Live altitude references for readouts, maps and widgets; heights are in feet. */
 export interface AltitudeMessage extends BaseMessage {
   type: 'altitude';
   /** Legacy pilot-adjustable indicated altitude, rounded. */
   msl: number;
   /** Pilot-adjustable indicated altitude. */
   indicated: number | null;
-  /** Indicated altitude calibrated to current sea-level pressure. */
-  calibrated: number | null;
   /** MSFS geometric/world-position aircraft altitude. */
   plane: number | null;
   /** Radio altitude above ground, rounded. */
   ra: number;
   /** Height above world terrain. */
   aircraftAgl: number | null;
-  /** Height above terrain including obstacles. */
-  aircraftAboveObstacles: number | null;
   /** MSFS PLANE ALT ABOVE GROUND. */
   planeAgl: number | null;
-  /** MSFS PLANE ALT ABOVE GROUND MINUS CG. */
-  planeAglMinusCg: number | null;
   /** Pressure altitude; null when unavailable. */
   pressureAlt: number | null;
-  /** Effective altimeter setting in hPa; standard pressure while STD is selected. */
-  kohlsmanSettingMb: number | null;
-  /** Tuned altimeter setting in hPa, including while STD is selected. */
-  kohlsmanTunedMb: number | null;
-  /** Whether altimeter index 1 is in STD mode. */
-  kohlsmanStd: boolean | null;
 }
 
 /** IAS trend (knots delta per poll) */
@@ -1085,11 +1073,27 @@ export interface ConnectedMessage extends BaseMessage {
   version?: string;
 }
 
+export interface DevicePairingRequestsMessage extends BaseMessage {
+  type: 'devicePairingRequests';
+  enabled: boolean;
+  requests: Array<{ id: string; confirmationCode: string; createdAt: number; expiresAt: number; remoteAddress: string }>;
+}
+
+export interface DevicePairingApprovalResultMessage extends BaseMessage {
+  type: 'devicePairingApprovalResult';
+  requestId: string;
+  /** Echo of an optional client approval-attempt ID; not an authorization token. */
+  approvalId?: string;
+  ok: boolean;
+}
+
 // ============================================================================
 // Union type of all messages
 // ============================================================================
 
 export type TelemetryMessage =
+  | DevicePairingRequestsMessage
+  | DevicePairingApprovalResultMessage
   | import('./cdu.js').CduState
   | AutotaxiStateMessage
   | IASMessage

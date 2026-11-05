@@ -5,8 +5,10 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { ROOT, getRepoScratchAppData, getRepoScratchPath } = require('../scripts/repo-scratch');
+const { withBuildOwnership } = require('../scripts/build-owner');
 
 const TEST_STEPS = [
+  ['node', ['--test', 'tests/scripts/test-build-owner.js']],
   ['node', ['--test', 'tests/scripts/test-build-dependency-compatibility.js']],
   ['node', ['--test', 'tests/scripts/test-vite-test-server.js']],
   ['node', ['--test', 'tests/scripts/test-support-redirect.js']],
@@ -82,6 +84,9 @@ const TEST_STEPS = [
   // Native mouse/touch input catches focus-dismissal races that DOM .click()
   // and keyboard-only component checks cannot reproduce. Builds run above.
   ['node', ['tests/scripts/test-app-workbench-browser.js']],
+  ['node', ['tests/scripts/test-mobile-voice-browser.js']],
+  ['node', ['--test', 'tests/scripts/test-phone-voice-disabled.js']],
+  ['node', ['--test', 'dist/backend/tests/core/mobile-voice.test.js', 'frontend/tests/voice/mobile-voice-client.test.js']],
   ['node', ['tests/scripts/test-onboarding-browser.js']],
   ['node', ['tests/scripts/test-aircraft-layout-browser.js']],
   ['node', ['tests/scripts/test-timeline-load-recovery.js']],
@@ -341,10 +346,10 @@ function main() {
 }
 
 if (require.main === module) {
-  try { main(); } catch (error) {
+  withBuildOwnership({ root: ROOT, label: 'desktop test suite' }, main).catch(error => {
     console.error(`Test suite failed: ${error.message}`);
     process.exitCode = 1;
-  }
+  });
 }
 
 module.exports = {

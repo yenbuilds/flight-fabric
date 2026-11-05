@@ -4,6 +4,7 @@ export type LightingPresetGroup = Readonly<{
     label: string;
     fields: readonly string[];
     displays?: boolean;
+    ambient?: boolean;
 }>;
 export declare const cockpitLightingGroupsSchema: AnySchema;
 /** Presentation may refer only to actions and observations owned by this definition. */

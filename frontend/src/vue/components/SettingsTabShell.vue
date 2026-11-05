@@ -87,7 +87,6 @@ onUnmounted(() => {
   <div class="max-w-6xl page-stack settings-page">
     <div class="page-intro">
       <h2 class="text-sm font-semibold tracking-wide mb-1">Settings</h2>
-      <p class="text-xs text-gray-500">Choose how FlightFabric works on this device.</p>
     </div>
 
     <SettingsSectionNav :sections="sections" />

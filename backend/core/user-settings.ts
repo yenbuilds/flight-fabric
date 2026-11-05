@@ -67,6 +67,9 @@ let retiredLocalProfileWarningEmitted = false;
 // Default settings with documentation
 const DEFAULT_SETTINGS: SettingsObject = {
   onboarding: { completed: false },
+  // Changed by the phone-microphone action, independently of Settings drafts.
+  // Restoring access still requires trusted-LAN access and paired controls.
+  mobileVoice: { enabled: false },
   // Schema version for forward compatibility
   _version: CURRENT_SETTINGS_VERSION,
   _description: 'FlightFabric user settings. Edit values below and restart the app.',
@@ -348,7 +351,7 @@ function migrateUserSettings(settings: SettingsObject): SettingsObject {
  * Creates the file with defaults if it doesn't exist.
  * @returns {object} Merged settings (defaults + user overrides)
  */
-function loadUserSettings(): SettingsObject {
+function loadUserSettings(options: { strict?: boolean } = {}): SettingsObject {
   ensureAppDataDir();
 
   let userSettings: SettingsObject = {};
@@ -374,6 +377,7 @@ function loadUserSettings(): SettingsObject {
       removeRetiredDebugModeFromDisk = hasRetiredDebugMode(userSettings);
       removeRetiredLocalAircraftProfileFromDisk = hasRetiredLocalAircraftProfile(userSettings);
     } catch (error) {
+      if (options.strict) throw error;
       userSettings = {};
       const err = error as { message?: string };
       console.warn(`[settings] Could not parse ${SETTINGS_FILE}: ${err.message}`);
@@ -449,8 +453,8 @@ function saveUserSettings(nextSettings: SettingsObject | null | undefined): Sett
  * @param {object} patch
  * @returns {object} Saved merged settings
  */
-function updateUserSettings(patch: SettingsObject | null | undefined): SettingsObject {
-  const current = loadUserSettings();
+function updateUserSettings(patch: SettingsObject | null | undefined, options: { strict?: boolean } = {}): SettingsObject {
+  const current = loadUserSettings(options);
   const merged = deepMerge(current, patch || {});
   return saveUserSettings(merged);
 }

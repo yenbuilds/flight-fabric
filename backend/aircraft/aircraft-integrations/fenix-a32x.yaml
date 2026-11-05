@@ -141,6 +141,7 @@ integration:
           - lighting.overheadPercent
           - lighting.pedestalPercent
       - actionId: lighting.preset.flood.set
+        ambient: true
         label: Flood and map lights
         fields:
           - lighting.mainFloodPercent

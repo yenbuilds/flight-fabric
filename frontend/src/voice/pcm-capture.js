@@ -299,16 +299,23 @@ export class PcmCapture {
     }
   }
   _requestFlush(resources) {
-    return new Promise((resolve) => {
-      const finish = () => {
+    return new Promise((resolve, reject) => {
+      const finish = (error) => {
         if (resources.flushResolve !== finish) return;
         resources.flushResolve = null;
         if (resources.flushTimer !== null) this.globalRef.clearTimeout(resources.flushTimer);
         resources.flushTimer = null;
-        resolve();
+        if (error) reject(error);
+        else resolve();
       };
       resources.flushResolve = finish;
-      resources.flushTimer = this.globalRef.setTimeout(finish, this.flushTimeoutMs);
+      // Keep cleanup bounded, but never finalize recognition from an
+      // unacknowledged flush: the worklet may still own the last audio samples.
+      resources.flushTimer = this.globalRef.setTimeout(() => {
+        const error = new Error('Audio capture did not finish. Please try again.');
+        error.code = 'AUDIO_FLUSH_TIMEOUT';
+        finish(error);
+      }, this.flushTimeoutMs);
       resources.node.port.postMessage({ type: 'flush' });
     });
   }

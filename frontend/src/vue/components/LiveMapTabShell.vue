@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
-import { getCoordValidator, sendWs } from '../../../app-shared.js';
+import { getAuthorizationScope, getCoordValidator, sendWs } from '../../../app-shared.js';
 import { subscribeWsMessage, subscribeWsMessageReceived } from '../../app/runtime-signals.js';
 import { initLiveMapRuntime } from '../../live-map/runtime.js';
 import LiveMapHeader from './LiveMapHeader.vue';
@@ -12,22 +12,26 @@ import { useLiveMapStore } from '../stores/live-map.js';
 import { useStatusStore } from '../stores/status.js';
 import { useTabsStore } from '../stores/tabs.js';
 import { useFlightStore } from '../stores/flight.js';
+import { useSimbriefStore } from '../stores/simbrief.js';
 
 const appSettings = useAppSettingsStore();
 const liveMap = useLiveMapStore();
 const status = useStatusStore();
 const tabs = useTabsStore();
 const flight = useFlightStore();
+const simbrief = useSimbriefStore();
 let cleanupLiveMapRuntime = null;
 
 onMounted(() => {
   cleanupLiveMapRuntime = initLiveMapRuntime({
     liveMapStore: liveMap,
+    simbriefStore: simbrief,
     tabsStore: tabs,
     statusStore: status,
     getElementById: (id) => document.getElementById(id),
     isValidCoord: getCoordValidator(),
     sendMessage: (payload) => sendWs(payload),
+    canSyncTargets: () => getAuthorizationScope() === 'full-control',
     subscribeWsMessageSignal: subscribeWsMessage,
     subscribeTelemetryMessageSignal: subscribeWsMessageReceived,
     allowOnlineMapTiles: () => appSettings.settings?.network?.onlineMapTiles !== false,

@@ -1256,47 +1256,6 @@ body.sim-in-menu .menu-overlay {
   margin: 0;
 }
 
-.flight-altitude-diagnostics-summary {
-  cursor: pointer;
-  list-style: none;
-  border-radius: 0.35rem;
-}
-
-.flight-altitude-diagnostics-summary::-webkit-details-marker {
-  display: none;
-}
-
-.flight-altitude-diagnostics-summary:hover,
-.flight-altitude-diagnostics-summary:focus-visible {
-  color: rgb(var(--foreground));
-}
-
-.flight-altitude-diagnostics-summary:focus-visible {
-  outline: 2px solid rgb(var(--primary) / 0.72);
-  outline-offset: 0.3rem;
-}
-
-.flight-altitude-diagnostics-summary::after {
-  order: 1;
-}
-
-.flight-altitude-diagnostics-chevron {
-  order: 2;
-  flex: 0 0 auto;
-  color: rgb(var(--muted-foreground));
-  font-size: 1rem;
-  line-height: 1;
-  transition: transform var(--ff-motion-fast) ease, color var(--ff-motion-fast) ease;
-}
-
-.flight-altitude-diagnostics[open] .flight-altitude-diagnostics-chevron {
-  color: rgb(var(--foreground));
-}
-
-.flight-altitude-diagnostics:not([open]) .flight-altitude-diagnostics-chevron {
-  transform: rotate(-90deg);
-}
-
 .flight-unit-toggle,
 .light-indicator,
 .brake-indicator {

@@ -19,6 +19,8 @@ const ELECTRON_SMOKE_TIMEOUT_MS = 30000;
 // Individual waits retain their 30s ceiling; give the entire process its own budget.
 const ELECTRON_PARENT_TIMEOUT_MS = 120000;
 const headerOnly = process.env.FF_BROWSER_SMOKE_HEADER_ONLY === '1';
+const simbriefOnly = process.env.FF_BROWSER_SMOKE_SIMBRIEF_ONLY === '1';
+const simbriefScope = process.env.FF_BROWSER_SMOKE_SIMBRIEF_SCOPE || 'full-control';
 const sharedSettings = require(path.join(ROOT, 'shared', 'app-settings-shared.js'));
 
 const MIME_TYPES = Object.freeze({
@@ -37,6 +39,7 @@ const MIME_TYPES = Object.freeze({
 });
 
 const FIXTURE_AIRPORTS = Object.freeze({
+  CYHZ: { icao: 'CYHZ', name: 'Halifax Stanfield Intl', lat: 44.8808, lon: -63.5086 },
   KPHL: { icao: 'KPHL', name: 'Philadelphia Intl', lat: 39.8744, lon: -75.2424 },
   KBOS: { icao: 'KBOS', name: 'Boston Logan Intl', lat: 42.3656, lon: -71.0096 },
   KJFK: { icao: 'KJFK', name: 'John F Kennedy Intl', lat: 40.6413, lon: -73.7781 },
@@ -120,6 +123,14 @@ function contentTypeFor(filePath) {
 function createStaticFrontendServer(rootDir, { bootstrapPayload = null } = {}) {
   return http.createServer((request, response) => {
     const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
+    if (simbriefOnly && requestUrl.pathname === '/api/simbrief') {
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.end(JSON.stringify({ ok: true, ofp: {
+        origin: { icao_code: 'CYHZ', name: 'Halifax Stanfield Intl', plan_rwy: '23' },
+        destination: { icao_code: 'KJFK', name: 'John F Kennedy Intl', plan_rwy: '22L' },
+      } }));
+      return;
+    }
     if (requestUrl.pathname === '/api/bootstrap' && bootstrapPayload) {
       const body = Buffer.from(JSON.stringify(bootstrapPayload));
       response.writeHead(200, {
@@ -410,6 +421,7 @@ function createFixtureState() {
       destinationTargetFile: 'C:/Fixture/AppData/Roaming/Flight Fabric/Targets/destination.json',
     },
     messages: [],
+    prematurePlanRelays: [],
     savedSettings: null,
     profiles: [
       {
@@ -538,6 +550,12 @@ function createFixtureBackend() {
     state.messages.push(message);
 
     switch (message.type) {
+      case 'flightPlan':
+        if (simbriefOnly) {
+          if (!ws.smokeAuthorizationSent) state.prematurePlanRelays.push(message);
+          if (simbriefScope === 'full-control') sendJson(ws, message);
+        }
+        break;
       case 'autotaxi':
         // This fixture exercises production UI/navigation. Motion and route
         // journeys have their own fake-transport aircraft-layout fixture.
@@ -728,10 +746,12 @@ function createFixtureBackend() {
   }
 
   wss.on('connection', (ws) => {
-    sendJson(ws, {
-      type: 'authorizationScope',
-      scope: 'full-control',
-    });
+    const acknowledge = () => {
+      ws.smokeAuthorizationSent = true;
+      sendJson(ws, { type: 'authorizationScope', scope: simbriefOnly ? simbriefScope : 'full-control' });
+    };
+    if (simbriefOnly) setTimeout(acknowledge, 75);
+    else acknowledge();
     ws.on('message', (buffer) => {
       try {
         const parsed = JSON.parse(buffer.toString('utf8'));
@@ -893,6 +913,24 @@ async function main() {
       userDataDir,
       onDisconnectRequested: () => fixtureBackend.disconnectAllClients(),
     });
+    if (simbriefOnly) {
+      const relays = fixtureBackend.state.messages.filter(message => message.type === 'flightPlan');
+      assert.deepEqual(fixtureBackend.state.prematurePlanRelays, [], 'saved plans wait for server authorization');
+      assert.equal(relays.length, simbriefScope === 'full-control' ? 3 : 0,
+        'desktop relays its restored plan, fresh import and reconnect; phones never relay plans');
+      for (const plan of relays) {
+        assert.equal(plan.origin, 'CYHZ');
+      }
+      if (simbriefScope === 'full-control') {
+        assert.deepEqual(relays.map(plan => plan.destination), ['KBOS', 'KJFK', 'KJFK']);
+      }
+      if (simbriefScope !== 'full-control') {
+        assert.equal(fixtureBackend.state.messages.some(message => /^(set|clear)(Origin|Destination)Target$/.test(message.type)), false,
+          'restored phone routes never mutate shared targets');
+      }
+      log(`production SimBrief restore/fetch/reconnect passed for ${simbriefScope}`);
+      return;
+    }
     if (headerOnly) {
       return;
     }
@@ -944,6 +982,10 @@ async function main() {
     assert.ok(
       fixtureBackend.state.messages.filter((message) => message.type === 'requestState').length >= 2,
       'reconnect smoke should re-request initial state after the socket reconnects',
+    );
+    assert.ok(
+      fixtureBackend.state.messages.filter(message => message.type === 'flightPlan' && message.destination === 'KBOS').length >= 2,
+      'the production runtime should relay the saved SimBrief plan on startup and reconnect authorization',
     );
     assert.equal(
       fixtureBackend.state.appSettings?.network?.updateChecks,

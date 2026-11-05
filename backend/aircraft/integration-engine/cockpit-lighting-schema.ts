@@ -6,6 +6,7 @@ export type LightingPresetGroup = Readonly<{
   label: string;
   fields: readonly string[];
   displays?: boolean;
+  ambient?: boolean;
 }>;
 
 export const cockpitLightingGroupsSchema: AnySchema = {
@@ -17,6 +18,7 @@ export const cockpitLightingGroupsSchema: AnySchema = {
       label: { type: 'string', minLength: 1, maxLength: 160 },
       fields: { type: 'array', minItems: 1, maxItems: 32, uniqueItems: true, items: logicalIdSchema },
       displays: { type: 'boolean' },
+      ambient: { type: 'boolean' },
     },
   },
 };
@@ -33,11 +35,13 @@ export function hasValidCockpitLightingGroups(definition: {
   const actionIds = new Set<string>();
   return groups.every(group => {
     if (!group || typeof group !== 'object' || Array.isArray(group)
-      || Object.keys(group).some(key => !['actionId', 'label', 'fields', 'displays'].includes(key))
+      || Object.keys(group).some(key => !['actionId', 'label', 'fields', 'displays', 'ambient'].includes(key))
       || typeof group.actionId !== 'string' || !Object.hasOwn(definition.actions, group.actionId)
       || actionIds.has(group.actionId)
       || typeof group.label !== 'string' || !group.label.length || group.label.length > 160
       || (group.displays !== undefined && typeof group.displays !== 'boolean')
+      || (group.ambient !== undefined && typeof group.ambient !== 'boolean')
+      || (group.displays === true && group.ambient === true)
       || !Array.isArray(group.fields) || group.fields.length < 1 || group.fields.length > 32
       || new Set(group.fields).size !== group.fields.length
       || group.fields.some(fieldId => typeof fieldId !== 'string' || !Object.hasOwn(definition.fields, fieldId))) return false;

@@ -1640,18 +1640,18 @@ test('native Zipformer preserves final APU letters and heading digits, recognize
       // SAPI adds about 700 ms of digital silence. Keeping it would conceal
       // truncated final tokens in short PTT recordings. Retain every non-zero
       // sample, vary alignment within the model's decoding chunks, and append
-      // only the controller's 250 ms captured release tail.
+      // the previous 250 ms and current 500 ms captured release tails.
       let end = samples.length;
       while (end > 0 && samples[end - 1] === 0) end -= 1;
-      for (const prefixMs of [0, 80, 160, 240]) {
+      for (const tailMs of [250, 500]) for (const prefixMs of [0, 80, 160, 240]) {
         const prefixFrames = Math.round(sampleRate * prefixMs / 1000);
-        const aligned = new Float32Array(prefixFrames + end + Math.round(sampleRate * 0.25));
+        const aligned = new Float32Array(prefixFrames + end + Math.round(sampleRate * tailMs / 1000));
         aligned.set(samples.subarray(0, end), prefixFrames);
         fixtures.push({
           samples: aligned, sampleRate, expectedAcronyms,
           incompleteApu: phrase === 'apu-incomplete',
           incompleteHeading: phrase === 'heading-incomplete',
-          label: `${phrase}-${voice}, prefix ${prefixMs} ms, captured tail 250 ms`,
+          label: `${phrase}-${voice}, prefix ${prefixMs} ms, captured tail ${tailMs} ms`,
         });
       }
     }
@@ -1699,6 +1699,110 @@ test('native Zipformer preserves final APU letters and heading digits, recognize
     } finally {
       clearTimeout(timer);
       unsubscribe();
+    }
+  }
+});
+
+test('native Zipformer short-command and incomplete-phrase regressions', {
+  timeout: 120_000,
+}, async (t) => {
+  const modelDir = resolveVoiceModelDir({ appDir: ORIGINAL_SOURCE_DIR, isPackaged: false });
+  if (process.platform !== 'win32' || process.arch !== 'x64'
+    || !ZIPFORMER_MODEL.files.every(file => fs.existsSync(path.join(modelDir, file.name)))) {
+    t.skip('Provision the pinned voice model on Windows x64 for acoustic regressions.'); return;
+  }
+  try { require.resolve('sherpa-onnx-node'); require.resolve('sherpa-onnx-win-x64'); } catch {
+    t.skip('Install Electron dependencies to run acoustic regressions.'); return;
+  }
+  const { readWave } = require('sherpa-onnx-node');
+  const { Worker } = require('node:worker_threads');
+  const { interpretAircraftVoiceCommand } = await import('../../frontend/src/voice/command-interpreter.js');
+  const { resolveBackendRuntimeFile } = require('../../tests/scripts/backend-runtime-paths');
+  const { loadProfile } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-profile-loader.js'));
+  const { buildAircraftControlCapabilities } = require(resolveBackendRuntimeFile('aircraft', 'aircraft-control-service.js'));
+  const catalogues = Object.fromEntries(['pmdg-737', 'fenix-a320'].map(aircraft => [aircraft,
+    buildAircraftControlCapabilities(loadProfile(`bundled/msfs/${aircraft}`), {
+      capabilities: { simulator: 'msfs', actionTypes: ['aircraft-integration', 'key-event', 'simvar', 'lvar'],
+        integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator', 'input-event'] },
+    }).aircraftCommands,
+  ]));
+  const acknowledgements = new Map();
+  class ObservedWorker extends Worker {
+    constructor(...args) {
+      super(...args);
+      this.on('message', message => {
+        if (message.type !== 'chunk-accepted') return;
+        const key = `${message.sessionId}:${message.sequence}`;
+        acknowledgements.get(key)?.(); acknowledgements.delete(key);
+      });
+    }
+  }
+  const engine = createVoiceSpeechEngine({ WorkerClass: ObservedWorker });
+  t.after(() => engine.shutdown());
+  await engine.initialize();
+  const directory = path.join(ORIGINAL_SOURCE_DIR, '..', 'tests', 'fixtures', 'voice', 'short-commands');
+  const fixtures = JSON.parse(fs.readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
+  for (const { file, spoken, aircraft, expected, requiredEnding, prefixes = [0, 80, 160, 240] } of fixtures) {
+    const catalogue = catalogues[aircraft];
+    const intended = interpretAircraftVoiceCommand(spoken, catalogue);
+    if (expected) {
+      assert.equal(intended.ok, true, spoken);
+      assert.deepEqual({ commandId: intended.commandId, input: intended.input }, expected, spoken);
+    } else assert.equal(intended.ok, false, spoken);
+    const { samples, sampleRate } = readWave(path.join(directory, file));
+    assert.equal(sampleRate, 48000);
+    let end = samples.length;
+    while (end > 0 && samples[end - 1] === 0) end--;
+    for (const prefixMs of prefixes) {
+      // Isolate assertions so a known number-recognition failure cannot hide
+      // later Mach, RTO, barometer or incomplete-command results.
+      await t.test(`${file}, prefix ${prefixMs} ms`, async () => {
+        const prefix = Math.round(sampleRate * prefixMs / 1000);
+        const input = new Float32Array(prefix + end + sampleRate * 0.5);
+        input.set(samples.subarray(0, end), prefix);
+        assert.ok(input.length / sampleRate < 5, 'Short phrases must stay below the session limit');
+        const { sessionId } = engine.start();
+        const label = `${file}, prefix ${prefixMs} ms`;
+        let off, timer;
+        const final = new Promise((resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(`Recognition did not finalize: ${label}`)), 10_000);
+          off = engine.onEvent(event => {
+            if (event.sessionId !== sessionId) return;
+            if (event.type === 'final') resolve(event.text);
+            if (event.type === 'error' || event.type === 'cancelled') reject(new Error(`${label}: ${event.type}`));
+          });
+        });
+        // Observe an early terminal rejection while the chunk producer awaits an
+        // acknowledgement; the awaited final below still propagates that failure.
+        final.catch(() => {});
+        try {
+          // Use real worklet frame sizes. Await worker acknowledgements so this
+          // accelerated replay cannot artificially overrun the four-second queue.
+          for (let offset = 0, sequence = 0; offset < input.length; offset += 2048, sequence++) {
+            const key = `${sessionId}:${sequence}`;
+            let ackTimer;
+            const accepted = new Promise((resolve, reject) => {
+              ackTimer = setTimeout(() => reject(new Error(`Audio was not acknowledged: ${label}`)), 8_000);
+              acknowledgements.set(key, resolve);
+            });
+            try {
+              assert.equal(engine.pushAudio({ sessionId, sequence, sampleRate, samples: input.slice(offset, offset + 2048) }).accepted, true);
+              await accepted;
+            } finally { clearTimeout(ackTimer); acknowledgements.delete(key); }
+          }
+          assert.equal(engine.finish(sessionId), true);
+          const text = await final;
+          // These reported endings must survive in the decoder output itself;
+          // a downstream bounded correction must not conceal their regression.
+          if (requiredEnding) assert.ok(text.toLowerCase().replace(/\bper cent\b/g, 'percent').endsWith(requiredEnding), `${label}: ${text}`);
+          const actual = interpretAircraftVoiceCommand(text, catalogue);
+          const message = `${label}: ${text}`;
+          if (expected) {
+            assert.equal(actual.ok, true, message);
+            assert.deepEqual({ commandId: actual.commandId, input: actual.input }, expected, message);
+          } else assert.equal(actual.ok, false, message);
+        } finally { clearTimeout(timer); off(); }
+      });
     }
   }
 });

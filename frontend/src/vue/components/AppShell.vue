@@ -4,6 +4,7 @@ import AppFeedbackToast from './AppFeedbackToast.vue';
 import AppFooter from './AppFooter.vue';
 import AppHeader from './AppHeader.vue';
 import AppNavigator from './AppNavigator.vue';
+import DevicePairingModal from './DevicePairingModal.vue';
 import OnboardingModal from './OnboardingModal.vue';
 import DesktopTabs from './DesktopTabs.vue';
 import DataSourcesModal from './DataSourcesModal.vue';
@@ -184,6 +185,7 @@ onUnmounted(() => {
 
   <AppNavigator />
   <OnboardingModal @ready="settingsUi.initialSetupReady = true" />
+  <DevicePairingModal />
 
   <div id="vue-datasources-modal-root">
     <DataSourcesModal />

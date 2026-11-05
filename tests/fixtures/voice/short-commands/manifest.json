@@ -1,0 +1,867 @@
+[
+  {
+    "file": "altitude-short-david.wav",
+    "spoken": "altitude thirteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 13000
+      }
+    },
+    "requiredEnding": "thirteen thousand"
+  },
+  {
+    "file": "altitude-long-david.wav",
+    "spoken": "set altitude thirteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 13000
+      }
+    },
+    "requiredEnding": "thirteen thousand"
+  },
+  {
+    "file": "lights-short-david.wav",
+    "spoken": "cockpit lights twenty percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 20
+      }
+    },
+    "requiredEnding": "twenty percent"
+  },
+  {
+    "file": "lights-long-david.wav",
+    "spoken": "set all cockpit lights twenty percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.all",
+      "input": {
+        "value": 20
+      }
+    },
+    "requiredEnding": "twenty percent"
+  },
+  {
+    "file": "altitude-short-zira.wav",
+    "spoken": "altitude thirteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 13000
+      }
+    },
+    "requiredEnding": "thirteen thousand"
+  },
+  {
+    "file": "altitude-long-zira.wav",
+    "spoken": "set altitude thirteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 13000
+      }
+    },
+    "requiredEnding": "thirteen thousand"
+  },
+  {
+    "file": "lights-short-zira.wav",
+    "spoken": "cockpit lights twenty percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 20
+      }
+    },
+    "requiredEnding": "twenty percent"
+  },
+  {
+    "file": "lights-long-zira.wav",
+    "spoken": "set all cockpit lights twenty percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.all",
+      "input": {
+        "value": 20
+      }
+    },
+    "requiredEnding": "twenty percent"
+  },
+  {
+    "file": "altitude-15000-david.wav",
+    "spoken": "set altitude fifteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 15000
+      }
+    }
+  },
+  {
+    "file": "altitude-30000-david.wav",
+    "spoken": "set altitude thirty thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 30000
+      }
+    }
+  },
+  {
+    "file": "altitude-5500-david.wav",
+    "spoken": "set altitude five thousand five hundred",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 5500
+      }
+    }
+  },
+  {
+    "file": "altitude-25000-david.wav",
+    "spoken": "altitude twenty five thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 25000
+      }
+    }
+  },
+  {
+    "file": "speed-180-david.wav",
+    "spoken": "set speed one eight zero",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.speed.set",
+      "input": {
+        "value": 180
+      }
+    }
+  },
+  {
+    "file": "speed-200-david.wav",
+    "spoken": "speed two hundred",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.speed.set",
+      "input": {
+        "value": 200
+      }
+    }
+  },
+  {
+    "file": "cockpit-lighting-20-david.wav",
+    "spoken": "set cockpit lighting twenty percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 20
+      }
+    },
+    "requiredEnding": "twenty percent"
+  },
+  {
+    "file": "panel-lights-50-david.wav",
+    "spoken": "panel lights fifty percent",
+    "aircraft": "fenix-a320",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 50
+      }
+    }
+  },
+  {
+    "file": "flood-lights-15-david.wav",
+    "spoken": "flood lights fifteen percent",
+    "aircraft": "fenix-a320",
+    "expected": {
+      "commandId": "configuration.lighting.flood",
+      "input": {
+        "value": 15
+      }
+    }
+  },
+  {
+    "file": "display-brightness-75-david.wav",
+    "spoken": "display brightness seventy five percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.displays",
+      "input": {
+        "value": 75
+      }
+    }
+  },
+  {
+    "file": "runway-lights-on-david.wav",
+    "spoken": "runway lights on",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "lights.runwayTurnoff.set",
+      "input": {
+        "value": true
+      }
+    }
+  },
+  {
+    "file": "approach-engage-david.wav",
+    "spoken": "engage approach",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.approach.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "gear-down-david.wav",
+    "spoken": "gear down",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "surfaces.gear.set",
+      "input": {
+        "value": "down"
+      }
+    }
+  },
+  {
+    "file": "unrelated-weather-david.wav",
+    "spoken": "the weather is pleasant today",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "unrelated-walk-david.wav",
+    "spoken": "I went for a walk after lunch",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "altitude-incomplete-david.wav",
+    "spoken": "set altitude",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "speed-incomplete-david.wav",
+    "spoken": "set speed",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "lighting-incomplete-david.wav",
+    "spoken": "set cockpit lighting",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "altitude-15000-zira.wav",
+    "spoken": "set altitude fifteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 15000
+      }
+    }
+  },
+  {
+    "file": "altitude-30000-zira.wav",
+    "spoken": "set altitude thirty thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 30000
+      }
+    }
+  },
+  {
+    "file": "altitude-5500-zira.wav",
+    "spoken": "set altitude five thousand five hundred",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 5500
+      }
+    }
+  },
+  {
+    "file": "altitude-25000-zira.wav",
+    "spoken": "altitude twenty five thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 25000
+      }
+    }
+  },
+  {
+    "file": "speed-180-zira.wav",
+    "spoken": "set speed one eight zero",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.speed.set",
+      "input": {
+        "value": 180
+      }
+    }
+  },
+  {
+    "file": "speed-200-zira.wav",
+    "spoken": "speed two hundred",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.speed.set",
+      "input": {
+        "value": 200
+      }
+    }
+  },
+  {
+    "file": "cockpit-lighting-20-zira.wav",
+    "spoken": "set cockpit lighting twenty percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 20
+      }
+    },
+    "requiredEnding": "twenty percent"
+  },
+  {
+    "file": "panel-lights-50-zira.wav",
+    "spoken": "panel lights fifty percent",
+    "aircraft": "fenix-a320",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 50
+      }
+    }
+  },
+  {
+    "file": "flood-lights-15-zira.wav",
+    "spoken": "flood lights fifteen percent",
+    "aircraft": "fenix-a320",
+    "expected": {
+      "commandId": "configuration.lighting.flood",
+      "input": {
+        "value": 15
+      }
+    }
+  },
+  {
+    "file": "display-brightness-75-zira.wav",
+    "spoken": "display brightness seventy five percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.displays",
+      "input": {
+        "value": 75
+      }
+    }
+  },
+  {
+    "file": "runway-lights-on-zira.wav",
+    "spoken": "runway lights on",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "lights.runwayTurnoff.set",
+      "input": {
+        "value": true
+      }
+    }
+  },
+  {
+    "file": "approach-engage-zira.wav",
+    "spoken": "engage approach",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.approach.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "gear-down-zira.wav",
+    "spoken": "gear down",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "surfaces.gear.set",
+      "input": {
+        "value": "down"
+      }
+    }
+  },
+  {
+    "file": "unrelated-weather-zira.wav",
+    "spoken": "the weather is pleasant today",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "unrelated-walk-zira.wav",
+    "spoken": "I went for a walk after lunch",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "altitude-incomplete-zira.wav",
+    "spoken": "set altitude",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "speed-incomplete-zira.wav",
+    "spoken": "set speed",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "lighting-incomplete-zira.wav",
+    "spoken": "set cockpit lighting",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "mach-078-david.wav",
+    "spoken": "set mach point seven eight",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.mach.set",
+      "input": {
+        "value": 0.78
+      }
+    }
+  },
+  {
+    "file": "autobrake-rto-david.wav",
+    "spoken": "set autobrake r t o",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "surfaces.autobrake.set",
+      "input": {
+        "value": "rto"
+      }
+    }
+  },
+  {
+    "file": "baro-standard-david.wav",
+    "spoken": "set baro standard",
+    "aircraft": "fenix-a320",
+    "expected": {
+      "commandId": "baro.both.std",
+      "input": {}
+    }
+  },
+  {
+    "file": "mach-078-zira.wav",
+    "spoken": "set mach point seven eight",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.mach.set",
+      "input": {
+        "value": 0.78
+      }
+    }
+  },
+  {
+    "file": "autobrake-rto-zira.wav",
+    "spoken": "set autobrake r t o",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "surfaces.autobrake.set",
+      "input": {
+        "value": "rto"
+      }
+    },
+    "prefixes": [
+      0,
+      80,
+      160
+    ]
+  },
+  {
+    "file": "baro-standard-zira.wav",
+    "spoken": "set baro standard",
+    "aircraft": "fenix-a320",
+    "expected": {
+      "commandId": "baro.both.std",
+      "input": {}
+    }
+  },
+  {
+    "file": "incomplete-rto-david.wav",
+    "spoken": "set autobrake r t",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "incomplete-baro-david.wav",
+    "spoken": "set baro",
+    "aircraft": "fenix-a320",
+    "expected": null
+  },
+  {
+    "file": "incomplete-rto-zira.wav",
+    "spoken": "set autobrake r t",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "incomplete-baro-zira.wav",
+    "spoken": "set baro",
+    "aircraft": "fenix-a320",
+    "expected": null
+  },
+  {
+    "file": "altitude-11000-david.wav",
+    "spoken": "set altitude eleven thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 11000
+      }
+    }
+  },
+  {
+    "file": "altitude-14000-david.wav",
+    "spoken": "set altitude fourteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 14000
+      }
+    }
+  },
+  {
+    "file": "altitude-17000-david.wav",
+    "spoken": "set altitude seventeen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 17000
+      }
+    }
+  },
+  {
+    "file": "altitude-37000-david.wav",
+    "spoken": "set altitude thirty seven thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 37000
+      }
+    }
+  },
+  {
+    "file": "cockpit-lights-40-david.wav",
+    "spoken": "cockpit lights forty percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 40
+      }
+    }
+  },
+  {
+    "file": "cockpit-lights-90-david.wav",
+    "spoken": "cockpit lights ninety percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 90
+      }
+    }
+  },
+  {
+    "file": "mach-082-david.wav",
+    "spoken": "set mach point eight two",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.mach.set",
+      "input": {
+        "value": 0.82
+      }
+    }
+  },
+  {
+    "file": "negated-approach-david.wav",
+    "spoken": "do not engage approach",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "compound-altitude-david.wav",
+    "spoken": "set altitude thirteen thousand and fifteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "compound-lights-gear-david.wav",
+    "spoken": "set cockpit lights twenty percent and gear down",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "negated-altitude-david.wav",
+    "spoken": "do not set altitude fifteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "unrelated-percent-david.wav",
+    "spoken": "we have twenty percent left",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "altitude-11000-zira.wav",
+    "spoken": "set altitude eleven thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 11000
+      }
+    }
+  },
+  {
+    "file": "altitude-14000-zira.wav",
+    "spoken": "set altitude fourteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 14000
+      }
+    }
+  },
+  {
+    "file": "altitude-17000-zira.wav",
+    "spoken": "set altitude seventeen thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 17000
+      }
+    }
+  },
+  {
+    "file": "altitude-37000-zira.wav",
+    "spoken": "set altitude thirty seven thousand",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.altitude.set",
+      "input": {
+        "value": 37000
+      }
+    }
+  },
+  {
+    "file": "cockpit-lights-40-zira.wav",
+    "spoken": "cockpit lights forty percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 40
+      }
+    }
+  },
+  {
+    "file": "cockpit-lights-90-zira.wav",
+    "spoken": "cockpit lights ninety percent",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "configuration.lighting.cockpit",
+      "input": {
+        "value": 90
+      }
+    }
+  },
+  {
+    "file": "mach-082-zira.wav",
+    "spoken": "set mach point eight two",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.mach.set",
+      "input": {
+        "value": 0.82
+      }
+    }
+  },
+  {
+    "file": "negated-approach-zira.wav",
+    "spoken": "do not engage approach",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "compound-altitude-zira.wav",
+    "spoken": "set altitude thirteen thousand and fifteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "compound-lights-gear-zira.wav",
+    "spoken": "set cockpit lights twenty percent and gear down",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "negated-altitude-zira.wav",
+    "spoken": "do not set altitude fifteen thousand",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "unrelated-percent-zira.wav",
+    "spoken": "we have twenty percent left",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "lnav-engage-david.wav",
+    "spoken": "engage l nav",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.lnav.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "lnav-engage-spelled-david.wav",
+    "spoken": "engage l n a v",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.lnav.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "vnav-engage-david.wav",
+    "spoken": "engage v nav",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.vnav.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "vnav-engage-spelled-david.wav",
+    "spoken": "engage v n a v",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.vnav.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "engage-incomplete-david.wav",
+    "spoken": "engage",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "engage-a-incomplete-david.wav",
+    "spoken": "engage a",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "lnav-negated-david.wav",
+    "spoken": "do not engage l nav",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "vnav-negated-david.wav",
+    "spoken": "do not engage v nav",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "lnav-engage-zira.wav",
+    "spoken": "engage l nav",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.lnav.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "lnav-engage-spelled-zira.wav",
+    "spoken": "engage l n a v",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.lnav.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "vnav-engage-zira.wav",
+    "spoken": "engage v nav",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.vnav.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "vnav-engage-spelled-zira.wav",
+    "spoken": "engage v n a v",
+    "aircraft": "pmdg-737",
+    "expected": {
+      "commandId": "flightGuidance.vnav.engage",
+      "input": {}
+    }
+  },
+  {
+    "file": "engage-incomplete-zira.wav",
+    "spoken": "engage",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "engage-a-incomplete-zira.wav",
+    "spoken": "engage a",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "lnav-negated-zira.wav",
+    "spoken": "do not engage l nav",
+    "aircraft": "pmdg-737",
+    "expected": null
+  },
+  {
+    "file": "vnav-negated-zira.wav",
+    "spoken": "do not engage v nav",
+    "aircraft": "pmdg-737",
+    "expected": null
+  }
+]

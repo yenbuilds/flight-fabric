@@ -150,9 +150,6 @@ onUnmounted(() => {
       <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 class="text-sm font-semibold tracking-wide text-gray-100">System</h2>
-          <p class="mt-2 max-w-2xl text-sm leading-6 text-muted-fg">
-            {{ canInspectServices ? 'Service status, phone and tablet access, and flight-history maintenance.' : 'Connection status and phone or tablet access.' }}
-          </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button id="system-refresh-btn" type="button" class="ff-button-secondary px-3 py-2 text-xs" @click="refreshNow">
@@ -183,7 +180,6 @@ onUnmounted(() => {
         <div class="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <h3 class="text-lg font-semibold text-gray-100">Services</h3>
-            <p class="mt-1 text-sm text-muted-fg">Start, stop, and inspect the local FlightFabric runtime.</p>
           </div>
           <div class="flex shrink-0 flex-wrap gap-2">
             <button
@@ -312,7 +308,9 @@ onUnmounted(() => {
         <section id="system-mobile-access" class="settings-panel">
           <template v-if="canManageHost">
             <h3 class="settings-panel-title">Phone &amp; tablet</h3>
-            <p class="mt-2 text-sm text-muted-fg">Use another device for cockpit controls and flight instruments.</p>
+            <p class="mt-2 text-sm text-muted-fg">Can’t connect? Allow FlightFabric through your firewall on private networks.</p>
+            <p class="mt-2 text-sm text-muted-fg">After restarting FlightFabric, request a new code on your phone.</p>
+            <p v-if="systemHost.alternateIpsLabel" class="mt-2 break-all text-sm text-muted-fg">Other network addresses: {{ systemHost.alternateIpsLabel }}</p>
             <button id="system-mobile-settings-btn" type="button" class="ff-button-secondary mt-3" @click="openPhoneTabletSettings">Connect a phone or tablet</button>
           </template>
           <template v-else>

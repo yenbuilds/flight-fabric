@@ -247,6 +247,16 @@ export type AircraftCommandDefinition = Readonly<{
   }>;
 }>;
 
+// Publish short forms in the catalogue so voice, search, toolbar and generated
+// references share one contract. Only omit SET when a target remains explicit;
+// do not turn an incomplete switch name or procedure into an executable command.
+function withShortSettingPatterns(speech: AircraftCommandDefinition['speech']): AircraftCommandDefinition['speech'] {
+  if (!speech) return undefined;
+  const short = speech.patterns.filter(pattern => pattern.startsWith('set ') && pattern.includes('{value}'))
+    .map(pattern => pattern.slice(4));
+  return { ...speech, patterns: [...new Set([...speech.patterns, ...short])] };
+}
+
 type LegacyRequest = Readonly<{
   actionId?: string;
   control: string;
@@ -257,6 +267,8 @@ type LegacyRequest = Readonly<{
 
 export type AircraftCommandBinding = Readonly<{
   commandId: string;
+  label?: string;
+  speech?: AircraftCommandDefinition['speech'];
   input?: AircraftCommandInput;
   brightnessFields?: readonly string[];
   observations?: readonly Readonly<{
@@ -848,9 +860,33 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
         patterns: [
           'set cockpit lighting {value}',
           'set cockpit lights {value}',
-          'set all cockpit lights {value}',
         ],
+        example: 'cockpit lights fifty percent',
         hints: ['SET COCKPIT LIGHTING', 'COCKPIT LIGHTS'],
+      },
+    },
+    {
+      id: 'configuration.lighting.flood',
+      label: 'Flood and task lights',
+      description: 'Set the mapped flood, dome, map and task lights without changing panel backlighting or flight displays.',
+      group: 'presets', kind: 'preset',
+      input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
+      speech: {
+        patterns: ['set flood lighting {value}', 'set flood lights {value}', 'set cockpit flood lights {value}'],
+        example: 'flood lights zero percent',
+        hints: ['SET FLOOD LIGHTS', 'FLOOD LIGHTING'],
+      },
+    },
+    {
+      id: 'configuration.lighting.all',
+      label: 'All cockpit lights',
+      description: 'Set panel backlighting and flood/task lighting together, preserving flight-display brightness.',
+      group: 'presets', kind: 'preset',
+      input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
+      speech: {
+        patterns: ['set all cockpit lights {value}', 'set all cockpit lighting {value}'],
+        example: 'all cockpit lights fifty percent',
+        hints: ['SET ALL COCKPIT LIGHTS'],
       },
     },
     {
@@ -862,7 +898,9 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       speech: {
         patterns: ['set display brightness {value}', 'set flight displays {value}',
           'set all displays {value}', 'set all screens {value}', 'set cockpit screens {value}',
-          'set pfd brightness {value}', 'set all pfds {value}'],
+          'set pfd brightness {value}', 'set all pfds {value}',
+          'set displays {value}', 'set screens {value}'],
+        example: 'displays seventy five percent',
         hints: ['SET DISPLAY BRIGHTNESS', 'SET ALL SCREENS', 'SET ALL PFDS'],
       },
     },
@@ -996,12 +1034,18 @@ const AIRCRAFT_COMMAND_DEFINITIONS: Readonly<Record<string, AircraftCommandDefin
       'landingLeft', 'landingRight', 'landingNose', 'turnoffLeft', 'turnoffRight'].map((light) => {
       const name = ({ runwayTurnoff: 'runway turnoff', landingLeft: 'left landing', landingRight: 'right landing',
         landingNose: 'nose landing', turnoffLeft: 'left runway turnoff', turnoffRight: 'right runway turnoff' })[light] || light;
-      const names = name.includes('turnoff') ? [name, name.replace('turnoff', 'turn off')] : [name];
+      const originalNames = name.includes('turnoff') ? [name, name.replace('turnoff', 'turn off')] : [name];
+      const aliases = light === 'runwayTurnoff' ? ['turnoff', 'turn off', 'runway']
+        : light === 'turnoffLeft' ? ['left turnoff', 'left turn off']
+          : light === 'turnoffRight' ? ['right turnoff', 'right turn off'] : [];
+      const names = [...originalNames, ...aliases];
       const phrases = names.flatMap(name => [`${name} lights`, `${name} light`]);
-      const bare = ['landing', 'taxi', 'runwayTurnoff'].includes(light) ? phrases.map(phrase => `set ${phrase}`) : [];
+      const bare = ['landing', 'taxi', 'runwayTurnoff'].includes(light)
+        ? originalNames.flatMap(name => [`set ${name} lights`, `set ${name} light`]) : [];
       return ({
       id: `lights.${light}.set`,
       label: `${name[0].toUpperCase()}${name.slice(1)} lights`,
+      ...(light === 'runwayTurnoff' ? { description: 'Aircraft runway turnoff lights. “Runway lights” is a short voice alias for these lights.' } : {}),
       group: 'lights',
       input: BOOLEAN_INPUT,
       speech: {
@@ -2276,16 +2320,31 @@ export function resolveAircraftCommandConfiguration(profile: unknown): AircraftC
   const groups = cockpitLightingGroups(adapterId);
   if (groups.length === 0) return configuration;
   const bindings = [...configuration.bindings];
-  for (const target of ['cockpit', 'displays']) {
-    const selected = groups.filter(group => target === 'displays' ? group.displays : !group.displays);
+  const hasAmbient = groups.some(group => group.ambient);
+  for (const target of ['cockpit', 'flood', 'displays', 'all']) {
+    const selected = groups.filter(group => target === 'displays' ? group.displays
+      : target === 'flood' ? group.ambient
+        : target === 'all' ? !group.displays : !group.displays && !group.ambient);
     if (selected.length === 0) continue;
     const commandId = `configuration.lighting.${target}`;
     const brightnessFields = Object.freeze(selected.flatMap(group => [...group.fields]));
     bindings.push(Object.freeze({
       ...inputSequence(commandId, `${brightnessFields.length} dimmers · ${target === 'displays'
-        ? 'PFD, navigation and engine displays · cockpit lighting unchanged' : 'panel, flood and background lighting · flight displays unchanged'}`,
+        ? 'PFD, navigation and engine displays · cockpit lighting unchanged'
+        : target === 'flood' ? `${selected.map(group => group.label).join('; ')} · panel backlighting and flight displays unchanged`
+          : target === 'cockpit' && hasAmbient ? 'panel backlighting · flood/task lights and flight displays unchanged'
+            : 'panel, flood and background lighting · flight displays unchanged'}`,
       selected.map(group => ({ label: group.label, request: aircraftAction(group.actionId) }))),
       brightnessFields,
+      ...(target === 'cockpit' && hasAmbient ? {
+        label: 'Panel backlighting',
+        speech: {
+          patterns: ['set cockpit lighting {value}', 'set cockpit lights {value}',
+            'set panel lighting {value}', 'set panel backlighting {value}', 'set panel lights {value}'],
+          example: 'panel lights fifty percent',
+          hints: ['SET PANEL BACKLIGHTING', 'SET COCKPIT LIGHTING'],
+        },
+      } : {}),
     }));
   }
   return Object.freeze({ id: adapterId, bindings: Object.freeze(bindings) });
@@ -2409,7 +2468,8 @@ export function resolveAircraftCommandRequest(rawRequest: unknown, profile: unkn
       configurationId: configuration.id,
     };
   }
-  const definition = AIRCRAFT_COMMAND_DEFINITIONS[request.commandId];
+  const definition = { ...AIRCRAFT_COMMAND_DEFINITIONS[request.commandId],
+    ...(binding.label ? { label: binding.label } : {}), ...(binding.speech ? { speech: binding.speech } : {}) };
   const normalizedInput = normalizeCommandInput(definition, binding, request.input);
   if (normalizedInput.ok === false) {
     return {
@@ -2513,14 +2573,14 @@ export function buildAircraftCommandCatalogue(
     }
     const descriptor = {
       id: definition.id,
-      label: definition.label,
+      label: binding.label || definition.label,
       group: definition.group,
       kind: definition.kind || 'action',
       input: inputContract,
       ...(binding.kind === 'sequence' || binding.kind === 'input-sequence' || binding.kind === 'choice-sequence'
         ? { description: binding.description }
         : (definition.description ? { description: definition.description } : {})),
-      ...(definition.speech ? { speech: definition.speech } : {}),
+      ...((binding.speech || definition.speech) ? { speech: withShortSettingPatterns(binding.speech || definition.speech) } : {}),
       ...(binding.observations ? { observations: binding.observations } : {}),
       ...(binding.brightnessFields ? { brightnessFields: binding.brightnessFields } : {}),
     };

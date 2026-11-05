@@ -118,7 +118,13 @@ export function formatAviationReadback(match = {}) {
     return `Autobrake ${value === 'rto' ? 'R T O' : String(value)} set.`;
   }
   if (commandId === 'configuration.lighting.cockpit') {
-    return `Cockpit lighting ${String(value)} percent set.`;
+    return `${label === 'Panel backlighting' ? label : 'Cockpit lighting'} ${String(value)} percent set.`;
+  }
+  if (commandId === 'configuration.lighting.flood') {
+    return `Flood and task lights ${String(value)} percent set.`;
+  }
+  if (commandId === 'configuration.lighting.all') {
+    return `All cockpit lights ${String(value)} percent set.`;
   }
   if (commandId === 'configuration.lighting.displays') {
     return `Flight displays ${String(value)} percent set.`;

@@ -10,17 +10,19 @@ const props = defineProps({
   embedded: { type: Boolean, default: false },
 });
 const controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
-const draft = reactive({ cockpit: '50', displays: '75' });
+const defaults = { cockpit: '50', flood: '0', displays: '75', all: '50' };
+const draft = reactive({ ...defaults });
 const now = ref(Date.now()), sending = ref(false);
 const id = target => `configuration.lighting.${target}`;
 const command = target => controls.getAircraftCommand(id(target));
-const targets = computed(() => (props.displaysOnly ? ['displays'] : ['cockpit', 'displays']).filter(target => command(target)));
+const targets = computed(() => (props.displaysOnly ? ['displays']
+  : ['cockpit', 'flood', 'displays', 'all']).filter(target => command(target)));
 const context = computed(() => `${controls.aircraftCommandCatalogue.profileKey}:${controls.aircraftCommandCatalogue.profileRevision}`);
-watch(context, () => { draft.cockpit = '50'; draft.displays = '75'; sending.value = false; });
+watch(context, () => { Object.assign(draft, defaults); sending.value = false; });
 let timer;
 onMounted(() => { timer = setInterval(() => { now.value = Date.now(); }, 500); });
 onUnmounted(() => clearInterval(timer));
-const busy = computed(() => sending.value || ['cockpit', 'displays'].some(target => controls.isCommandPending(`aircraft-command:${id(target)}`)));
+const busy = computed(() => sending.value || Object.keys(defaults).some(target => controls.isCommandPending(`aircraft-command:${id(target)}`)));
 const freshContext = computed(() => specific.available && specific.sourceStatus === 'connected'
   && specific.activeProfileKey === controls.aircraftCommandCatalogue.profileKey
   && specific.activeProfileRevision === controls.aircraftCommandCatalogue.profileRevision);
@@ -53,8 +55,9 @@ async function apply(target) {
   try { return await controls.requestControlCommand({ type: 'canonical', commandId: id(target), input: { value: value(target) } }); }
   finally { if (context.value === sentContext) sending.value = false; }
 }
-const label = target => brightnessLabel(id(target));
-const voice = target => target === 'cockpit' ? 'set cockpit lighting fifty percent' : 'set display brightness seventy five percent';
+const label = target => brightnessLabel(id(target), Boolean(command('flood')));
+const voice = target => command(target)?.speech?.example || ({ cockpit: command('flood') ? 'panel lights fifty percent' : 'cockpit lights fifty percent', flood: 'flood lights zero percent',
+  displays: 'displays seventy five percent', all: 'all cockpit lights fifty percent' })[target];
 </script>
 
 <template>
@@ -62,10 +65,17 @@ const voice = target => target === 'cockpit' ? 'set cockpit lighting fifty perce
     aria-label="Cockpit brightness presets" data-cockpit-lighting-presets>
     <h2 v-if="!displaysOnly && !embedded" class="text-sm font-semibold text-gray-100">Cockpit lighting</h2>
     <p v-if="!embedded" class="mb-3 text-xs leading-relaxed text-gray-400" :class="{ 'mt-1': !displaysOnly }">
-      Adjust cockpit lighting and flight-display brightness independently.
+      {{ command('flood') ? 'Adjust panel backlighting, flood/task lights and flight displays independently.'
+        : 'Adjust cockpit lighting and flight-display brightness independently.' }}
     </p>
     <div class="grid gap-3" :class="{ 'lg:grid-cols-2': targets.length > 1 }">
-      <form v-for="target in targets" :key="target" class="min-w-0 rounded border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
+      <component :is="target === 'all' ? 'details' : 'div'" v-for="target in targets" :key="target"
+        :data-lighting-combined="target === 'all' ? '' : undefined"
+        :class="target === 'all' ? 'min-w-0 lg:col-span-2' : 'min-w-0'">
+        <summary v-if="target === 'all'" class="cursor-pointer rounded py-3 text-sm text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400">
+          Set panel and flood/task lights together
+        </summary>
+      <form class="min-w-0 rounded border border-cyan-400/25 bg-cyan-400/[0.06] p-3"
         :data-lighting-preset="target" :data-aircraft-preset="id(target)" tabindex="-1" @submit.prevent="apply(target)">
         <div class="flex items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-gray-100">{{ label(target) }}</h3>
@@ -90,6 +100,7 @@ const voice = target => target === 'cockpit' ? 'set cockpit lighting fifty perce
         <p class="mt-2 text-xs text-gray-400">Say “{{ voice(target) }}”</p>
         <p v-if="reason(target)" :id="`lighting-${target}-reason`" class="mt-2 text-xs text-amber-300" role="status">{{ reason(target) }}</p>
       </form>
+      </component>
     </div>
   </section>
 </template>

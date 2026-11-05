@@ -37,6 +37,10 @@ writer.writeSample = sample => {
   return accepted;
 };
 eventBus.on('telemetry:position', () => { if (!writer.isRecording()) counts.inactivePositions++; });
+let latestFlightTime: any = null;
+let latestRecordingStatus: any = null;
+eventBus.on('telemetry:flightTime', message => { latestFlightTime = message; });
+eventBus.on('telemetry:flightRecording', message => { latestRecordingStatus = message; });
 // Use the same authorized message callback and handlers as the UI. The fake
 // client avoids network timing; server and recording lifecycle remain real.
 const bootstrap = require(runtime('core/ws-bootstrap.js'));
@@ -62,6 +66,9 @@ runSimbridgeCore({
       if (tick === 40) {
         if (mode === 'manual') {
           assert.equal(writer.isRecording(), false);
+          assert.equal(latestRecordingStatus?.status, 'stopped', 'automatic recording off must report a stopped recorder');
+          assert.ok(latestFlightTime?.elapsedSec > 0, 'live flight time must advance independently of recording');
+          assert.equal(counts.initialWrites, 0, 'the advancing flight timer must not save samples before manual start');
           await command('startRecording');
         }
         assert.equal(writer.isRecording(), true, 'automatic or manual start must activate the real recorder');

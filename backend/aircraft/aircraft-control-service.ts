@@ -1853,7 +1853,7 @@ async function executeAircraftCommandSteps(
   };
 }
 
-// Global and display-only presets touch the same knobs. Hold one lock for the
+// Lighting presets can overlap. Hold one lock for the
 // complete recipe, including the gap between its individually guarded steps.
 const lightingPresetProviders = new WeakSet<object>();
 const exteriorLightProviders = new WeakSet<object>();
@@ -1864,7 +1864,7 @@ async function executeAircraftCommand(
 ): Promise<GenericRecord> {
   const commandId = (rawRequest as GenericRecord | null)?.commandId;
   const exterior = typeof commandId === 'string' && (commandId.startsWith('lights.') || commandId.startsWith('configuration.lights.'));
-  if (!provider || (!exterior && !['configuration.lighting.cockpit', 'configuration.lighting.displays'].includes(commandId))) {
+  if (!provider || (!exterior && !(typeof commandId === 'string' && commandId.startsWith('configuration.lighting.')))) {
     return executeAircraftCommandSteps(provider, rawRequest, options);
   }
   const inFlight = exterior ? exteriorLightProviders : lightingPresetProviders;

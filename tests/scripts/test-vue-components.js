@@ -538,7 +538,7 @@ async function main() {
         integrationTransports: ['sdk', 'simconnect-sequence', 'lvar', 'mobiflight-calculator'] } });
     const controls = useAircraftControlsStore(), specific = useAircraftSpecificStore();
     controls.applyControlCapabilities(capability); controls.setAvailability({ enabled: scenario !== 'viewer' });
-    const fields = ['cockpit', 'displays'].flatMap(target =>
+    const fields = ['cockpit', 'flood', 'displays'].flatMap(target =>
       controls.getAircraftCommand(`configuration.lighting.${target}`)?.brightnessFields || []);
     const updatedAt = new Date().toISOString();
     const values = Object.fromEntries(fields.map(field => [field, 50]));
@@ -556,18 +556,18 @@ async function main() {
     return { controls, specific, fields };
   }
 
-  await test('cockpit brightness presets expose two controls with independent live readings on every mapped family', async () => {
+  await test('cockpit brightness presets expose separate groups with independent live readings on every mapped family', async () => {
     for (const id of ['pmdg-737', 'pmdg-777', 'fenix-a319', 'fenix-a320', 'fenix-a321', 'fbw-a32nx', 'fbw-a380x', 'headwind-a330', 'inibuilds-a350-900', 'inibuilds-a350-1000']) {
       for (const scenario of ['ready', 'mixed', 'stale', 'missing', 'disconnected', 'viewer', 'pending', 'other-profile']) {
         const { html } = await renderComponent(path.join('src', 'vue', 'components', 'CockpitLightingPresets.vue'), () => configureLighting(id, scenario));
         const buttons = html.match(/<button[^>]*data-aircraft-command="configuration\.lighting\.[^"]+"[^>]*>/g) || [];
-        assert.equal(buttons.length, 2, `${id}: both settings must be visible`);
+        assert.equal(buttons.length, id.startsWith('pmdg-') ? 3 : 4, `${id}: only mapped settings render`);
         for (const button of buttons) {
           const allowed = ['ready', 'mixed'].includes(scenario)
-            || (['missing', 'stale'].includes(scenario) && button.includes('configuration.lighting.cockpit'));
+            || (['missing', 'stale'].includes(scenario) && !button.includes('configuration.lighting.displays'));
           assert.equal(/\sdisabled(?:\s|=|>)/.test(button), !allowed, `${id}: ${scenario}`);
         }
-        assert.match(html, /All flight displays/); assert.match(html, /set display brightness seventy five percent/);
+        assert.match(html, /All flight displays/); assert.match(html, /displays seventy five percent/);
         if (scenario === 'mixed') assert.match(html, /data-lighting-current="displays">Mixed</);
         if (scenario === 'ready') assert.match(html, /data-lighting-current="displays">50%</);
       }
@@ -603,14 +603,19 @@ async function main() {
       const input = label => nodes.find(node => node.props['aria-label'] === label);
       const button = target => nodes.find(node => node.props['data-aircraft-command'] === `configuration.lighting.${target}`);
       const submit = target => form(target).props.onSubmit({ preventDefault() {} });
-      input('Cockpit lighting percentage').props['onUpdate:modelValue']('40');
+      input('Panel backlighting percentage').props['onUpdate:modelValue']('40');
       input('All flight displays percentage').props['onUpdate:modelValue']('80');
       await nextTick(); const first = submit('cockpit'); await nextTick();
-      assert.equal(button('displays').props.disabled, true);
-      await submit('displays'); assert.equal(sent.length, 1);
+      for (const target of ['flood', 'displays', 'all']) {
+        assert.equal(button(target).props.disabled, true);
+        await submit(target); assert.equal(sent.length, 1);
+      }
       release(); await first; await nextTick();
       const displays = controls.getAircraftCommand('configuration.lighting.displays').brightnessFields;
       for (const field of displays) assert.equal(specific.values[field], 50, 'cockpit lighting preserves screens');
+      for (const field of controls.getAircraftCommand('configuration.lighting.flood').brightnessFields) {
+        assert.equal(specific.values[field], 50, 'panel lighting leaves flood/task dimmers alone');
+      }
       await submit('displays'); await nextTick();
       assert.deepEqual(sent, [
         { type: 'canonical', commandId: 'configuration.lighting.cockpit', input: { value: 40 } },
@@ -625,7 +630,7 @@ async function main() {
         assert.equal(button('displays').props.disabled, true); await submit('displays'); assert.equal(sent.length, 2);
       }
       input('All flight displays percentage').props['onUpdate:modelValue']('70');
-      controls.setCommandPending({ type: 'canonical', commandId: 'configuration.lighting.cockpit', input: { value: 30 } });
+      controls.setCommandPending({ type: 'canonical', commandId: 'configuration.lighting.flood', input: { value: 30 } });
       await nextTick(); assert.equal(button('displays').props.disabled, true, 'a voice preset blocks the page during execution');
       await submit('displays'); assert.equal(sent.length, 2);
     } finally { app.unmount(); globalThis.Document = savedDocument; globalThis.ShadowRoot = savedShadowRoot; }
@@ -1589,7 +1594,6 @@ async function main() {
     assert.match(html, /settings file/, 'settings explanatory copy should render');
     assert.doesNotMatch(html, /id="setting-aircraft-profile"/, 'settings should not duplicate the compact profile correction selector');
     assert.doesNotMatch(html, /id="settings-aircraft-profile-tools"/, 'settings should not expose profile file mutation tools');
-    assert.match(html, /automatically detects your aircraft/, 'settings should explain automatic aircraft matching');
     assert.doesNotMatch(html, /id="settings-manage-profiles-btn"/, 'settings should not link to a retired Profiles workspace');
     assert.doesNotMatch(html, /FSX_SP2|FSX \/ P3D/, 'settings should not advertise the removed legacy simulator path');
     assert.match(
@@ -1601,20 +1605,19 @@ async function main() {
     assert.match(html, /id="settings-phone-tablet-access"/, 'settings should give phone and tablet access a prominent dedicated section');
     assert.match(html, /Use FlightFabric on phones and tablets/, 'settings should frame remote access around the second-screen use case');
     assert.match(html, /Advanced network ports/, 'advanced settings should retain only the uncommon port controls');
-    assert.match(html, /style="display:none;"[^>]*>[\s\S]*id="setting-remote-aircraft-control"/, 'aircraft-control input stays mounted but hidden until access is enabled');
+    assert.match(html, /id="setting-remote-aircraft-control"[^>]*disabled/, 'paired-control preference remains discoverable but disabled until phone access is enabled');
     assert.match(html, /Check for app updates/, 'settings panel should expose update checks');
     assert.match(html, /Use online map tiles/, 'settings panel should expose online map tile control');
     assert.match(html, /Automatically start recording flights/, 'settings panel should expose automatic recording control');
     assert.match(
       html,
-      /aria-describedby="setting-recording-auto-start-help"[\s\S]*id="setting-recording-auto-start-help"[\s\S]*Starts recording when a flight is detected\. Recordings are stored locally and can be deleted from the Logbook\./,
-      'automatic recording control should explain its trigger, local storage, and deletion path',
+      /aria-describedby="setting-recording-auto-start-help"[\s\S]*id="setting-recording-auto-start-help"[\s\S]*Saved on this PC\. Manage recordings in Logbook\./,
+      'automatic recording control should explain local storage and where to manage recordings',
     );
-    assert.match(html, /id="setting-cabin-announcements-warning"[\s\S]*Experimental[\s\S]*timing can vary/, 'cabin audio panel should describe the phase-triggered PA audio timing limitation professionally');
+    assert.match(html, /id="setting-cabin-announcements-warning"[\s\S]*Experimental[\s\S]*Announcements may be missed or repeated/, 'cabin audio panel should describe the experimental timing limitation');
     assert.doesNotMatch(html, /settings-debug-panel|setting-debug-mode|Backend Debug Logging/, 'settings should not expose backend debug logging');
-    assert.match(html, /Use only on a private network you trust\./, 'remote access help should warn against public or shared networks');
-    assert.match(html, /after startup and then daily/, 'update checks help should describe low-cadence checks');
-    assert.match(html, /Turn this off for a fully quiet app\./, 'update checks help should describe quiet-app behavior');
+    assert.match(html, /Same trusted private network/, 'remote access setup should retain the same trusted-network requirement');
+    assert.match(html, /at startup and daily/, 'update checks help should describe low-cadence checks');
     assert.match(html, /OpenStreetMap/, 'online map help should identify the basemap provider');
     assert.match(html, /standard labeled basemap/, 'online map help should identify the labeled map style');
     assert.match(html, /Turn this off to avoid third-party map traffic/, 'online map help should describe third-party map traffic');
@@ -1671,7 +1674,7 @@ async function main() {
 
     assert.match(html, /id="setting-remote-aircraft-control"/, 'trusted LAN settings should expose aircraft control separately');
     assert.match(html, /Allow aircraft controls on paired devices/);
-    assert.match(html, /Pairing grants aircraft controls, not access to your settings or recordings/);
+    assert.match(html, /Paired devices can’t access your settings or recordings/);
   });
 
   await test('SettingsActionBar renders store-backed action labels, restart state, and save flash state', async () => {
@@ -2159,7 +2162,7 @@ async function main() {
       assert.match(html, /Your aircraft, at your fingertips/, 'guide should make repeat-flight behavior explicit');
       assert.match(html, /New flights appear automatically/, 'guide should tell users a new flight needs no scan');
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Viewer mode\s*</, 'guide should expose the current read-only state');
-      assert.match(html, /Approve the matching code in Settings → Devices on your PC/, 'read-only guidance should explain the camera-less approval path');
+      assert.match(html, /Approve the matching code in the prompt on your FlightFabric PC/, 'read-only guidance should explain the camera-less approval path');
     } finally {
       delete globalThis.location;
     }
@@ -2180,9 +2183,7 @@ async function main() {
       );
 
       assert.match(html, /id="second-screen-control-status"[^>]*>\s*Controls ready\s*</, 'paired phone should expose its acknowledged control state');
-      assert.match(html, /Access lasts until the FlightFabric service restarts/, 'paired guidance should retain the backend-session security lifetime');
-      assert.match(html, /Voice uses the microphone on your PC/, 'paired guidance should say when another approval is required');
-      assert.match(html, /request a new code here or scan the current QR in Settings \u2192 Devices/, 'paired guidance should retain both secure recovery paths');
+      assert.match(html, /After restarting FlightFabric, request a new pairing code\./, 'paired guidance should explain when a new code is needed');
     } finally {
       delete globalThis.location;
     }
@@ -2242,7 +2243,7 @@ async function main() {
 
       assert.match(html, /id="device-pairing-request"/, 'remote viewer should render the pairing action');
       assert.match(html, /Enable controls on this device/, 'pairing action should explain the safe initial state');
-      assert.match(html, /approve it in/, 'pairing action should explain the PC verification step');
+      assert.match(html, /approve its matching code in the prompt/, 'pairing action should explain the PC verification step');
       assert.match(html, /id="device-pairing-request-btn"/, 'pairing action should expose one clear request button');
       assert.doesNotMatch(html, /aircraftControlToken=/, 'camera-free pairing UI must not render a bearer token');
     } finally {
@@ -2318,8 +2319,8 @@ async function main() {
       assert.doesNotMatch(html, /fixture-aircraft-token/, 'private token is not printed or exposed to assistive technology');
       if (active) {
         assert.match(html, /http:\/\/192\.168\.1\.42:8100\/phone/);
-        assert.match(html, /Enter an address instead/);
-        assert.match(html, /Scan to connect this device with aircraft controls/);
+        assert.match(html, /Or enter this address/);
+        assert.match(html, /Scan to connect your phone to FlightFabric/);
         assert.equal((html.match(/role="img"/g) || []).length, 1);
       } else {
         assert.match(html, /Your choices are saved. Restart FlightFabric/);
@@ -2822,10 +2823,15 @@ async function main() {
           inFlightContext: true,
         });
         status.ingestMessage({ type: 'flightRecording', status: 'stopped' });
+        status.ingestMessage({ type: 'flightTime', elapsedHms: '00:18:25' });
       },
     );
 
     assert.match(html, /id="start-recording-btn"/, 'manual start-recording action should render when it is available');
+    assert.match(html, /id="recording-indicator"[^>]*class="hidden"/, 'an advancing flight timer must not imply that recording is active');
+    assert.match(html, /Flight time<\/span>/, 'the running clock must identify flight time separately from recording');
+    assert.match(html, /id="flight-time"[^>]*>00:18:25</, 'flight time remains visible while recording is stopped');
+    assert.match(html, /This timer runs even when recording is off/, 'the clock must explain its independent meaning');
   });
 
   await test('AppHeader hides the manual start-recording action when simulator telemetry is disconnected', async () => {
@@ -3436,8 +3442,8 @@ async function main() {
     assert.match(html, /MSFS 2024 toolbar panel/, 'section title should render');
     assert.match(html, /id="toolbar-panel-desktop-only"/, 'browser sessions should be told to use the desktop app');
     assert.doesNotMatch(html, /data-toolbar-action="install"/, 'no install action without the desktop bridge');
-    assert.match(html, /same presets as the Aircraft page/, 'copy should describe the matching preset controls');
-    assert.match(html, /no settings, recording or logbook access/, 'copy should state the limited toolbar access');
+    assert.match(html, /Flight plans, aircraft controls and voice status inside MSFS/, 'copy should explain the toolbar feature');
+    assert.match(html, /Settings, recordings and Logbook stay in the desktop app/, 'copy should state the limited toolbar access');
   });
 
   await test('ToolbarPanelSettingsPanel renders installer rows, actions and restart notice from the store', async () => {
@@ -4860,7 +4866,8 @@ async function main() {
     const operational = await renderComponent(path.join('src', 'vue', 'components', 'VoiceControlPanel.vue'));
     assert.doesNotMatch(operational.html, /data-voice-push-to-talk/, 'operational PTT stays off until explicit opt-in');
     assert.doesNotMatch(operational.html, /data-voice-settings-link/, 'remote browsers must not offer a link to unavailable local settings');
-    assert.match(operational.html, /Speak into the microphone connected to your simulator PC/);
+    assert.match(operational.html, /Voice input is available in the desktop app/);
+    assert.doesNotMatch(operational.html, /data-mobile-voice-control|data-mobile-voice-setup|Download certificate/);
     assert.match(html, /id="voice-input-device"[^>]*disabled/, 'microphone selection should be disabled while recognition is off');
     assert.match(html, /data-voice-shortcut-recorder[^>]*disabled/, 'shortcut capture should be disabled while recognition is off');
     assert.match(
@@ -5855,18 +5862,7 @@ async function main() {
     }
     assert.match(html, /data-watermark-symbol="aircraft-terrain-range"/, 'radio altitude should use a recognizable aircraft-to-terrain range symbol');
     assert.match(html, /data-watermark-symbol="ground-track-vector"/, 'ground speed should use a directional ground-track vector');
-    assert.match(html, /<details id="flight-altitude-diagnostics"/, 'altitude diagnostics should render as a disclosure');
-    assert.doesNotMatch(html, /<details id="flight-altitude-diagnostics"[^>]*\sopen(?:\s|>)/, 'altitude diagnostics should be collapsed by default');
-    assert.match(html, /<summary id="flight-altitude-diagnostics-toggle"/, 'altitude diagnostics should expose a native keyboard-accessible toggle');
-    assert.match(html, /id="flight-altitude-diagnostics-grid"/, 'altitude diagnostic grid should render');
-    assert.match(html, /id="alt-diag-indicated-value"[^>]*>3,450</, 'explicit cockpit indication should render');
-    assert.match(html, /id="alt-diag-calibrated-value"[^>]*>3,299</, 'calibrated indication should render');
-    assert.match(html, /id="alt-diag-plane-value"[^>]*>3,295</, 'MSFS plane altitude should render');
-    assert.match(html, /id="alt-diag-pressure-value"[^>]*>3,561</, 'pressure altitude should render');
-    assert.match(html, /id="alt-diag-obstacles-value"[^>]*>155</, 'obstacle-relative altitude should render');
-    assert.match(html, /id="alt-diag-baro-effective-value"[^>]*>1013.25</, 'effective barometer should render');
-    assert.match(html, /id="alt-diag-baro-tuned-value"[^>]*>1008.40</, 'tuned barometer should render');
-    assert.match(html, /id="alt-diag-baro-mode-value"[^>]*>STD</, 'STD mode should render');
+    assert.doesNotMatch(html, /flight-altitude-diagnostics|alt-diag-/, 'Flight should no longer render the altitude diagnostics section');
     assert.match(html, /id="hdg-value"[^>]*>087</, 'heading should be padded');
     assert.match(html, /id="xwind-value"[^>]*text-danger[^>]*>16</, 'crosswind tone should render');
     assert.match(html, /id="fuel-unit-btn"[^>]*>kg</, 'fuel unit button should render selected unit');

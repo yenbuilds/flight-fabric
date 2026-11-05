@@ -584,14 +584,18 @@ async function runSecondScreenSetupSmoke(windowRef) {
     instructions: document.getElementById('settings-phone-tablet-access')?.textContent || '',
     qrLabel: document.querySelector('#phone-setup-qr svg')?.getAttribute('aria-label') || '',
     qrCount: document.querySelectorAll('#settings-phone-tablet-access [role="img"]').length,
+    microphoneActions: document.querySelectorAll('[data-mobile-voice-setup], [data-phone-voice-access], a[href*="/mobile-voice/ca.cer"]').length,
   }))();`);
   assert.ok(setup.phoneUrl.includes('/phone'), 'Phone setup should render the short camera-free address');
   assert.ok(!setup.phoneUrl.includes('aircraftControlToken='), 'readable phone address should not expose the current-session token');
   assert.equal(setup.qrCount, 1, 'Phone setup should offer exactly one QR choice');
-  assert.ok(setup.instructions.includes('New flights appear automatically') && setup.instructions.includes('After restarting FlightFabric'), 'Phone setup should distinguish new flights from backend restarts');
-  assert.equal(setup.qrLabel, 'Scan to connect this device with aircraft controls', 'phone QR should have a useful label without exposing its credential');
+  assert.match(setup.instructions, /Request aircraft controls/, 'phone setup still explains how to request controls');
+  assert.match(setup.instructions, /matching code/, 'phone setup retains explicit desktop approval');
+  assert.equal(setup.microphoneActions, 0, 'built app has no phone microphone activation or certificate download');
+  assert.equal(setup.qrLabel, 'Scan to connect your phone to FlightFabric', 'phone QR is the single connection entry point');
 
-  await click(windowRef, "document.querySelector('[data-phone-address-toggle]')", 'Enter an address instead');
+  assert.ok(await evaluate(windowRef, `document.getElementById('phone-setup-address').getClientRects().length > 0
+    && document.querySelector('[data-phone-copy]').getClientRects().length > 0`), 'phone address and copy action are visible without expansion');
   await click(windowRef, "document.querySelector('[data-phone-copy]')", 'Copy phone link button');
   await waitFor(
     windowRef,
@@ -635,6 +639,10 @@ async function assertRemoteSecondScreenGuideLayout(windowRef) {
   assert.notEqual(phoneResult.display, 'none', 'paired phone should offer the short Controls orientation');
   assert.ok(phoneResult.width > 0 && phoneResult.height > 0, 'paired phone guidance should be visible');
   assert.ok(phoneResult.pageWidth <= phoneResult.viewportWidth + 2, 'phone guidance should not introduce horizontal overflow');
+  assert.equal(await evaluate(windowRef, `document.querySelectorAll('[data-mobile-voice-setup], [data-phone-voice-start], [data-phone-voice-download]').length`), 0,
+    'built remote page offers no microphone or certificate setup');
+  assert.equal(await evaluate(windowRef, `performance.getEntriesByType('resource').filter(entry => /\\/(?:api\\/)?mobile-voice(?:\\/|$)/.test(new URL(entry.name).pathname)).length`), 0,
+    'production phone runtime never contacts the deferred microphone service');
 
   await setContentSizeAndWait(windowRef, 700, 900, 'remote compact tablet');
   await waitFor(
@@ -665,7 +673,8 @@ async function assertRemoteSecondScreenGuideLayout(windowRef) {
   assert.ok(result.pageWidth <= result.viewportWidth + 2, 'second-screen guide should not introduce horizontal overflow');
   assert.ok(result.dismissWidth >= 44 && result.dismissHeight >= 44, 'second-screen guide dismissal should keep a 44px touch target');
   assert.ok(result.text.includes('New flights appear automatically'), 'phone guidance should explain that a new flight needs no scan');
-  assert.ok(result.text.includes('service restarts') && result.text.includes('Settings → Devices'), 'phone guidance should explain pairing lifetime and the PC setup destination');
+  assert.ok(result.text.includes('restarting FlightFabric') && result.text.includes('new pairing code'),
+    'paired phone guidance explains how to restore access after restart');
 
   await click(windowRef, "document.getElementById('second-screen-guide-dismiss')", 'second-screen guide dismissal');
   await waitFor(windowRef, "!document.getElementById('second-screen-guide')", 'dismissed second-screen guide');
@@ -2115,11 +2124,11 @@ async function runFixedNavigationSmoke(windowRef) {
     actions: [...document.querySelectorAll('.desktop-tab:not([data-tab])')].map(button => button.getAttribute('aria-label')),
     mobile: [...document.querySelectorAll('.mobile-tab[data-tab]')].map(tab => tab.dataset.tab),
     stored: localStorage.getItem('ff_workspace_v1'),
-    overviewActive: document.getElementById('tab-flight')?.classList.contains('active') === true,
+    mapActive: document.getElementById('tab-livemap')?.classList.contains('active') === true,
   }))();`);
   assert.equal(result.retired, false, 'fresh startup offers no workspace picker, selector or suggestion');
   assert.equal(result.stored, null, 'startup must not create a retired workspace preference');
-  assert.equal(result.overviewActive, true, 'fresh startup retains Overview');
+  assert.equal(result.mapActive, true, 'fresh startup opens the live map');
   assert.deepEqual(result.tabs, ['autopilot', 'livemap', 'dispatch', 'timeline', 'settings', 'system']);
   assert.deepEqual(result.actions, ['Setup', 'Connect a phone or tablet'], 'permanent setup actions should remain available alongside page routes');
   assert.deepEqual(result.mobile, ['livemap', 'autopilot', 'dispatch', 'timeline']);
@@ -2372,10 +2381,32 @@ async function runSupportSmoke(windowRef) {
 }
 
 async function runSmoke(windowRef) {
+  if (process.env.FF_BROWSER_SMOKE_SIMBRIEF_ONLY === '1') {
+    const scope = process.env.FF_BROWSER_SMOKE_SIMBRIEF_SCOPE || 'full-control';
+    const stores = "document.getElementById('vue-app-root').__vue_app__.config.globalProperties.$pinia._s";
+    const authorized = `${stores}.get('profiles').authorizationScope === ${JSON.stringify(scope)} && ${stores}.get('profiles').authorizationAcknowledged`;
+    // The real connection opens before its scope acknowledgement, unlike the
+    // pre-authorized workbench fixture. Exercise both initial load and reconnect.
+    await waitFor(windowRef, authorized, 'initial SimBrief session authorization');
+    await waitFor(windowRef, `${stores}.get('simbrief').plan?.destination === 'KBOS'`, 'restored briefing');
+    await selectFlightView(windowRef, 'livemap');
+    await waitFor(windowRef, `document.getElementById('live-map-target-primary').textContent.startsWith('KBOS - ')`, 'restored map route');
+    await click(windowRef, "document.querySelector('.desktop-tab[data-tab=\"dispatch\"]')", 'SimBrief tab');
+    await click(windowRef, "document.getElementById('sb-fetch-btn')", 'fetch the newer OFP through HTTP');
+    await waitFor(windowRef, "document.getElementById('sb-dest').textContent === 'KJFK'", 'new SimBrief destination');
+    await selectFlightView(windowRef, 'livemap');
+    await waitFor(windowRef, `document.getElementById('live-map-target-primary').textContent.startsWith('KJFK - ')`, 'map follows the newly fetched OFP');
+    assert.equal(await evaluate(windowRef, "document.getElementById('dest-progress-label').textContent"), 'From CYHZ RWY 23 -> To KJFK RWY 22L');
+    console.log('[smoke-control] disconnect-now');
+    await waitFor(windowRef, `${stores}.get('status').websocket === 'disconnected'`, 'SimBrief socket disconnect');
+    await waitFor(windowRef, authorized, 'SimBrief reconnect authorization');
+    await waitFor(windowRef, `${stores}.get('liveMap').targetInput === 'KJFK' && ${stores}.get('liveMap').originInput === 'CYHZ'`, 'new route after reconnect');
+    return;
+  }
   await waitFor(
     windowRef,
-    "document.getElementById('tab-flight')?.classList.contains('active')",
-    'Overview as the initial workspace',
+    "document.getElementById('tab-livemap')?.classList.contains('active')",
+    'live map as the initial workspace',
   );
   await runFixedNavigationSmoke(windowRef);
   if (process.env.FF_BROWSER_SMOKE_SUPPORT_ONLY === '1') {

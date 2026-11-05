@@ -175,14 +175,14 @@ onUnmounted(() => {
       <SetupIllustration kind="phone" class="!w-16 !h-14" />
       <div class="min-w-0 flex-1" aria-live="polite">
         <h2 id="device-pairing-title" class="text-sm font-semibold text-fg">Enable controls on this device</h2>
-        <p v-if="(status === 'idle' || status === 'requesting') && backendReady" id="device-pairing-intro" class="mt-1 text-xs leading-5 text-muted-fg">Get a code here, then approve it in <strong class="font-medium text-gray-200">Settings → Devices</strong> on your PC.</p>
+        <p v-if="(status === 'idle' || status === 'requesting') && backendReady" id="device-pairing-intro" class="mt-1 text-xs leading-5 text-muted-fg">Get a code here, then approve its matching code in the prompt on your FlightFabric PC.</p>
         <p v-else-if="(status === 'idle' || status === 'requesting') && !backendReady" id="device-pairing-connecting" class="mt-1 text-xs leading-5 text-muted-fg">Waiting for the FlightFabric PC. Pairing will be available when this dashboard connects.</p>
         <template v-if="isPending">
           <div class="mt-3 rounded border border-primary/30 bg-panel/70 p-3">
             <div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-fg">Match this code on the PC</div>
             <div id="device-pairing-code" class="mt-1 font-mono text-3xl font-semibold tracking-[0.2em] text-primary" :aria-label="`Pairing code ${confirmationCode.split('').join(' ')}`">{{ confirmationCode }}</div>
           </div>
-          <p class="mt-2 text-xs leading-5 text-gray-200">In <strong class="font-medium">Settings → Devices</strong> on the PC, find the same code and choose <strong class="font-medium">Approve controls</strong>.</p>
+          <p class="mt-2 text-xs leading-5 text-gray-200">On your PC, choose <strong class="font-medium">Approve controls</strong> in the prompt showing this code. If you closed it, open <strong class="font-medium">Connect phone → Review requests</strong>.</p>
           <p class="mt-1 text-xs leading-5 text-muted-fg">Waiting for approval · expires in {{ remainingLabel }}</p>
           <p v-if="pollInterrupted" id="device-pairing-poll-warning" class="mt-2 text-xs leading-5 text-warning">Connection interrupted. FlightFabric will keep checking.</p>
         </template>

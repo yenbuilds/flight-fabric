@@ -10,6 +10,7 @@ const OUT_DIR = path.join(ROOT, 'frontend-dist');
 const RELEASE_NOTES = path.join(ROOT, 'RELEASE_NOTES.md');
 const WHATS_NEW_OUTPUT = path.join(OUT_DIR, 'whats-new.json');
 const require = createRequire(import.meta.url);
+const { withBuildOwnership } = require(path.join(ROOT, 'scripts', 'build-owner.js'));
 const { buildWhatsNew } = require(path.join(ROOT, 'scripts', 'whats-new-highlights.js'));
 const VITE_BIN = path.join(FRONTEND_DIR, 'node_modules', 'vite', 'bin', 'vite.js');
 const TAILWIND_CONFIG = path.join(ROOT, 'tailwind.config.js');
@@ -196,4 +197,4 @@ function buildTailwindCss() {
   }
 }
 
-buildBundle();
+await withBuildOwnership({ root: ROOT, label: 'frontend build' }, buildBundle);

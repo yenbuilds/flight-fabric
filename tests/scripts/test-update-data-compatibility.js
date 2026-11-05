@@ -97,6 +97,30 @@ for (const historical of provenance.settings) {
   });
 }
 
+test('legacy phone microphone preference survives unrelated writes but cannot enable the release runtime', () => {
+  const { sanitizeAppSettingsPatch } = require('../../shared/app-settings-shared');
+  const { createSettingsStore } = require('../../electron/settings-store');
+  const launcher = createSettingsStore({ settingsFile });
+  const oldLauncherForm = launcher.getSettings();
+  const current = reopenSettings();
+  assert.equal(current.settings.mobileVoice.enabled, false, 'older profiles default to off');
+  for (const enabled of [true, false]) {
+    current.updateUserSettings({ mobileVoice: { enabled } }, { strict: true });
+    current.updateUserSettings(sanitizeAppSettingsPatch({ network: { remoteAccess: true } }));
+    assert.equal(launcher.saveSettings(oldLauncherForm).success, true);
+    assert.equal(reopenSettings().settings.mobileVoice.enabled, enabled);
+    const configPath = runtime('core', 'config.js');
+    delete require.cache[configPath];
+    assert.equal(require(configPath).http.mobileVoiceEnable, false, 'saved access never enables phone voice in this release');
+  }
+  const previous = fs.readFileSync(settingsFile, 'utf8');
+  try {
+    fs.writeFileSync(settingsFile, '{ invalid user settings');
+    assert.throws(() => current.updateUserSettings({ mobileVoice: { enabled: true } }, { strict: true }));
+    assert.equal(fs.readFileSync(settingsFile, 'utf8'), '{ invalid user settings', 'failed save preserves the original for recovery');
+  } finally { fs.writeFileSync(settingsFile, previous); }
+});
+
 test('bundled manual profile resolves; retired Local/Community profile copies remain untouched and excluded', () => {
   const loader = require(runtime('aircraft', 'aircraft-profile-loader.js'));
   const paths = ['Local', 'Community'].map(namespace => path.join(storage.getAppDataRoot(process.env), 'Profiles', 'Aircraft', namespace, 'msfs', 'fbw-a32nx.json'));

@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const crypto = require('crypto');
+const { withBuildOwnership } = require('../scripts/build-owner');
 const {
   getSdkDllPath,
   SIMCONNECT_DLL_RELATIVE,
@@ -1648,7 +1649,7 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch(err => {
+  withBuildOwnership({ root: ROOT, label: 'Electron installer build' }, main).catch(err => {
     error(err.message);
     process.exit(1);
   });

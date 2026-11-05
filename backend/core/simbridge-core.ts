@@ -834,12 +834,20 @@ async function runSimbridgeCore({
         }));
         return;
       }
+      // Phone voice is withheld from this release. Reject stale phone-session
+      // commands even from a privileged renderer; desktop voice has no such ID.
+      if (msg.type === 'executeAircraftCommand' && msg.mobileVoiceSessionId !== undefined) {
+        ws.send(JSON.stringify({ type: MSG.AIRCRAFT_COMMAND_RESULT, requestId: msg.requestId || null,
+          ok: false, error: 'Phone voice is unavailable in this version of FlightFabric.' }));
+        return;
+      }
       if (msg.type === 'approveDevicePairingRequest') {
         const approved = devicePairing?.approveRequest?.(msg.requestId, msg.confirmationCode) === true;
         ws.send(JSON.stringify({
           type: MSG.DEVICE_PAIRING_APPROVAL_RESULT,
           ok: approved,
           requestId: typeof msg.requestId === 'string' ? msg.requestId : '',
+          ...(typeof msg.approvalId === 'string' && msg.approvalId.length <= 100 ? { approvalId: msg.approvalId } : {}),
         }));
         ws.send(JSON.stringify({
           type: MSG.DEVICE_PAIRING_REQUESTS,
@@ -1007,6 +1015,9 @@ async function runSimbridgeCore({
     httpServerHandle?.httpServer,
     'HTTP',
   );
+  // Do not construct the deferred phone-voice service: no certificate loading,
+  // HTTPS listener or audio upgrades, regardless of saved settings or CLI/env.
+  // Re-enabling requires the replacement in PHONE-HTTPS-PROVISIONING-PLAN.md.
   httpServerHandle?.httpServer?.prependListener('request', (_req, res) => {
     activeUpdateBoundaryRequests += 1;
     let settled = false;
@@ -4000,16 +4011,10 @@ async function runSimbridgeCore({
       alt_msl_ft,
       raFeet,
       altIndicatedFt: frame.fdm?.altIndicatedFt ?? alt_msl_ft,
-      altCalibratedFt: frame.fdm?.altCalibratedFt ?? null,
       altPlaneFt: frame.fdm?.altPlaneFt ?? null,
       aircraftAglFt: frame.fdm?.aircraftAglFt ?? null,
-      aircraftAboveObstaclesFt: frame.fdm?.aircraftAboveObstaclesFt ?? null,
       planeAglFt: frame.fdm?.planeAglFt ?? null,
-      planeAglMinusCgFt: frame.fdm?.planeAglMinusCgFt ?? null,
       pressureAltFt: frame.fdm?.pressureAltFt ?? null,
-      kohlsmanSettingMb: frame.fdm?.kohlsmanSettingMb ?? null,
-      kohlsmanTunedMb: frame.fdm?.kohlsmanTunedMb ?? null,
-      kohlsmanStd: typeof frame.fdm?.kohlsmanStd === 'boolean' ? frame.fdm.kohlsmanStd : null,
       xwind,
       lights: lightsForBroadcast,
       navRadios: frame.navRadios,

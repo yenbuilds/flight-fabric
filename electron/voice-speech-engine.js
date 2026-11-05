@@ -179,7 +179,15 @@ function createVoiceSpeechEngine({
       pendingSamples: 0,
       outstanding: new Map(),
       finishing: false,
-      sessionTimer: setTimeout(() => finish(sessionId), SESSION_TIMEOUT_MS + 1000),
+      sessionTimer: setTimeout(() => {
+        if (active?.sessionId !== sessionId || active.finishing) return;
+        // Expiry is cancellation, never permission to decode incomplete audio.
+        // Only the capture owner's explicit finish may produce a final result.
+        clearActive(sessionId);
+        worker?.postMessage({ type: 'cancel', sessionId });
+        emit({ type: 'error', sessionId, code: 'CAPTURE_TIMEOUT', fatal: false,
+          message: 'Voice recording timed out. Please try again.' });
+      }, SESSION_TIMEOUT_MS + 1000),
       finalizationTimer: null,
     };
     worker.postMessage({ type: 'start', sessionId });

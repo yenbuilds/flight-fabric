@@ -315,15 +315,16 @@ test('app-owned dependency locks retain the security patch floors', () => {
   const patchFloors = [
     ['package-lock.json', 'node_modules/brace-expansion', '5.0.8'],
     ['package-lock.json', 'node_modules/fast-uri', '3.1.5'],
-    ['package-lock.json', 'node_modules/minimatch', '10.2.6'],
+    ['package-lock.json', 'node_modules/minimatch', '11.0.1'],
     ['package-lock.json', 'node_modules/postcss', '8.5.18'],
     ['backend/package-lock.json', 'node_modules/fast-uri', '3.1.5'],
     ['frontend/package-lock.json', 'node_modules/postcss', '8.5.18'],
-    ['electron/package-lock.json', 'node_modules/@electron/asar', '4.2.1'],
+    ['frontend/package-lock.json', 'node_modules/vite', '6.4.5'],
+    ['electron/package-lock.json', 'node_modules/@electron/asar', '4.3.1'],
     ['electron/package-lock.json', 'node_modules/@electron/rebuild', '4.0.4'],
     ['electron/package-lock.json', 'node_modules/electron-builder', '26.15.0'],
     ['electron/package-lock.json', 'node_modules/brace-expansion', '5.0.8'],
-    ['electron/package-lock.json', 'node_modules/minimatch', '10.2.6'],
+    ['electron/package-lock.json', 'node_modules/minimatch', '11.0.1'],
     ['electron/package-lock.json', 'node_modules/postcss', '8.5.18'],
   ];
 
@@ -338,6 +339,24 @@ test('app-owned dependency locks retain the security patch floors', () => {
       compareAppVersions(lockedVersion, minimumVersion) >= 0,
       `${lockfilePath} locks ${packagePath} at ${lockedVersion}; expected at least ${minimumVersion}`,
     );
+  }
+
+  // Include nested copies and public-package build tools, not just hoisted locks.
+  // Glob 7 retains the callback API required by older build helpers and is outside
+  // GHSA-3g3m-2fjr-6pw4's affected range (>=9 through 14.0.1).
+  for (const lockfilePath of [
+    ...APP_VERSION_TARGETS.map(target => target.lockfile),
+    'packages/telemetry-types/package-lock.json',
+    'packages/telemetry-client/package-lock.json',
+  ]) {
+    for (const [packagePath, entry] of Object.entries(readJson(lockfilePath).packages || {})) {
+      const minimumVersion = packagePath.endsWith('/minimatch') ? '11.0.1'
+        : packagePath.endsWith('/glob') && compareAppVersions(entry.version, '9.0.0') >= 0 ? '14.0.2' : null;
+      if (minimumVersion) {
+        assert(compareAppVersions(entry.version, minimumVersion) >= 0,
+          `${lockfilePath} retains vulnerable ${packagePath}@${entry.version}; expected at least ${minimumVersion}`);
+      }
+    }
   }
 });
 

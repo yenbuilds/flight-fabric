@@ -427,7 +427,6 @@ export async function initAppRuntime({
       // Request current state from backend
       send({ type: 'requestState' });
       appPreferences.syncToBackend();
-      simbriefStore?.relayPlan?.();
       lvarInspector?.resync();
       emitWsOpen();
     },
@@ -449,6 +448,11 @@ export async function initAppRuntime({
     },
     onMessage: (msg) => {
       lastMessageAt = Date.now();
+      // Socket open precedes authorization. Replay a saved desktop plan only
+      // once the current connection has received its full-control grant.
+      if (msg?.type === 'authorizationScope' && connection.getAuthorizationScope() === 'full-control') {
+        simbriefStore?.relayPlan?.();
+      }
       voiceStatusRelay?.handleServerMessage(msg);
       messageBatcher.enqueue(msg);
     },
@@ -488,7 +492,7 @@ export async function initAppRuntime({
     },
   });
   simbriefStore?.bindRuntime?.({
-    sendMessage: (payload) => connection.send(payload),
+    sendMessage: (payload) => connection.getAuthorizationScope() === 'full-control' && connection.send(payload),
     httpBase: connection.getBackendHttpBase(),
     getHttpBase: () => connection.getBackendHttpBase(),
     copyRouteText: async (text) => {
@@ -727,7 +731,7 @@ export async function initAppRuntime({
 
   // === Initialize ===
   simbriefStore?.restore?.();
-  connection.initialize();
+  void connection.initialize();
   void voiceController.initialize();
   window.addEventListener('beforeunload', () => {
     cleanupVoiceSetupGate?.();

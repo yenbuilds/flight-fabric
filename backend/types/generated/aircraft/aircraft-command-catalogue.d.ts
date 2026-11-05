@@ -45,6 +45,8 @@ type LegacyRequest = Readonly<{
 }>;
 export type AircraftCommandBinding = Readonly<{
     commandId: string;
+    label?: string;
+    speech?: AircraftCommandDefinition['speech'];
     input?: AircraftCommandInput;
     brightnessFields?: readonly string[];
     observations?: readonly Readonly<{

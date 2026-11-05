@@ -190,6 +190,9 @@ const config = Object.freeze({
     remoteAccessEnable,
     // Narrow opt-in: same-origin trusted-LAN browsers may send aircraft controls only.
     remoteAircraftControlEnable,
+    // Release restriction, not a user/environment preference. The production
+    // runtime does not construct the deferred phone-voice service.
+    mobileVoiceEnable: false,
     port: int('HTTP_PORT', getSetting(userSettings, 'network.httpPort', 'HTTP_PORT', 8100)),
   }),
 

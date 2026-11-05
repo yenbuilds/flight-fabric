@@ -35,6 +35,11 @@ const EXPECTED_FS_BOUNDARIES = [
   ['backend/aircraft/control-evidence.ts', 'guarded-diagnostics', 'promises.appendFile=1,promises.mkdir=1,promises.rename=1,promises.stat=1'],
   ['backend/core/destination-target-store.ts', 'guarded-settings', 'existsSync=1,readFileSync=1'],
   ['backend/core/http-server.ts', 'validated-static-assets', 'close=2,createReadStream=1,existsSync=2,fstat=1,lstatSync=2,open=1,readFile=1,realpathSync=2'],
+  // Retained historical implementation only: a fixed identity.json beneath the
+  // caller-owned directory, with exclusive creation. This is not approval to
+  // restore the old CA design. test-phone-voice-disabled.js proves shipped
+  // composition never imports it, reads old keys or creates a TLS listener.
+  ['backend/core/mobile-voice-identity.ts', 'disabled-phone-identity', 'mkdirSync=1,readFileSync=1,writeFileSync=1'],
   ['backend/core/user-settings.ts', 'guarded-settings', 'existsSync=2,readFileSync=1'],
   ['backend/events/timeline-csv-helpers.ts', 'recording-storage', 'promises.lstat=1'],
   ['backend/events/timeline-generator.ts', 'recording-storage', 'closeSync=5,existsSync=4,fstatSync=1,lstatSync=3,openSync=1,readFileSync=2,readSync=2'],
@@ -217,20 +222,22 @@ function isAllowedNonCallFsAccess(node, propertyPath) {
   return false;
 }
 
-function collectFilesystemInventory() {
-  const sourceFiles = walkFiles(BACKEND_ROOT, (file) => {
+function collectFilesystemInventory(fixtureSources) {
+  const sourceFiles = fixtureSources ? [...fixtureSources.keys()] : walkFiles(BACKEND_ROOT, (file) => {
     const normalized = repoPath(file);
     return /\.(?:ts|js)$/.test(file)
       && !/\.(?:test|spec)\.(?:ts|js)$/.test(file)
       && !normalized.includes('/node_modules/')
       && !normalized.includes('/dist/');
   });
-  sourceFiles.push(path.join(ROOT, 'electron', 'main.js'));
-  sourceFiles.push(path.join(ROOT, 'electron', 'settings-store.js'));
+  if (!fixtureSources) {
+    sourceFiles.push(path.join(ROOT, 'electron', 'main.js'));
+    sourceFiles.push(path.join(ROOT, 'electron', 'settings-store.js'));
+  }
 
   const inventory = {};
   for (const file of sourceFiles.sort()) {
-    const source = fs.readFileSync(file, 'utf8');
+    const source = fixtureSources ? fixtureSources.get(file) : fs.readFileSync(file, 'utf8');
     const sourceFile = ts.createSourceFile(
       file,
       source,
@@ -247,6 +254,12 @@ function collectFilesystemInventory() {
       if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
         if (/^(?:node:)?fs(?:\/promises)?$/.test(node.moduleSpecifier.text)) {
           moduleLoads.push(node.moduleSpecifier.text);
+          const clause = node.importClause;
+          if (clause && !clause.isTypeOnly && (
+            (clause.name?.text === 'fs' && !clause.namedBindings)
+            || (!clause.name && clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)
+              && clause.namedBindings.name.text === 'fs')
+          )) canonicalBindings += 1;
         }
       }
       if (
@@ -257,6 +270,7 @@ function collectFilesystemInventory() {
         && /^(?:node:)?fs(?:\/promises)?$/.test(node.moduleReference.expression.text)
       ) {
         moduleLoads.push(node.moduleReference.expression.text);
+        if (!node.isTypeOnly && node.name.text === 'fs') canonicalBindings += 1;
       }
       if (ts.isCallExpression(node)) {
         const moduleName = fsModuleNameFromCall(node);
@@ -348,6 +362,30 @@ function collectNativeWriteInventory() {
 }
 
 function main() {
+  // Exercise the real inventory with in-memory TypeScript, including bypass
+  // attempts. No fixture accesses the filesystem or imports the dormant service.
+  const fixture = path.join(ROOT, '.tmp', 'io-boundary-import-fixture.ts');
+  const inspect = source => collectFilesystemInventory(new Map([[fixture, source]]));
+  for (const declaration of [
+    "const fs = require('node:fs');",
+    "import fs from 'node:fs';",
+    "import * as fs from 'fs';",
+    "import fs = require('fs');",
+  ]) {
+    assert.deepStrictEqual(inspect(`${declaration} fs.readFileSync('fixture');`), {
+      [repoPath(fixture)]: { readFileSync: 1 },
+    }, `inventory must count direct reads with ${declaration}`);
+  }
+  for (const source of [
+    "import disk from 'node:fs'; disk.readFileSync('fixture');",
+    "import { readFileSync } from 'node:fs'; readFileSync('fixture');",
+    "import type fs from 'node:fs'; fs.readFileSync('fixture');",
+    "import fs from 'node:fs/promises'; fs.readFile('fixture');",
+    "import fs from 'node:fs'; fs['readFileSync']('fixture');",
+    "import fs from 'node:fs'; const read = fs.readFileSync; read('fixture');",
+    "import fs from 'node:fs'; const disk = require('fs'); fs.readFileSync('fixture');",
+  ]) assert.throws(() => inspect(source), /must (?:bind|not bypass|call inventoried|have exactly one)/);
+
   const expectedFs = Object.fromEntries(
     EXPECTED_FS_BOUNDARIES.map(([file, boundary, counts]) => {
       assert.ok(boundary, `${file} must name its reviewed storage boundary`);

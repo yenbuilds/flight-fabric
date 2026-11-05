@@ -630,6 +630,37 @@ test('toolbar formats received punctuation without changing names, source data o
   assert.equal(runtime.document.getElementById('taxi-pushback-reason').textContent, 'Tug unavailable - check simulator...');
 });
 
+test('toolbar separates panel and flood targets and preserves group-specific availability', () => {
+  const runtime = presetFixture();
+  const catalogue = runtime.profile.controlCapabilities.aircraftCommands;
+  const cockpit = catalogue.commands.find(c => c.id === 'configuration.lighting.cockpit');
+  for (const [target, fields] of [['flood', ['lighting.flood']], ['all', ['lighting.panel', 'lighting.flood']]]) {
+    catalogue.commands.push({ ...cockpit, id: `configuration.lighting.${target}`, brightnessFields: fields });
+  }
+  runtime.api.receive(runtime.profile);
+  const flood = 'configuration.lighting.flood', all = 'configuration.lighting.all';
+  assert.match(runtime.row(cockpit.id).text(), /Panel backlighting/);
+  assert.match(runtime.row(flood).text(), /Flood and task lights/);
+  assert.equal(runtime.row(flood).querySelector('input').value, '0');
+  assert.equal(runtime.row(cockpit.id).querySelector('button').disabled, false);
+  assert.equal(runtime.row(flood).querySelector('button').disabled, true, 'missing flood readback blocks only dependent presets');
+  assert.equal(runtime.row(all).querySelector('button').disabled, true);
+  const disclosure = runtime.nodes.findLast(node => node.tag === 'details' && node.contains(runtime.row(all))
+    && node !== runtime.document.getElementById('toolbar-presets'));
+  assert.ok(disclosure);
+  assert.notEqual(disclosure.open, true);
+  assert.equal(runtime.commands().length, 0, 'rendering a zero target never sends it');
+  runtime.api.receive({ ...runtime.snapshot, values: { ...runtime.snapshot.values, 'lighting.flood': 50 },
+    valueUpdatedAt: { ...runtime.snapshot.valueUpdatedAt, 'lighting.flood': runtime.snapshot.updatedAt } });
+  assert.equal(runtime.row(flood).querySelector('button').disabled, false);
+  runtime.submit(flood);
+  runtime.submit(cockpit.id);
+  runtime.submit(all);
+  assert.equal(runtime.commands().length, 1, 'overlapping lighting presets stay blocked');
+  assert.equal(runtime.commands()[0].commandId, flood);
+  assert.deepEqual(runtime.commands()[0].input, { value: 0 });
+});
+
 test('toolbar presets match catalogue classification, grouping and validated numeric targets', () => {
   const runtime = presetFixture();
   const section = runtime.document.getElementById('toolbar-presets');

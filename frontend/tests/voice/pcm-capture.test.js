@@ -356,10 +356,14 @@ test('PCM initialization failure settles while browser context closure remains p
   }
 });
 
-test('PCM release stops the microphone after the bounded flush timeout', async () => {
-  const h = createLifecycleHarness();
+test('PCM flush timeout rejects completion, closes tracks and permits retry without stale replies', async (t) => {
+  const h = createLifecycleHarness({ pendingClose: true });
+  t.after(async () => { h.closeReply.resolve(); await h.capture.cancel(); });
   await h.capture.start();
-  const stop = h.capture.stop();
+  const staleMessageHandler = h.nodes[0].port.onmessage;
+  const stop = assert.rejects(h.capture.stop(), {
+    code: 'AUDIO_FLUSH_TIMEOUT', message: 'Audio capture did not finish. Please try again.',
+  });
   assert.deepEqual(h.nodes[0].messages, [{ type: 'flush' }]);
   assert.equal(h.counters.tracksStopped, 0, 'normal release permits the final buffered audio to flush');
   assert.equal(h.timers.size, 1);
@@ -370,6 +374,36 @@ test('PCM release stops the microphone after the bounded flush timeout', async (
   assert.equal(h.counters.tracksStopped, 1);
   assert.equal(h.capture.state, 'idle');
   assert.equal(h.timers.size, 0);
+  assert.equal(h.listeners.size, 0);
+  assert.equal(h.nodes[0].port.onmessage, null);
+  assert.equal(h.contexts[0].closeRequests, 1, 'context closure must not delay timeout rejection');
+
+  const nextTrack = { ...h.track, readyState: 'live' };
+  h.capture.globalRef.navigator.mediaDevices.getUserMedia = async () => ({
+    getAudioTracks: () => [nextTrack], getVideoTracks: () => [], getTracks: () => [nextTrack],
+  });
+  await h.capture.start();
+  const retry = h.capture.stop();
+  timer.callback();
+  staleMessageHandler({ data: { type: 'pcm', samples: new Float32Array([0.9]) } });
+  staleMessageHandler({ data: { type: 'flushed' } });
+  await new Promise(setImmediate);
+  assert.equal(h.capture.state, 'stopping', 'old acknowledgement cannot complete the new flush');
+  assert.equal(nextTrack.readyState, 'live');
+  assert.equal(h.timers.size, 1, 'old timer cannot retire the new flush');
+  assert.equal(h.chunks.length, 0);
+
+  const samples = new Float32Array([0.1, 0.2, 0.3]);
+  h.nodes[1].port.onmessage({ data: { type: 'pcm', samples } });
+  h.nodes[1].port.onmessage({ data: { type: 'flushed' } });
+  await retry;
+  assert.deepEqual(h.chunks.map((chunk) => chunk.samples), [samples]);
+  assert.equal(h.chunks[0].sequence, 0);
+  assert.equal(nextTrack.readyState, 'ended');
+  assert.equal(h.capture.state, 'idle');
+  assert.equal(h.counters.tracksStopped, 2);
+  assert.equal(h.timers.size, 0);
+  assert.equal(h.errors.length, 0, 'stop reports failure once through its returned promise');
 });
 
 test('PCM cancellation interrupts a pending release flush and rejects late audio', async (t) => {

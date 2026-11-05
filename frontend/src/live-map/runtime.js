@@ -12,11 +12,13 @@ function defaultCoordValidator(lat, lon) {
 
 export function initLiveMapRuntime({
   liveMapStore = null,
+  simbriefStore = null,
   tabsStore = null,
   statusStore = null,
   getElementById = (id) => document.getElementById(id),
   isValidCoord = null,
   sendMessage = null,
+  canSyncTargets = () => true,
   subscribeWsMessageSignal = null,
   subscribeTelemetryMessageSignal = null,
   allowOnlineMapTiles = () => true,
@@ -42,6 +44,11 @@ export function initLiveMapRuntime({
   let routeTargets = null;
   let liveMapController = null;
   let liveMap3dController = null;
+  let sharedFlightPlan = null;
+
+  function hasLocalFlightPlan() {
+    return !canSyncTargets() && Boolean(simbriefStore?.plan);
+  }
 
   function isLiveTabShowing() {
     return windowRef.document?.hidden !== true
@@ -98,6 +105,7 @@ export function initLiveMapRuntime({
     liveMapStore,
     isValidCoord: validateCoord,
     sendWsMessage: typeof sendMessage === 'function' ? sendMessage : (() => false),
+    canSyncTargets,
     getLastPosition: () => liveMapController.getLastPosition(),
     getDistanceNm: liveMapController.getDistanceNm,
     getInitialBearingDeg: liveMapController.getInitialBearingDeg,
@@ -131,6 +139,25 @@ export function initLiveMapRuntime({
 
   function requestSharedOriginTarget() {
     return routeTargets.requestSharedOriginTarget();
+  }
+
+  // Phone imports have no server echo. Keep their saved plan authoritative on
+  // this device until cleared; shared PC snapshots remain the fallback.
+  if (simbriefStore) {
+    cleanupFns.push(watch(
+      () => simbriefStore.plan,
+      (plan, previousPlan) => {
+        if (canSyncTargets()) return;
+        if (plan) {
+          routeTargets.handleFlightPlanMessage(plan, { replaceTargets: true });
+        } else if (previousPlan) {
+          routeTargets.handleFlightPlanMessage(sharedFlightPlan || { cleared: true }, { replaceTargets: true });
+          requestSharedDestinationTarget();
+          requestSharedOriginTarget();
+        }
+      },
+      { immediate: true, flush: 'sync' },
+    ));
   }
 
   function handle3dTelemetry(msg) {
@@ -171,6 +198,8 @@ export function initLiveMapRuntime({
       }
 
       if (msg.type === 'flightPlan') {
+        sharedFlightPlan = msg;
+        if (hasLocalFlightPlan()) return;
         routeTargets.handleFlightPlanMessage(msg);
         return;
       }
@@ -181,6 +210,7 @@ export function initLiveMapRuntime({
       }
 
       if (msg.type === 'destinationTarget') {
+        if (hasLocalFlightPlan()) return;
         routeTargets.handleDestinationTargetMessage(msg);
         return;
       }
@@ -191,6 +221,7 @@ export function initLiveMapRuntime({
       }
 
       if (msg.type === 'originTarget') {
+        if (hasLocalFlightPlan()) return;
         routeTargets.handleOriginTargetMessage(msg);
         return;
       }
@@ -283,6 +314,9 @@ export function initLiveMapRuntime({
         if (state === 'ready' && previousState !== 'ready') {
           requestSharedDestinationTarget();
           requestSharedOriginTarget();
+          if (hasLocalFlightPlan()) {
+            routeTargets.handleFlightPlanMessage(simbriefStore.plan, { replaceTargets: true });
+          }
           // Both views restore their own state; the active one syncs the
           // follow badge last so it wins.
           liveMapController.handleWsOpen();

@@ -571,6 +571,36 @@ test('interpreter resolves only exact active-catalogue patterns', () => {
   assert.equal(interpretAircraftVoiceCommand('set cockpit lights forty point five percent', catalogue).ok, false);
 });
 
+test('reported TWO T recognition recovers twenty only in a complete percentage slot', () => {
+  for (const suffix of ['', ' percent', ' per cent']) {
+    const transcript = `set cockpit lighting two t${suffix}`;
+    assert.deepEqual(interpretAircraftVoiceCommand(transcript, catalogue), {
+      ok: true, transcript, interpretedTranscript: `set cockpit lighting twenty${suffix}`,
+      commandId: 'configuration.lighting.cockpit', input: { value: 20 }, label: 'Cockpit lighting',
+    });
+  }
+  assert.deepEqual(interpretAircraftVoiceCommand('set cockpit lighting to two t percent', catalogue).input, { value: 20 });
+  for (const [spoken, expected] of [['two', 2], ['twenty', 20], ['twenty five', 25], ['two zero', 20]]) {
+    const result = interpretAircraftVoiceCommand(`set cockpit lighting ${spoken} percent`, catalogue);
+    assert.deepEqual(result.input, { value: expected });
+    assert.equal(result.interpretedTranscript, undefined, 'valid literal values stay literal');
+  }
+  for (const phrase of ['two t', 'set cockpit lighting t', 'set cockpit lighting two t five',
+    'set cockpit lighting one two t', 'set cockpit lighting minus two t',
+    'set cockpit lighting two t feet', 'set heading two t', 'set altitude two t',
+    'set nav radios two t', 'flaps two t']) {
+    assert.equal(interpretAircraftVoiceCommand(phrase, catalogue).ok, false, phrase);
+  }
+  const command = catalogue.commands.cockpitLighting;
+  for (const input of [{ ...command.input, max: 10 }, { ...command.input, step: 3 }]) {
+    assert.equal(interpretAircraftVoiceCommand('set cockpit lighting two t', {
+      commands: [{ ...command, input }],
+    }).ok, false, 'correction cannot bypass target validation');
+  }
+  assert.equal(parseAviationNumber('two t', { units: 'percent' }), null,
+    'raw number parsing does not reinterpret the transcript outside a matched command');
+});
+
 test('interpreter applies only bounded command-word corrections after exact matching fails', () => {
   assert.deepEqual(interpretAircraftVoiceCommand('seth mak zero point eight five', catalogue), {
     ok: true,

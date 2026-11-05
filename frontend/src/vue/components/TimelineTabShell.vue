@@ -275,8 +275,7 @@ onUnmounted(() => {
       </div>
       <div v-if="!hasReview" class="logbook-review-empty ff-empty-state">
         <svg class="ff-empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 5.5 9 3l6 2.5L20 3v15.5L15 21l-6-2.5L4 21V5.5Z M9 3v15.5M15 5.5V21" /></svg>
-        <h3>Your flight, in context</h3>
-        <p>Choose a saved flight to follow its route, inspect events, and review its landing.</p>
+        <h3>Choose a saved flight to review</h3>
       </div>
 
       <div v-show="hasReview && !timeline.timelineLoadError" class="logbook-review-toolbar" role="group" aria-label="Recorded flight views">

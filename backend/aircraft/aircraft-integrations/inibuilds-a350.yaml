@@ -52,17 +52,20 @@ integration:
           - lighting.fcuPercent
           - lighting.fcuTextPercent
       - actionId: lighting.preset.flood.set
+        ambient: true
         label: Flood and dome lighting
         fields:
           - lighting.mainFloodPercent
           - lighting.domePercent
       - actionId: lighting.preset.captainTask.set
+        ambient: true
         label: Captain map, table and console lights
         fields:
           - lighting.captainMapPercent
           - lighting.captainTablePercent
           - lighting.captainConsolePercent
       - actionId: lighting.preset.firstOfficerTask.set
+        ambient: true
         label: First officer map, table and console lights
         fields:
           - lighting.firstOfficerMapPercent

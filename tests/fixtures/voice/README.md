@@ -1,5 +1,82 @@
 # Voice recognition regression audio
 
+## Engage word hint — 5 November 2026
+
+The production vocabulary adds `ENGAGE :1.5`, preserving all existing hints and
+scores. All eight retained `engage approach` cases now decode correctly; bare
+`engage` remains incomplete. See the [comparison and limitations](../../../docs/VOICE-RECOGNITION-REVIEW-2026-09-23.md#engage-word-hint--5-november-2026).
+
+The short-command manifest now contains **94 WAV files / 375 inputs**. The added
+16 files cover word/spelled LNAV and VNAV, `engage`, `engage a`, and negated
+LNAV/VNAV in both David/Zira voices at four alignments. They use the same local
+SAPI settings below and contain no microphone recordings. Existing assertions
+remain unchanged. The outer native test timeout accommodates the larger corpus;
+per-input audio and finalization deadlines are unchanged.
+
+## Bounded number-word hints — 4 November 2026
+
+At this stage the production vocabulary added natural number/unit hints while
+retaining all earlier command-specific scores. It fixed 34 of the 42 original failures;
+the eight `engage approach` variants still failed. No assertion was skipped or
+weakened. See the [current comparison and limitations](../../../docs/VOICE-RECOGNITION-REVIEW-2026-09-23.md#bounded-number-word-hints--4-november-2026).
+
+The existing manifest now contains **78 WAV files / 311 inputs**. The added
+24 files retain twelve phrases from a fresh before/after comparison: altitudes
+11,000/14,000/17,000/37,000, lighting 40%/90%, Mach 0.82, negated approach/altitude,
+compound altitude/lighting-and-gear requests, and unrelated percentage speech.
+Their expectations require the exact command and value, or no executable match.
+They use the same local David/Zira SAPI settings documented below and contain
+no microphone recordings. All 96 new cases passed on the selected vocabulary.
+
+## Short commands and natural numbers — 2 November 2026
+
+**Historical status — 3 November rollback:** production vocabulary was restored to
+the pre-retune scores, including the earlier lighting aliases. The native test
+retains all 54 files / 215 inputs and now reports each input as a separate subtest,
+so a number failure cannot prevent later Mach/RTO/barometer checks from running.
+It still asserts the intended command and value; no known failures are skipped,
+deferred, or converted into accepted output. Raw ending checks normalize the
+equivalent spellings `per cent` and `percent` without repairing number words.
+
+All 23 formerly passing Mach/RTO/barometer cases and 16 incomplete cases pass
+after rollback. The 42 failures in the original accuracy corpus match the frozen
+pre-retune results exactly, including number/ending errors and "engage approach".
+These are unresolved baseline problems, not evidence of a new accuracy fix.
+See [rollback validation](../../../docs/VOICE-RECOGNITION-REVIEW-2026-09-23.md#vocabulary-rollback--3-november-2026).
+
+The ten fixtures added during the 3 November review contain Mach 0.78, autobrake
+RTO, barometer-standard speech and incomplete RTO/barometer phrases. The Zira RTO
+fixture lists the three alignments that passed before tuning; its 240 ms alignment
+already failed with the earlier hints and remains a documented gap. Other fixtures
+use all four offsets.
+
+The original 44 WAV files in `short-commands/manifest.json` were synthesized with
+Microsoft David/Zira Desktop (English, United States), Windows SAPI, rate 0,
+48,000 Hz mono PCM16. They contain no microphone recordings. `spoken` records
+the complete source phrase; `expected` records the actual aircraft command and
+target, or `null` for unfinished commands and unrelated speech.
+
+The original 44-fixture test preserves every non-zero sample, removes only SAPI's
+trailing digital silence, and adds the current 500 ms capture tail. Four offsets
+(0/80/160/240 ms) produce 176 inputs under five seconds. It sends production
+2048-frame worklet chunks through the real engine, awaiting worker acknowledgements
+to avoid an artificial queue overrun during accelerated replay. It checks the
+real PMDG 737/Fenix catalogues without executing any simulator action. The reported
+number endings also have raw-transcript assertions, so parser corrections cannot
+hide a decoder regression. Existing APU/NAV/heading/silence fixtures remain separate.
+
+Before the vocabulary change, the new regression failed with `ALTITUDE ZERO`
+for "altitude thirteen thousand". The rejected lower-boost experiment restored
+the complete numeric phrases in these fixtures but regressed other commands;
+rollback restores the original numeric failures too. The full isolated
+comparison also retained three phrases with known rejections (heading 280/290
+and "turnoff lights off"); these are documented as remaining gaps rather than
+weakened passing assertions. See the
+[short-command investigation](../../../docs/VOICE-RECOGNITION-REVIEW-2026-09-23.md#short-command-number-distortion--2-november-2026).
+
+Synthetic voices demonstrate repeatable regressions; they do not establish
+headset, accent or simulator-noise accuracy.
+
 ## NAV radio commands
 
 These WAV files contain “Set nav radios one zero nine decimal five” and
@@ -42,6 +119,12 @@ measured results, remaining gaps, and the difference between recorded audio
 and internal decoder padding.
 
 ## LibriSpeech + GigaSpeech migration
+
+**2 November 2026 update:** the native regression now repeats the APU/heading
+fixtures with both the historical 250 ms and the current 500 ms captured release tail.
+This adds 40 variants (88 inputs total), checking complete and intentionally
+incomplete phrases against the unchanged 500 ms decoder padding. The production
+PTT tail is now 500 ms; descriptions below retain the original migration evidence.
 
 The 2026-09-23 migration retains the checks above and adds
 `heading-070-{david,zira}.wav` ("set heading zero seven zero") and

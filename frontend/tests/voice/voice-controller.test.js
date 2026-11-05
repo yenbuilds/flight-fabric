@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createVoiceReadback } from '../../../electron/voice-readback.js';
+import { createVoiceSpeechEngine } from '../../../electron/voice-speech-engine.js';
 import { createVoiceControlController } from '../../src/voice/voice-controller.js';
+import { createMobileVoiceHost } from '../../src/voice/mobile-voice-host.js';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAircraftControlsStore } from '../../src/vue/stores/aircraft-controls.js';
 import { useVoiceControlStore } from '../../src/vue/stores/voice-control.js';
@@ -178,8 +180,8 @@ function createHarness(options = {}) {
     simbriefStore: options.simbriefStore,
     globalRef: options.globalRef || {}, readback, pushToTalkTone,
     // Most controller tests do not need to spend real time in the production
-    // release tail. The dedicated regression below exercises the real delay.
-    releaseTailMs: options.releaseTailMs ?? 0,
+    // release tail. Explicit undefined exercises the production default below.
+    releaseTailMs: Object.hasOwn(options, 'releaseTailMs') ? options.releaseTailMs : 0,
   });
   return {
     aircraftControlsStore, audio, cancellations, captureCancellations, captureStops, captures, controller,
@@ -190,6 +192,233 @@ function createHarness(options = {}) {
     readbackCancellations, retirements, sentCommands, spokenReadbacks, toneEvents, voiceStore,
   };
 }
+
+async function mobileHostHarness(t, options = {}) {
+  const h = createHarness(options), sockets = [];
+  let publish = () => {};
+  const originalState = h.voiceStore.setState.bind(h.voiceStore);
+  h.voiceStore.setState = (...args) => { originalState(...args); publish(); };
+  const globalRef = {
+    fetch: async () => ({ json: async () => ({ enabled: true }) }),
+    electronAPI: { getBackendBootstrap: async () => ({ body: { wsAuthToken: 'fixture-token' } }) },
+    WebSocket: class {
+      constructor() { sockets.push(this); this.readyState = 1; this.bufferedAmount = 0; this.sent = []; }
+      send(message) { this.sent.push(JSON.parse(message)); }
+      message(message) { this.onmessage?.({ data: message instanceof ArrayBuffer ? message : JSON.stringify(message) }); }
+      close() { this.readyState = 3; this.onclose?.(); }
+    },
+  };
+  await h.controller.initialize();
+  const bridge = createMobileVoiceHost({ controller: h.controller, voiceStore: h.voiceStore,
+    getHttpBase: () => 'http://127.0.0.1:8100', globalRef,
+    watchRef: (_source, callback) => { publish = callback; return () => { publish = () => {}; }; },
+  });
+  t.after(async () => { bridge.dispose(); await h.controller.dispose(); });
+  await bridge.connect();
+  const socket = sockets[0];
+  const id = 'a'.repeat(32);
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  async function start(remoteId = id) {
+    socket.message({ kind: 'start', id: remoteId }); await tick();
+    socket.message({ kind: 'capturing', id: remoteId }); await tick();
+  }
+  return { ...h, bridge, socket, id, start, tick };
+}
+
+test('phone audio uses the PC interpreter and session-bound command sender without acquiring a PC microphone', async t => {
+  const h = await mobileHostHarness(t); await h.start();
+  assert.equal(h.voiceStore.status, 'listening'); assert.equal(h.captures.length, 0);
+  const frame = new ArrayBuffer(44 + 2048 * 4), view = new DataView(frame);
+  new Uint8Array(frame).set(new TextEncoder().encode(h.id));
+  view.setUint32(36, 16000, true); view.setUint32(40, 2048, true);
+  h.socket.message(frame);
+  assert.equal(h.audio.length, 1); assert.equal(h.audio[0].sampleRate, 16000);
+  h.socket.message({ kind: 'finish', id: h.id }); await h.tick();
+  const sessionId = h.voiceStore.activeSessionId;
+  await h.emitRecognition({ type: 'final', sessionId, text: 'set heading two seven zero' });
+  assert.equal(h.sentCommands.length, 1);
+  assert.deepEqual(h.sentCommands[0].input, { value: 270 });
+  assert.equal(h.sentCommands[0].options.mobileVoiceSessionId, h.id);
+  h.completeLastCommand({ ok: true });
+  assert.equal(h.socket.sent.at(-1).done, true);
+  assert.equal(h.socket.sent.at(-1).status, 'sent');
+});
+
+test('phone and desktop recordings arbitrate at the existing controller owner', async t => {
+  const h = await mobileHostHarness(t);
+  await h.controller.begin(); const desktopId = h.voiceStore.activeSessionId;
+  await h.start();
+  assert.equal(h.socket.sent.at(-1).kind, 'error'); assert.match(h.socket.sent.at(-1).message, /busy/);
+  assert.equal(h.voiceStore.activeSessionId, desktopId);
+  await h.controller.cancel(); await h.start('b'.repeat(32));
+  assert.equal(await h.controller.begin(), false, 'desktop cannot replace a phone recording');
+});
+
+test('phone cloud-mode refusal explains Offline recovery without starting recognition or changing desktop state', async t => {
+  let starts = 0;
+  const h = await mobileHostHarness(t, {
+    runtimeInfo: { available: true, enabled: true, mode: 'cloud' },
+    startRecognition: async () => { starts++; return { sessionId: 'session_phone_recovery' }; },
+  });
+  const desktopStatus = h.voiceStore.statusText;
+  await h.start();
+  assert.equal(h.socket.sent.at(-1).kind, 'error');
+  assert.match(h.socket.sent.at(-1).message, /Offline.*Voice settings.*PC/i);
+  assert.equal(starts, 0, 'unsupported phone capture must not start cloud recognition');
+  assert.equal(h.captures.length, 0);
+  assert.equal(h.sentCommands.length, 0);
+  assert.equal(h.voiceStore.runtime.mode, 'cloud');
+  assert.equal(h.voiceStore.statusText, desktopStatus, 'phone refusal must not overwrite desktop readiness');
+
+  h.emitRuntime({ available: true, enabled: true, mode: 'offline' });
+  const nextId = 'b'.repeat(32);
+  await h.start(nextId);
+  assert.equal(h.voiceStore.status, 'listening');
+  h.socket.message({ kind: 'finish', id: nextId }); await h.tick();
+  await h.emitRecognition({ type: 'final', sessionId: h.voiceStore.activeSessionId, text: 'set heading two seven zero' });
+  assert.equal(starts, 1);
+  assert.equal(h.sentCommands.length, 1);
+  assert.deepEqual(h.sentCommands[0].input, { value: 270 });
+  assert.equal(h.sentCommands[0].options.mobileVoiceSessionId, nextId);
+  h.completeLastCommand({ ok: true });
+  assert.equal(h.socket.sent.at(-1).status, 'sent');
+});
+
+test('phone cancellation and late final cannot dispatch or cancel a newer desktop recording', async t => {
+  const h = await mobileHostHarness(t); await h.start();
+  const retired = h.voiceStore.activeSessionId;
+  h.socket.message({ kind: 'cancel', id: h.id }); await h.tick();
+  assert.equal(await h.controller.begin(), true);
+  const desktopId = h.voiceStore.activeSessionId;
+  await h.emitRecognition({ type: 'final', sessionId: retired, text: 'set heading two seven zero' });
+  h.socket.message({ kind: 'cancel', id: h.id });
+  h.socket.message({ kind: 'finish', id: h.id });
+  assert.equal(h.voiceStore.activeSessionId, desktopId); assert.equal(h.sentCommands.length, 0);
+});
+
+for (const stage of ['fetch', 'json', 'bootstrap']) {
+  for (const action of ['dispose', 'settings-change', 'timeout']) {
+    test(`phone host retires deferred ${stage} on ${action} without opening a stale connection`, async t => {
+      if (action === 'timeout') t.mock.timers.enable({ apis: ['setTimeout'] });
+      let resolveLate, first = true, changed;
+      const late = new Promise(resolve => { resolveLate = resolve; });
+      const sockets = [];
+      const status = { enabled: true };
+      const bootstrap = { body: { wsAuthToken: 'fixture-token' } };
+      const globalRef = {
+        fetch: async () => {
+          const pause = first; first = false;
+          if (pause && stage === 'fetch') return late;
+          return { json: () => pause && stage === 'json' ? late : Promise.resolve(status) };
+        },
+        electronAPI: { getBackendBootstrap: (() => {
+          let initial = true;
+          return () => { const pause = initial; initial = false; return pause && stage === 'bootstrap' ? late : Promise.resolve(bootstrap); };
+        })() },
+        addEventListener: (_name, callback) => { changed = callback; },
+        removeEventListener() {},
+        WebSocket: class {
+          constructor() { sockets.push(this); this.readyState = 1; }
+          close() { this.readyState = 3; this.onclose?.(); }
+        },
+      };
+      const host = createMobileVoiceHost({ controller: {}, voiceStore: {}, globalRef,
+        getHttpBase: () => 'http://127.0.0.1:8100', watchRef: () => () => {} });
+      t.after(() => host.dispose());
+      const connecting = host.connect();
+      await new Promise(resolve => setImmediate(resolve));
+      if (action === 'dispose') host.dispose();
+      else if (action === 'timeout') t.mock.timers.tick(10001);
+      else changed();
+      await connecting;
+      if (action === 'timeout') t.mock.timers.tick(3001);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(sockets.length, action === 'dispose' ? 0 : 1, 'retirement settles before the old response');
+      resolveLate(stage === 'fetch' ? { json: async () => status } : stage === 'json' ? status : bootstrap);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(sockets.length, action === 'dispose' ? 0 : 1, 'late reply never opens another socket');
+      if (sockets.length) assert.equal(sockets[0].readyState, 1, 'late cleanup preserves the replacement');
+    });
+  }
+}
+
+test('phone host waits for restored access, then connects without reopening Settings', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let ready = false, reads = 0;
+  const sockets = [];
+  const host = createMobileVoiceHost({ controller: {}, voiceStore: {}, watchRef: () => () => {},
+    getHttpBase: () => 'http://127.0.0.1:8100', globalRef: {
+      fetch: async () => { reads++; return { json: async () => ({ enabled: ready, preparing: !ready }) }; },
+      electronAPI: { getBackendBootstrap: async () => ({ body: { wsAuthToken: 'fixture-restored-access' } }) },
+      WebSocket: class { constructor() { this.readyState = 1; sockets.push(this); } close() { this.readyState = 3; this.onclose?.(); } },
+    } });
+  t.after(() => host.dispose());
+  await host.connect(); assert.equal(sockets.length, 0);
+  ready = true; t.mock.timers.tick(3001);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sockets.length, 1); assert.equal(reads, 2);
+  host.dispose(); t.mock.timers.tick(10000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 2, 'disposed startup retries never reopen a socket');
+});
+
+for (const failure of ['bootstrap-unavailable', 'metadata-http-error', 'metadata-malformed']) {
+  test(`phone host retries ${failure} after backend recovery without a Settings action`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let recovering = true, reads = 0, base = 'http://127.0.0.1:8100';
+    const sockets = [];
+    const host = createMobileVoiceHost({ controller: {}, voiceStore: {}, watchRef: () => () => {},
+      getHttpBase: () => base, globalRef: {
+        fetch: async () => {
+          reads++;
+          return {
+            ok: !(recovering && failure === 'metadata-http-error'),
+            json: async () => recovering && failure === 'metadata-http-error' ? { enabled: false }
+              : recovering && failure === 'metadata-malformed' ? {} : { enabled: true },
+          };
+        },
+        // Match Electron's resolved failure shape, rather than a rejected IPC promise.
+        electronAPI: { getBackendBootstrap: async () => recovering
+          ? { ok: false, status: 0, port: 8100, body: { ok: false, error: 'Fixture backend is restarting' } }
+          : { ok: true, body: { wsAuthToken: 'fixture-recovered-access' } } },
+        WebSocket: class {
+          constructor(url) { this.url = url; this.readyState = 1; sockets.push(this); }
+          close() { this.readyState = 3; this.onclose?.(); }
+        },
+      } });
+    t.after(() => host.dispose());
+    await host.connect();
+    assert.equal(sockets.length, 0, 'failed startup cannot open an unauthenticated socket');
+    recovering = false; base = 'http://127.0.0.1:8102';
+    t.mock.timers.tick(3001);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(sockets.length, 1, 'backend recovery must reconnect without opening Settings');
+    assert.equal(new URL(sockets[0].url).port, '8102', 'retry uses the current backend address');
+    assert.equal(reads, 2);
+    host.dispose(); t.mock.timers.tick(10000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(reads, 2, 'disposal prevents further retries');
+  });
+}
+
+test('phone host stops recovery retries when microphone access is explicitly disabled', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let enabled = true, reads = 0;
+  const host = createMobileVoiceHost({ controller: {}, voiceStore: {}, watchRef: () => () => {},
+    getHttpBase: () => 'http://127.0.0.1:8100', globalRef: {
+      fetch: async () => { reads++; return { ok: true, json: async () => ({ enabled }) }; },
+      electronAPI: { getBackendBootstrap: async () => ({ ok: false, body: { ok: false } }) },
+      WebSocket: class { constructor() { assert.fail('disabled access must not open a socket'); } },
+    } });
+  t.after(() => host.dispose());
+  await host.connect();
+  enabled = false; t.mock.timers.tick(3001);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 2);
+  t.mock.timers.tick(30000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reads, 2, 'a confirmed opt-out ends the retry loop');
+});
 
 test('native push-to-talk practice intercepts real events without recognition or dispatch, then ordinary PTT recovers', async () => {
   const h = createHarness();
@@ -623,10 +852,17 @@ test('controller cancellation retires a pending recognition start before microph
   await h.controller.dispose();
 });
 
-test('controller loss during the release tail cancels instead of flushing speech', async () => {
-  const h = createHarness({ releaseTailMs: 30 }); await h.controller.initialize();
-  await h.controller.begin('global', GLOBAL_ATTEMPT); const finishing = h.controller.finish();
+test('controller loss during the release tail cancels instead of flushing speech', async t => {
+  const h = createHarness({ releaseTailMs: undefined }); await h.controller.initialize();
+  await h.controller.begin('global', GLOBAL_ATTEMPT);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(async () => { t.mock.timers.reset(); await h.controller.dispose(); });
+  const finishing = h.controller.finish();
+  t.mock.timers.tick(350);
   h.emitPtt({ type: 'cancel', reason: 'device-removed', pttAttemptId: GLOBAL_ATTEMPT });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.captureCancellations.length, 1, 'cancellation stops capture before the tail expires');
+  t.mock.timers.tick(150);
   await finishing; await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.captureStops.length, 0); assert.equal(h.captureCancellations.length, 1);
   await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
@@ -1803,9 +2039,9 @@ test('turning voice off closes microphone discovery while device enumeration is 
 
 test('recognition terminal events close pending microphone discovery and release its caller', async (t) => {
   for (const [label, event, runtimeInfo] of [
-    // The offline engine's 11-second watchdog asks the worker to finish;
-    // a healthy empty discovery session ends with this final event.
-    ['offline watchdog final', { type: 'final', text: '', reason: 'requested' }],
+    // Expiry is an error; retain defensive coverage of every terminal event.
+    ['offline unsolicited final', { type: 'final', text: '', reason: 'requested' }],
+    ['offline capture timeout', { type: 'error', code: 'CAPTURE_TIMEOUT', message: 'Voice recording timed out. Please try again.' }],
     ['cloud capture timeout', { type: 'error', code: 'CAPTURE_TIMEOUT', message: 'Capture expired.' }, cloudRuntime],
     ['session cancellation', { type: 'cancelled' }, cloudRuntime],
   ]) {
@@ -2340,6 +2576,35 @@ test('a bounded recognition correction is visible and dispatches the validated c
   assert.equal(harness.sentCommands[0].commandId, 'flightGuidance.heading.set');
   assert.deepEqual(harness.sentCommands[0].input, { value: 270 });
   assert.match(harness.voiceStore.lastCommand, /Interpreted as.*set heading two seven zero/i);
+});
+
+test('reported lighting TWO T final dispatches twenty with visible correction and confirmed readback', async t => {
+  const command = {
+    id: 'configuration.lighting.cockpit', label: 'Panel backlighting',
+    input: { kind: 'number', min: 0, max: 100, step: 1, units: 'percent' },
+    speech: { patterns: ['set cockpit lighting {value}'] },
+  };
+  const harness = createHarness({ catalogue: {
+    configurationId: 'test-lighting', profileKey: 'test/lighting', profileRevision: 1,
+    commands: { [command.id]: command },
+  } });
+  t.after(() => harness.controller.dispose());
+  await harness.controller.initialize();
+  await harness.controller.begin();
+  const event = { sessionId: 'session_12345678', text: 'SET COCKPIT LIGHTING TWO T' };
+  await harness.emitRecognition({ ...event, type: 'partial' });
+  assert.equal(harness.sentCommands.length, 0);
+  await harness.controller.finish();
+  await harness.emitRecognition({ ...event, type: 'final' });
+  await harness.emitRecognition({ ...event, type: 'final' });
+  assert.equal(harness.sentCommands.length, 1);
+  assert.equal(harness.sentCommands[0].commandId, command.id);
+  assert.deepEqual(harness.sentCommands[0].input, { value: 20 });
+  assert.equal(harness.voiceStore.transcript, event.text, 'raw recognition stays visible');
+  assert.match(harness.voiceStore.lastCommand, /Interpreted as.*set cockpit lighting twenty/i);
+  assert.deepEqual(harness.spokenReadbacks, [], 'a corrected transcript is not a confirmation');
+  harness.completeLastCommand({ ok: true, requestId: 'ctrl-1' });
+  assert.deepEqual(harness.spokenReadbacks, ['Panel backlighting 20 percent set.']);
 });
 
 test('a decoded tens word and clipped trailing zero recover to the spoken heading', async () => {
@@ -3728,18 +3993,23 @@ test('push-to-talk release sends the final flushed PCM chunk before recognition 
   assert.equal(harness.audio[0].sequence, 0);
 });
 
-test('push-to-talk release keeps accepting audio during a bounded tail before flush', async () => {
-  const harness = createHarness({ releaseTailMs: 25 });
+test('push-to-talk release captures the full 500 ms default tail before flushing', async t => {
+  const harness = createHarness({ releaseTailMs: undefined });
   await harness.controller.initialize();
   await harness.controller.begin();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(async () => { t.mock.timers.reset(); await harness.controller.dispose(); });
 
   const finishing = harness.controller.finish();
+  t.mock.timers.tick(499);
+  await Promise.resolve();
   assert.equal(harness.captureStops.length, 0, 'capture must remain open during the release tail');
   harness.captures[0].callbacks.onChunk({
     sampleRate: 48000,
     samples: new Float32Array([0.4, -0.4]),
     sequence: 0,
   });
+  t.mock.timers.tick(1);
   assert.equal(await finishing, true);
 
   assert.equal(harness.captureStops.length, 1);
@@ -3763,7 +4033,7 @@ test('push-to-talk cues bracket capture without adding sound to microphone audio
 
 // Deliberately pending browser replies exercise the real capture/controller
 // boundary; they do not reproduce a physical microphone or browser failure.
-function createPendingPcmCloseFixture() {
+function createPendingPcmCloseFixture({ autoFlush = true, timers = { setTimeout, clearTimeout } } = {}) {
   const tracks = [];
   const nodes = [];
   const contexts = [];
@@ -3792,11 +4062,12 @@ function createPendingPcmCloseFixture() {
   }
   class AudioWorkletNode {
     constructor() {
+      this.autoFlush = autoFlush;
       this.port = {
         onmessage: null,
         close() {},
         postMessage: message => {
-          if (message.type !== 'flush') return;
+          if (message.type !== 'flush' || !this.autoFlush) return;
           queueMicrotask(() => {
             events.push('final-pcm');
             this.port.onmessage?.({ data: { type: 'pcm', samples: new Float32Array([0.25, -0.25]) } });
@@ -3810,7 +4081,7 @@ function createPendingPcmCloseFixture() {
     disconnect() {}
   }
   const globalRef = {
-    isSecureContext: true, AudioContext, AudioWorkletNode, setTimeout, clearTimeout,
+    isSecureContext: true, AudioContext, AudioWorkletNode, ...timers,
     navigator: { mediaDevices: { async getUserMedia() {
       const track = {
         readyState: 'live', label: 'Synthetic microphone',
@@ -3867,6 +4138,261 @@ test('PTT completion and retry do not await browser context closure', async t =>
   assert.equal(harness.voiceStore.status, 'listening');
   assert.equal(harness.audio.length, 1, 'the retired capture cannot send audio into the new session');
   assert.equal(harness.sentCommands.length, 1);
+});
+
+for (const mode of ['offline', 'cloud']) {
+  test(`${mode} PTT flush timeout rejects incomplete audio, ignores late replies and allows retry`, async t => {
+    const timers = new Map();
+    let timerId = 0;
+    const browser = createPendingPcmCloseFixture({ autoFlush: false, timers: {
+      setTimeout(callback, ms) { timers.set(++timerId, { callback, ms }); return timerId; },
+      clearTimeout(id) { timers.delete(id); },
+    } });
+    const finishes = [];
+    const h = createHarness({ createCapture: browser.createCapture,
+      ...(mode === 'cloud' ? { runtimeInfo: cloudRuntime } : {}),
+      controllerApi: { async finishRecognition(id) { finishes.push(id); return { finishing: true }; } },
+    });
+    t.after(async () => { browser.resolveAllCloses(); await h.controller.dispose(); });
+    await h.controller.initialize();
+    assert.equal(await h.controller.begin(), true);
+    const lateMessage = browser.nodes[0].port.onmessage;
+    lateMessage({ data: { type: 'pcm', samples: new Float32Array([0.2, -0.2]) } });
+    const finishing = h.controller.finish();
+    assert.equal(browser.tracks[0].readyState, 'live');
+    assert.equal(timers.size, 1);
+    const timeout = [...timers.values()][0];
+    assert.equal(timeout.ms, 250);
+    timeout.callback();
+    assert.equal(await finishing, false);
+    assert.equal(browser.tracks[0].readyState, 'ended');
+    assert.equal(browser.contexts[0].closeCalls, 1);
+    assert.equal(browser.contexts[0].closeSettled, false, 'failed capture cannot await browser closure');
+    assert.deepEqual(finishes, [], 'incomplete audio cannot finalize locally or start a cloud upload');
+    assert.deepEqual(h.cancellations, ['session_12345678']);
+    assert.equal(h.voiceStore.status, 'error');
+    assert.equal(h.voiceStore.statusText, 'Audio capture did not finish. Please try again.');
+    assert.equal(timers.size, 0);
+    assert.deepEqual(h.sentCommands, []);
+
+    assert.equal(await h.controller.begin(), true);
+    const audioCount = h.audio.length;
+    lateMessage({ data: { type: 'pcm', samples: new Float32Array([0.4]) } });
+    lateMessage({ data: { type: 'flushed' } });
+    for (const event of [
+      mode === 'cloud' ? cloudFinal() : { type: 'final', text: 'heading two seven zero' },
+      { type: 'cancelled', reason: 'user' },
+      { type: 'error', message: 'Old capture failed.' },
+    ]) await h.emitRecognition({ ...event, sessionId: 'session_12345678' });
+    browser.contexts[0].resolveClose();
+    assert.equal(h.voiceStore.status, 'listening');
+    assert.equal(h.voiceStore.activeSessionId, 'session_next_2');
+    assert.equal(browser.tracks[1].readyState, 'live');
+    assert.equal(h.audio.length, audioCount, 'retired PCM cannot enter the new session');
+    assert.deepEqual(h.sentCommands, []);
+    assert.deepEqual(h.spokenReadbacks, []);
+    browser.nodes[1].autoFlush = true;
+    assert.equal(await h.controller.finish(), true);
+    assert.deepEqual(finishes, ['session_next_2']);
+    await h.emitRecognition({ ...(mode === 'cloud' ? cloudFinal() : { type: 'final', text: 'heading two seven zero' }),
+      sessionId: 'session_next_2' });
+    assert.equal(h.sentCommands.length, 1, 'a fresh complete capture still executes normally');
+    assert.deepEqual(h.sentCommands[0].input, { value: 270 });
+    assert.equal(timers.size, 0);
+  });
+}
+
+test('a final after capture completion may precede the finish IPC reply', async t => {
+  let reply;
+  const h = createHarness({ chunkOnStop: true,
+    controllerApi: { finishRecognition: () => new Promise(resolve => { reply = resolve; }) },
+  });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize(); await h.controller.begin();
+  const finishing = h.controller.finish();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.captureStops.length, 1);
+  assert.equal(h.audio.length, 1);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  assert.equal(h.sentCommands.length, 1);
+  reply({ finishing: true });
+  assert.equal(await finishing, true);
+});
+
+test('a refused finish request retires the capture and ignores its late final during retry', async t => {
+  let attempts = 0;
+  const h = createHarness({ controllerApi: {
+    async finishRecognition() { return { finishing: ++attempts > 1 }; },
+  } });
+  t.after(() => h.controller.dispose());
+  await h.controller.initialize(); await h.controller.begin();
+  assert.equal(await h.controller.finish(), false);
+  assert.equal(h.voiceStore.status, 'error');
+  assert.match(h.voiceStore.statusText, /recognition stopped.*try again/i);
+  assert.deepEqual(h.cancellations, ['session_12345678']);
+  assert.equal(await h.controller.begin(), true);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero' });
+  assert.deepEqual(h.sentCommands, []);
+  assert.equal(h.voiceStore.status, 'listening');
+  assert.equal(await h.controller.finish(), true);
+  await h.emitRecognition({ type: 'final', sessionId: 'session_next_2', text: 'set heading two seven zero' });
+  assert.equal(h.sentCommands.length, 1);
+});
+
+for (const mode of ['offline', 'cloud']) {
+  for (const phase of ['release tail', 'pending flush']) {
+    test(`${mode} final during ${phase} rejects incomplete capture and permits a clean retry`, async t => {
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      const browser = createPendingPcmCloseFixture({ autoFlush: false });
+      const finishes = [];
+      const h = createHarness({ createCapture: browser.createCapture,
+        releaseTailMs: phase === 'release tail' ? 500 : 0,
+        ...(mode === 'cloud' ? { runtimeInfo: cloudRuntime } : {}),
+        controllerApi: { async finishRecognition(id) { finishes.push(id); return { finishing: true }; } },
+      });
+      t.after(async () => { await h.controller.dispose(); browser.resolveAllCloses(); t.mock.timers.reset(); });
+      await h.controller.initialize();
+      await h.controller.begin('global', GLOBAL_ATTEMPT);
+      const staleMessage = browser.nodes[0].port.onmessage;
+      const final = mode === 'cloud' ? cloudFinal()
+        : { type: 'final', sessionId: 'session_12345678', text: 'set heading two seven zero', reason: 'requested' };
+      const finishing = h.controller.finish();
+      await h.emitRecognition(final);
+      assert.equal(h.voiceStore.status, 'error');
+      assert.match(h.voiceStore.statusText, /capture.*finished.*try again/i);
+      assert.equal(browser.tracks[0].readyState, 'ended');
+      assert.equal(browser.contexts[0].closeSettled, false);
+      assert.deepEqual(h.retirements, [GLOBAL_ATTEMPT]);
+      assert.deepEqual(h.sentCommands, []);
+      assert.deepEqual(h.spokenReadbacks, []);
+      assert.deepEqual(finishes, [], 'an early final must not authorize a cloud upload or local finalization');
+      t.mock.timers.tick(500);
+      assert.equal(await finishing, false);
+
+      assert.equal(await h.controller.begin(), true);
+      for (const type of ['final', 'error', 'cancelled']) await h.emitRecognition({ ...final, type });
+      staleMessage({ data: { type: 'flushed' } });
+      staleMessage({ data: { type: 'pcm', samples: new Float32Array(2048) } });
+      assert.equal(h.voiceStore.status, 'listening');
+      assert.equal(browser.tracks[1].readyState, 'live');
+      assert.deepEqual(h.audio, []);
+      browser.nodes[1].autoFlush = true;
+      const retry = h.controller.finish();
+      if (phase === 'release tail') t.mock.timers.tick(500);
+      assert.equal(await retry, true);
+      await h.emitRecognition({ ...final, sessionId: 'session_next_2' });
+      assert.deepEqual(finishes, ['session_next_2']);
+      assert.equal(h.sentCommands.length, 1);
+      assert.deepEqual(h.sentCommands[0].input, { value: 270 });
+      assert.equal(browser.tracks[1].readyState, 'ended');
+    });
+  }
+}
+
+test('offline capture watchdog retires a delayed-start PTT during its release tail without finalizing audio', async t => {
+  let worker;
+  const messages = [];
+  class WorkerFixture extends EventEmitter {
+    constructor() { super(); worker = this; queueMicrotask(() => this.emit('message', { type: 'ready' })); }
+    postMessage(message) {
+      messages.push(message);
+      if (message.type === 'audio') queueMicrotask(() => this.emit('message', {
+        type: 'chunk-accepted', sessionId: message.sessionId, sequence: message.sequence, samples: message.samples.length,
+      }));
+      if (message.type === 'finish') queueMicrotask(() => this.emit('message', {
+        type: 'final', sessionId: message.sessionId, text: 'set heading one hundred', reason: 'requested',
+      }));
+    }
+    async terminate() {}
+  }
+  const engine = createVoiceSpeechEngine({ WorkerClass: WorkerFixture,
+    verifyHotwords: async () => {}, verifyModel: async () => {} });
+  await engine.initialize();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const browser = createPendingPcmCloseFixture();
+  let grantCapture;
+  const granted = new Promise(resolve => { grantCapture = resolve; });
+  const h = createHarness({ releaseTailMs: undefined,
+    createCapture(callbacks) {
+      const capture = browser.createCapture(callbacks), start = capture.start.bind(capture);
+      capture.start = async () => { await granted; return start(); };
+      return capture;
+    },
+    controllerApi: {
+      startRecognition: async () => engine.start(),
+      finishRecognition: async id => ({ finishing: engine.finish(id) }),
+      cancelRecognition: async id => engine.cancel(id),
+      sendAudio: audio => engine.pushAudio({ ...audio, samples: new Float32Array(audio.samples) }),
+    },
+  });
+  engine.onEvent(event => h.emitRecognition(event));
+  t.after(async () => { await h.controller.dispose(); await engine.shutdown(); browser.resolveAllCloses(); t.mock.timers.reset(); });
+  await h.controller.initialize();
+  const starting = h.controller.begin();
+  await new Promise(resolve => setImmediate(resolve));
+  const oldId = engine.getInfo().activeSessionId;
+  assert.ok(oldId);
+  // Two seconds of microphone setup, then 8.6 seconds held: below the audio
+  // cap, but key-up is 400 ms before the 11-second engine watchdog. Samples
+  // and worker text are synthetic; this verifies lifecycle, not ASR accuracy.
+  t.mock.timers.tick(2000);
+  grantCapture(); await starting;
+  for (let i = 0; i < 201; i++) {
+    browser.nodes[0].port.onmessage({ data: { type: 'pcm', samples: new Float32Array(2048).fill(0.1) } });
+    await Promise.resolve();
+  }
+  t.mock.timers.tick(8600);
+  const finishing = h.controller.finish();
+  t.mock.timers.tick(400);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.voiceStore.status, 'error');
+  assert.equal(messages.filter(message => message.type === 'finish').length, 0,
+    'the recording watchdog must cancel rather than request a transcript');
+  assert.ok(messages.some(message => message.type === 'cancel' && message.sessionId === oldId));
+  assert.match(h.voiceStore.statusText, /timed out.*try again/i);
+  assert.equal(engine.getInfo().activeSessionId, null);
+  assert.equal(engine.getInfo().ready, true, 'a capture timeout must not retire the healthy recognizer');
+  assert.equal(browser.tracks[0].readyState, 'ended');
+  assert.equal(browser.contexts[0].closeSettled, false);
+  assert.deepEqual(h.sentCommands, []);
+  t.mock.timers.tick(100);
+  assert.equal(await finishing, false);
+
+  assert.equal(await h.controller.begin(), true);
+  const newId = engine.getInfo().activeSessionId;
+  for (const type of ['final', 'error', 'cancelled']) worker.emit('message', {
+    type, sessionId: oldId, text: 'set heading one hundred', message: 'Retired session error',
+  });
+  assert.equal(engine.getInfo().activeSessionId, newId);
+  assert.equal(h.voiceStore.status, 'listening');
+  const retry = h.controller.finish();
+  t.mock.timers.tick(500);
+  assert.equal(await retry, true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.sentCommands.length, 1);
+  assert.deepEqual(h.sentCommands[0].input, { value: 100 });
+  assert.ok(browser.events.includes('final-pcm'));
+  t.mock.timers.tick(11000);
+  assert.equal(h.voiceStore.status, 'sending', 'normal finalization clears the recording watchdog');
+});
+
+test('cancelling PTT during a pending PCM flush stays neutral and prevents finalization', async t => {
+  const browser = createPendingPcmCloseFixture({ autoFlush: false });
+  const finishes = [];
+  const h = createHarness({ createCapture: browser.createCapture,
+    controllerApi: { async finishRecognition(id) { finishes.push(id); } },
+  });
+  t.after(async () => { browser.resolveAllCloses(); await h.controller.dispose(); });
+  await h.controller.initialize();
+  await h.controller.begin();
+  const finishing = h.controller.finish();
+  assert.equal(await h.controller.cancel('user'), true);
+  assert.equal(await finishing, false);
+  assert.equal(browser.tracks[0].readyState, 'ended');
+  assert.equal(browser.contexts[0].closeSettled, false);
+  assert.deepEqual(finishes, []);
+  assert.equal(h.voiceStore.status, 'ready');
+  assert.doesNotMatch(h.voiceStore.statusText, /did not finish|failed/i);
 });
 
 test('voice disable settles with browser context closure pending and prevents late dispatch', async t => {

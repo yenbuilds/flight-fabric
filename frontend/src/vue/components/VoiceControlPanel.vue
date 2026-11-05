@@ -93,7 +93,7 @@ const emit = defineEmits(['open-settings']);
           <span>{{ voice.statusText }}</span>
         </div>
         <button v-if="voice.bridgeAvailable" type="button" class="ff-button-secondary mt-3 text-xs" data-voice-settings-link @click="emit('open-settings')">{{ voice.settingsAction }}</button>
-        <p v-if="!voice.bridgeAvailable" class="mt-2 text-xs text-muted-fg">Speak into the microphone connected to your simulator PC.</p>
+        <p v-if="!voice.bridgeAvailable" class="mt-2 text-xs text-muted-fg">Voice input is available in the desktop app.</p>
         <p v-else-if="recognitionOff" class="mt-2 text-xs text-muted-fg">Enable voice control in Settings to talk.</p>
         <p v-else-if="voice.setupTask" class="mt-2 text-xs text-muted-fg">{{ voice.setupTask.detail }}</p>
         <VoiceRestartHint />
